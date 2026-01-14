@@ -1,0 +1,89 @@
+# AGENTS.md
+
+This file provides guidance to Claude Code, Codex, Gemini, etc when working with code in this repository.
+
+## Project Overview
+
+Seedless is a serverless P2P tournament bracket application. It runs entirely client-side with no build step, using ES modules directly in the browser. Peer-to-peer communication is handled through Trystero using BitTorrent/WebTorrent trackers for peer discovery.
+
+## Running Locally
+
+Serve the files with any static HTTP server:
+```bash
+python -m http.server 8000
+# or
+npx serve
+```
+
+Open `http://localhost:8000` in browser.
+
+## Architecture
+
+### Key Concepts
+
+**No Build System**: Pure ES modules loaded directly by the browser. All imports use relative paths with `.js` extensions.
+
+**Admin Authority Model**: The tournament creator (admin) is authoritative for bracket structure. Match results use last-write-wins (LWW) with admin verification override. Admin status persists across page refreshes via localStorage token.
+
+**Dual ID System**: Participants have two IDs:
+- `peerId` - Transient WebRTC peer ID (changes on reconnect)
+- `odocalUserId` - Persistent ID stored in localStorage (survives page refresh)
+
+The `peerIdToUserId` map in `js/network/sync.js` translates between them.
+
+### Module Structure
+
+```
+js/
+├── main.js              # App entry point, view routing, room lifecycle
+├── state/
+│   ├── store.js         # Central event-emitting state store with CRDT-like merge
+│   ├── persistence.js   # localStorage read/write, admin token management
+│   └── url-state.js     # URL hash routing (#room=slug&view=bracket)
+├── network/
+│   ├── room.js          # Trystero room wrapper, action channel setup
+│   └── sync.js          # P2P state sync, conflict resolution, message handlers
+├── tournament/
+│   ├── single-elimination.js  # Bracket generation and match advancement
+│   ├── double-elimination.js  # Losers bracket support
+│   ├── mario-kart.js          # Points race mode (stub)
+│   ├── doubles.js             # Team mode (stub)
+│   └── bracket-utils.js       # Seeding positions, round names
+└── components/
+    ├── lobby.js         # Pre-tournament participant management
+    ├── bracket-view.js  # Tournament bracket rendering
+    └── toast.js         # Notification system
+```
+
+### State Flow
+
+1. `store.js` is the single source of truth - an event-emitting store with `get()`, `set()`, `batch()` methods
+2. Components subscribe to store changes via `store.on('change', callback)`
+3. P2P messages trigger store updates through handlers in `sync.js`
+4. Store changes are persisted to localStorage via `saveTournament()`
+
+### Network Protocol
+
+Actions defined in `room.js` (12-byte limit on names due to Trystero):
+- `st:req/st:res` - State request/response
+- `p:join/p:upd/p:leave` - Participant lifecycle
+- `t:start/t:reset` - Tournament lifecycle (admin only)
+- `m:result/m:verify` - Match reporting
+
+Messages wrap payload with `senderId` and `timestamp` for conflict resolution.
+
+### Configuration
+
+`config.js` exports `CONFIG` object with:
+- `appId` - Must be unique per fork to isolate tournament networks
+- `relayUrls` - WebTorrent tracker URLs for peer discovery
+- `defaults` - Tournament configuration defaults
+- `pointsTables` - Scoring presets for Mario Kart mode
+
+## Important Patterns
+
+**View System**: HTML sections have `data-view` attributes. `showView()` in `main.js` hides/shows by toggling `hidden` attribute.
+
+**Bracket Generation**: `single-elimination.js` creates bracket structure with seeding positions calculated to ensure high seeds don't meet until later rounds. Byes are placed to give high seeds the advantage.
+
+**Match Advancement**: When a match result is reported, `advanceWinner()` in `sync.js` places the winner in the next round's match at the correct slot position.

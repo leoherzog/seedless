@@ -1,0 +1,931 @@
+/**
+ * Seedless Tournament Styles
+ * Extends PicoCSS with tournament-specific styling
+ */
+
+/* Root variables */
+:root {
+  --seedless-accent: #10b981;
+  --seedless-winner: #22c55e;
+  --seedless-loser: #ef4444;
+  --seedless-pending: #6b7280;
+  --bracket-line-color: var(--pico-muted-border-color);
+  --bracket-line-width: 2px;
+}
+
+/* Navigation adjustments */
+nav #room-display code {
+  font-size: 0.85em;
+  padding: 0.1em 0.4em;
+}
+
+nav #connection-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+#status-icon,
+#status-icon svg {
+  font-size: 0.5rem;
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+#status-icon.connected,
+#status-icon.connected svg {
+  color: var(--seedless-winner);
+}
+
+#status-icon.disconnected,
+#status-icon.disconnected svg {
+  color: var(--seedless-loser);
+}
+
+#status-icon.connecting,
+#status-icon.connecting svg {
+  color: var(--pico-primary);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Home view */
+#home-view hgroup {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+#home-view article header {
+  font-weight: 600;
+}
+
+/* Lobby view */
+#participant-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#participant-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+#participant-list li:last-child {
+  border-bottom: none;
+}
+
+#participant-list .participant-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#participant-list .participant-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#participant-list .participant-status {
+  font-size: 0.5rem;
+}
+
+#participant-list .participant-status.online {
+  color: var(--seedless-winner);
+}
+
+#participant-list .participant-status.offline {
+  color: var(--seedless-loser);
+}
+
+#participant-list .remove-participant-btn {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.7rem;
+  margin: 0;
+}
+
+#participant-list .admin-badge {
+  background: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+  font-size: 0.65rem;
+  padding: 0.15em 0.4em;
+  border-radius: 0.25rem;
+  text-transform: uppercase;
+}
+
+#participant-list .seed-badge {
+  background: var(--pico-muted-color);
+  color: var(--pico-muted-border-color);
+  font-size: 0.7rem;
+  padding: 0.1em 0.3em;
+  border-radius: 0.2rem;
+  min-width: 1.5em;
+  text-align: center;
+}
+
+/* Draggable participants for manual seeding */
+#participant-list.sortable li {
+  cursor: grab;
+}
+
+#participant-list.sortable li:active {
+  cursor: grabbing;
+}
+
+#participant-list.sortable li.dragging {
+  opacity: 0.5;
+}
+
+/* Tournament type selection */
+#tournament-config details summary {
+  padding: 0.5rem;
+}
+
+#tournament-config details summary label {
+  margin-bottom: 0;
+  cursor: pointer;
+}
+
+#tournament-config details[open] summary {
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  margin-bottom: 0.5rem;
+}
+
+#tournament-config details p {
+  font-size: 0.9rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.5rem;
+}
+
+/* Share link section */
+#share-link {
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+/* Bracket view */
+.bracket-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.bracket-header hgroup {
+  margin-bottom: 0;
+}
+
+#bracket-tabs ul {
+  display: flex;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#bracket-tabs button {
+  padding: 0.5rem 1rem;
+}
+
+#bracket-tabs button.active {
+  background: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+}
+
+/* Bracket container */
+#bracket-container {
+  display: flex;
+  gap: 1.5rem;
+  overflow-x: auto;
+  padding: 1rem 0;
+}
+
+.bracket-round {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 250px;
+}
+
+.bracket-round h4 {
+  text-align: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--pico-muted-color);
+}
+
+/* Match cards */
+.match-card {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-card-border-color);
+  border-radius: var(--pico-border-radius);
+  padding: 0;
+  overflow: hidden;
+}
+
+.match-card header {
+  background: var(--pico-card-sectioning-background-color);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.match-card .participants {
+  padding: 0.5rem;
+}
+
+.match-card .participant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.match-card .participant.winner {
+  background: color-mix(in srgb, var(--seedless-winner) 15%, transparent);
+}
+
+.match-card .participant.loser {
+  opacity: 0.6;
+}
+
+.match-card .participant .name {
+  font-weight: 500;
+}
+
+.match-card .participant .name.tbd {
+  color: var(--pico-muted-color);
+  font-style: italic;
+}
+
+.match-card .participant .score {
+  font-weight: 600;
+  min-width: 1.5em;
+  text-align: center;
+}
+
+.match-card .vs {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--pico-muted-color);
+  padding: 0.2rem;
+}
+
+.match-card footer {
+  padding: 0.3rem 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.match-card footer button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.match-card.bye {
+  opacity: 0.6;
+}
+
+.match-card.bye .participant.winner {
+  background: none;
+}
+
+.match-card .status-badge {
+  font-size: 0.65rem;
+  padding: 0.1em 0.3em;
+  border-radius: 0.2rem;
+  text-transform: uppercase;
+}
+
+.match-card .status-badge.live {
+  background: var(--seedless-accent);
+  color: white;
+}
+
+.match-card .status-badge.complete {
+  background: var(--seedless-winner);
+  color: white;
+}
+
+.match-card .status-badge.pending {
+  background: var(--pico-muted-color);
+  color: white;
+}
+
+/* Bracket connector lines (CSS only for single elim) */
+.bracket-round:not(:last-child) .match-card {
+  position: relative;
+}
+
+/* Standings panel */
+#standings-panel {
+  margin-top: 2rem;
+}
+
+#standings-table {
+  font-size: 0.9rem;
+}
+
+#standings-table th:first-child,
+#standings-table td:first-child {
+  width: 2rem;
+  text-align: center;
+}
+
+#standings-table th:last-child,
+#standings-table td:last-child {
+  text-align: right;
+}
+
+/* Results view */
+#results-view article {
+  max-width: 500px;
+  margin: 2rem auto;
+  text-align: center;
+}
+
+#final-standings {
+  margin: 1.5rem 0;
+}
+
+#final-standings .place {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: var(--pico-border-radius);
+}
+
+#final-standings .place.first {
+  background: linear-gradient(135deg, #ffd700 0%, #ffec8b 100%);
+  color: #000;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+#final-standings .place.second {
+  background: linear-gradient(135deg, #c0c0c0 0%, #e8e8e8 100%);
+  color: #000;
+}
+
+#final-standings .place.third {
+  background: linear-gradient(135deg, #cd7f32 0%, #daa06d 100%);
+  color: #000;
+}
+
+/* Score modal */
+#score-modal article {
+  max-width: 400px;
+}
+
+#score-modal .grid > div {
+  text-align: center;
+}
+
+#score-modal input[type="number"] {
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+/* Toast notifications */
+#toast-container {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.toast {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-card-border-color);
+  border-radius: var(--pico-border-radius);
+  padding: 0.75rem 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: slideIn 0.3s ease;
+  max-width: 300px;
+}
+
+.toast.success {
+  border-left: 3px solid var(--seedless-winner);
+}
+
+.toast.error {
+  border-left: 3px solid var(--seedless-loser);
+}
+
+.toast.info {
+  border-left: 3px solid var(--pico-primary);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.toast.removing {
+  animation: slideOut 0.3s ease forwards;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  #bracket-container {
+    flex-direction: column;
+  }
+
+  .bracket-round {
+    min-width: 100%;
+  }
+
+  .bracket-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  #bracket-tabs ul {
+    flex-wrap: wrap;
+  }
+}
+
+/* Admin-only visibility helper */
+.admin-only {
+  display: none;
+}
+
+body.is-admin .admin-only {
+  display: block;
+}
+
+body.is-admin #participant-panel {
+  display: none;
+}
+
+body:not(.is-admin) #admin-panel {
+  display: none;
+}
+
+/* ===== Points Race / Mario Kart Styles ===== */
+
+/* Race result modal */
+#race-result-modal article {
+  max-width: 400px;
+}
+
+.race-instructions {
+  font-size: 0.9rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 0.5rem;
+}
+
+.race-ranking {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+  counter-reset: position;
+}
+
+.race-ranking li {
+  counter-increment: position;
+  display: flex;
+  align-items: center;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background: var(--pico-card-sectioning-background-color);
+  border: 2px solid var(--pico-card-border-color);
+  border-radius: var(--pico-border-radius);
+  cursor: grab;
+  transition: transform 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+
+.race-ranking li:active {
+  cursor: grabbing;
+}
+
+.race-ranking li::before {
+  content: counter(position);
+  font-weight: 700;
+  font-size: 1.2rem;
+  width: 2rem;
+  text-align: center;
+  margin-right: 0.75rem;
+  color: var(--pico-primary);
+}
+
+.race-ranking li:first-child::before {
+  color: #ffd700; /* Gold for 1st */
+}
+
+.race-ranking li:nth-child(2)::before {
+  color: #c0c0c0; /* Silver for 2nd */
+}
+
+.race-ranking li:nth-child(3)::before {
+  color: #cd7f32; /* Bronze for 3rd */
+}
+
+.race-ranking li.dragging {
+  opacity: 0.5;
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.race-ranking li .drag-handle {
+  margin-right: 0.5rem;
+  color: var(--pico-muted-color);
+}
+
+.race-ranking li .participant-name {
+  flex: 1;
+}
+
+.race-ranking li .points-preview {
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+  font-weight: 500;
+}
+
+/* Games grid layout */
+.games-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--pico-card-sectioning-background-color);
+  border-radius: var(--pico-border-radius);
+}
+
+.games-header .progress-text {
+  font-weight: 600;
+}
+
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+/* Game card */
+.game-card {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-card-border-color);
+  border-radius: var(--pico-border-radius);
+  overflow: hidden;
+}
+
+.game-card header {
+  background: var(--pico-card-sectioning-background-color);
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.game-card .game-participants {
+  padding: 0.75rem;
+}
+
+.game-card .game-participant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+.game-card .game-participant:last-child {
+  border-bottom: none;
+}
+
+.game-card .game-participant .position {
+  font-weight: 600;
+  min-width: 1.5rem;
+  color: var(--pico-muted-color);
+}
+
+.game-card .game-participant .position.first {
+  color: #ffd700;
+}
+
+.game-card .game-participant .position.second {
+  color: #c0c0c0;
+}
+
+.game-card .game-participant .position.third {
+  color: #cd7f32;
+}
+
+.game-card .game-participant .name {
+  flex: 1;
+  margin-left: 0.5rem;
+}
+
+.game-card .game-participant .points {
+  font-weight: 500;
+  color: var(--seedless-accent);
+}
+
+.game-card.complete {
+  border-color: var(--seedless-winner);
+}
+
+.game-card.complete header {
+  background: color-mix(in srgb, var(--seedless-winner) 15%, var(--pico-card-sectioning-background-color));
+}
+
+.game-card footer {
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.game-card footer button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+/* Enhanced standings table for Points Race */
+#standings-panel {
+  max-width: 500px;
+}
+
+#standings-table th:nth-child(4),
+#standings-table td:nth-child(4),
+#standings-table th:nth-child(5),
+#standings-table td:nth-child(5) {
+  text-align: center;
+  width: 50px;
+}
+
+#standings-table tr.leader td {
+  background: color-mix(in srgb, #ffd700 15%, transparent);
+}
+
+#standings-table td strong {
+  color: var(--seedless-accent);
+}
+
+/* ===== Doubles / Team Mode Styles ===== */
+
+/* Team assignment controls */
+#team-assignment-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+#team-assignment-controls button {
+  flex: 1;
+  min-width: 140px;
+}
+
+/* Team assignment status */
+#team-assignment-status {
+  margin-bottom: 1rem;
+}
+
+#team-assignment-status mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+}
+
+#team-assignment-status mark.success {
+  background: color-mix(in srgb, var(--seedless-winner) 20%, transparent);
+  color: var(--seedless-winner);
+}
+
+#team-assignment-status mark.warning {
+  background: color-mix(in srgb, #f59e0b 20%, transparent);
+  color: #f59e0b;
+}
+
+/* Team assignment grid */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.team-box {
+  border: 2px dashed var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  padding: 0.75rem;
+  min-height: 120px;
+  background: var(--pico-card-background-color);
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.team-box.complete {
+  border-color: var(--seedless-winner);
+  border-style: solid;
+}
+
+.team-box.drag-over {
+  border-color: var(--pico-primary);
+  background: color-mix(in srgb, var(--pico-primary) 10%, transparent);
+}
+
+.team-box h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.team-box h5 i {
+  color: var(--seedless-winner);
+}
+
+/* Team members list */
+.team-members {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.team-members li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  background: var(--pico-card-sectioning-background-color);
+  border-radius: var(--pico-border-radius);
+  border: 1px solid transparent;
+  cursor: grab;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.team-members li:active {
+  cursor: grabbing;
+}
+
+.team-members li.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+
+.team-members li.drop-zone {
+  border: 1px dashed var(--pico-muted-border-color);
+  background: transparent;
+  color: var(--pico-muted-color);
+  justify-content: center;
+  font-size: 0.85rem;
+  cursor: default;
+}
+
+.team-members .remove-from-team {
+  padding: 0.15rem 0.3rem;
+  font-size: 0.7rem;
+  margin: 0;
+  background: transparent;
+  border: none;
+  color: var(--pico-muted-color);
+  cursor: pointer;
+}
+
+.team-members .remove-from-team:hover {
+  color: var(--seedless-loser);
+}
+
+/* Unassigned participants */
+#unassigned-participants {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pico-muted-border-color);
+}
+
+#unassigned-participants h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+}
+
+#unassigned-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  min-height: 40px;
+}
+
+#unassigned-list.drag-over {
+  background: color-mix(in srgb, var(--pico-primary) 10%, transparent);
+  border-radius: var(--pico-border-radius);
+}
+
+#unassigned-list li {
+  padding: 0.4rem 0.75rem;
+  background: var(--pico-card-sectioning-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  cursor: grab;
+  font-size: 0.9rem;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+#unassigned-list li:active {
+  cursor: grabbing;
+}
+
+#unassigned-list li.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+
+/* Team match cards */
+.match-card.team-match .participant.team {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.match-card.team-match .team-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.match-card.team-match .team-members {
+  font-size: 0.75rem;
+  color: var(--pico-muted-color);
+  display: block;
+  padding: 0;
+  margin: 0;
+  background: none;
+}
+
+.match-card.team-match .participant .score {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.match-card.team-match .participant {
+  position: relative;
+  padding-right: 2.5rem;
+}
+
+/* Responsive adjustments for team assignment */
+@media (max-width: 576px) {
+  .team-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #team-assignment-controls {
+    flex-direction: column;
+  }
+
+  #team-assignment-controls button {
+    width: 100%;
+  }
+}

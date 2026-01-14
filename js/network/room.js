@@ -1,0 +1,236 @@
+/**
+ * Trystero Room Management
+ * Handles P2P room lifecycle using BitTorrent trackers
+ */
+
+import { CONFIG } from '../../config.js';
+
+// Dynamic import of Trystero (works with CDN or local)
+let trystero = null;
+
+async function loadTrystero() {
+  if (trystero) return trystero;
+
+  // Try CDN first, fall back to local
+  const sources = [
+    'https://esm.run/trystero/torrent',
+    'https://cdn.jsdelivr.net/npm/trystero@0.21/+esm',
+    './lib/trystero-torrent.min.js',
+  ];
+
+  for (const src of sources) {
+    try {
+      trystero = await import(src);
+      console.info(`[Seedless] Loaded Trystero from ${src}`);
+      return trystero;
+    } catch (e) {
+      console.warn(`[Seedless] Failed to load Trystero from ${src}:`, e.message);
+    }
+  }
+
+  throw new Error('Failed to load Trystero from any source');
+}
+
+/**
+ * @typedef {Object} RoomConnection
+ * @property {Object} room - Trystero room instance
+ * @property {string} selfId - Local peer ID
+ * @property {Object} actions - Message action senders/receivers
+ * @property {Function} broadcast - Broadcast to all peers
+ * @property {Function} sendTo - Send to specific peer(s)
+ * @property {Function} leave - Leave the room
+ * @property {Function} getPeers - Get connected peer IDs
+ */
+
+// Active room connection
+let activeRoom = null;
+
+/**
+ * Join or create a tournament room
+ * @param {string} roomId - Room identifier (slug)
+ * @param {Object} options - Join options
+ * @returns {Promise<RoomConnection>}
+ */
+export async function joinRoom(roomId, options = {}) {
+  if (activeRoom) {
+    console.warn('[Seedless] Already in a room, leaving first');
+    await leaveRoom();
+  }
+
+  const { joinRoom: trysteroJoin, selfId } = await loadTrystero();
+
+  const config = {
+    appId: CONFIG.appId,
+    relayUrls: CONFIG.relayUrls,
+    relayRedundancy: CONFIG.relayRedundancy,
+    password: options.password || undefined,
+  };
+
+  console.info(`[Seedless] Joining room: ${roomId}`);
+  const room = trysteroJoin(config, roomId);
+
+  // Create action channels
+  // Note: Trystero has 12-byte limit on action names
+  const actions = {};
+  const actionTypes = [
+    'st:req',      // state request
+    'st:res',      // state response
+    'p:join',      // participant join
+    'p:upd',       // participant update
+    'p:leave',     // participant leave
+    't:start',     // tournament start
+    't:reset',     // tournament reset
+    'm:result',    // match result
+    'm:verify',    // match verify
+    's:upd',       // standings update
+    'r:result',    // race/game result (Points Race)
+    'hb',          // heartbeat
+  ];
+
+  for (const actionType of actionTypes) {
+    const [send, receive] = room.makeAction(actionType);
+    actions[actionType] = { send, receive };
+  }
+
+  // Connection state
+  const connection = {
+    room,
+    roomId,
+    selfId,
+    actions,
+
+    /**
+     * Broadcast message to all peers
+     */
+    broadcast(actionType, payload) {
+      if (!actions[actionType]) {
+        console.error(`Unknown action type: ${actionType}`);
+        return;
+      }
+      actions[actionType].send({
+        payload,
+        senderId: selfId,
+        timestamp: Date.now(),
+      });
+    },
+
+    /**
+     * Send message to specific peer(s)
+     */
+    sendTo(actionType, payload, targetPeers) {
+      if (!actions[actionType]) {
+        console.error(`Unknown action type: ${actionType}`);
+        return;
+      }
+      const targets = Array.isArray(targetPeers) ? targetPeers : [targetPeers];
+      actions[actionType].send({
+        payload,
+        senderId: selfId,
+        timestamp: Date.now(),
+      }, targets);
+    },
+
+    /**
+     * Register handler for peer events
+     */
+    onPeerJoin(callback) {
+      room.onPeerJoin(callback);
+      return connection;
+    },
+
+    onPeerLeave(callback) {
+      room.onPeerLeave(callback);
+      return connection;
+    },
+
+    /**
+     * Register handler for action messages
+     */
+    onAction(actionType, callback) {
+      if (!actions[actionType]) {
+        console.error(`Unknown action type: ${actionType}`);
+        return connection;
+      }
+      actions[actionType].receive((data, peerId) => {
+        callback(data.payload, peerId, data);
+      });
+      return connection;
+    },
+
+    /**
+     * Get list of connected peer IDs
+     */
+    getPeers() {
+      return Array.from(Object.keys(room.getPeers()));
+    },
+
+    /**
+     * Get peer count
+     */
+    getPeerCount() {
+      return Object.keys(room.getPeers()).length;
+    },
+
+    /**
+     * Ping a peer to measure latency
+     */
+    async ping(peerId) {
+      return room.ping(peerId);
+    },
+
+    /**
+     * Leave the room
+     */
+    leave() {
+      room.leave();
+      activeRoom = null;
+      console.info('[Seedless] Left room');
+    },
+  };
+
+  // Log peer connections
+  room.onPeerJoin((peerId) => {
+    console.info(`[Seedless] Peer joined: ${peerId}`);
+  });
+
+  room.onPeerLeave((peerId) => {
+    console.info(`[Seedless] Peer left: ${peerId}`);
+  });
+
+  activeRoom = connection;
+  return connection;
+}
+
+/**
+ * Leave the current room
+ */
+export async function leaveRoom() {
+  if (activeRoom) {
+    activeRoom.leave();
+    activeRoom = null;
+  }
+}
+
+/**
+ * Get local peer ID
+ * @returns {string|null}
+ */
+export function getSelfId() {
+  return activeRoom?.selfId || null;
+}
+
+// Export action type constants (max 12 bytes each)
+export const ActionTypes = {
+  STATE_REQUEST: 'st:req',
+  STATE_RESPONSE: 'st:res',
+  PARTICIPANT_JOIN: 'p:join',
+  PARTICIPANT_UPDATE: 'p:upd',
+  PARTICIPANT_LEAVE: 'p:leave',
+  TOURNAMENT_START: 't:start',
+  TOURNAMENT_RESET: 't:reset',
+  MATCH_RESULT: 'm:result',
+  MATCH_VERIFY: 'm:verify',
+  STANDINGS_UPDATE: 's:upd',
+  RACE_RESULT: 'r:result',
+  HEARTBEAT: 'hb',
+};

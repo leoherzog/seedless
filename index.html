@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seedless - P2P Tournament Brackets</title>
+
+  <!-- PicoCSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+
+  <!-- FontAwesome 7 -->
+  <script src="https://kit.fontawesome.com/837d39454a.js" crossorigin="anonymous"></script>
+
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="css/tournament.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="container">
+    <ul>
+      <li><strong><i class="fa-solid fa-seedling"></i> Seedless</strong></li>
+    </ul>
+    <ul>
+      <li id="room-display" hidden>
+        <small>Room: <code id="room-code"></code></small>
+      </li>
+      <li id="connection-status" hidden>
+        <small><i class="fa-solid fa-circle" id="status-icon"></i> <span id="peer-count">0</span> in room</small>
+      </li>
+      <li>
+        <button class="outline" id="share-btn" hidden>
+          <i class="fa-solid fa-share-nodes"></i> Share
+        </button>
+      </li>
+    </ul>
+  </nav>
+
+  <main class="container">
+    <!-- Home View (no room) -->
+    <section id="home-view" data-view="home">
+      <hgroup>
+        <h1>Seedless</h1>
+        <p>Serverless P2P Tournament Brackets</p>
+      </hgroup>
+
+      <div class="grid">
+        <article>
+          <header>
+            <i class="fa-solid fa-plus"></i> Create Tournament
+          </header>
+          <form id="create-room-form">
+            <label for="room-slug">
+              Room Name
+              <input type="text" id="room-slug" name="room-slug"
+                     placeholder="friday-smash-tourney"
+                     pattern="[-a-z0-9]+"
+                     required>
+              <small>Lowercase letters, numbers, and hyphens only</small>
+            </label>
+            <label for="display-name">
+              Your Name
+              <input type="text" id="display-name" name="display-name"
+                     placeholder="Player 1" required>
+            </label>
+            <button type="submit">
+              <i class="fa-solid fa-trophy"></i> Create Room
+            </button>
+          </form>
+        </article>
+
+        <article>
+          <header>
+            <i class="fa-solid fa-right-to-bracket"></i> Join Tournament
+          </header>
+          <form id="join-room-form">
+            <label for="join-slug">
+              Room Name
+              <input type="text" id="join-slug" name="join-slug"
+                     placeholder="friday-smash-tourney" required>
+            </label>
+            <label for="join-name">
+              Your Name
+              <input type="text" id="join-name" name="join-name"
+                     placeholder="Player 2" required>
+            </label>
+            <button type="submit" class="secondary">
+              <i class="fa-solid fa-users"></i> Join Room
+            </button>
+          </form>
+        </article>
+      </div>
+    </section>
+
+    <!-- Lobby View -->
+    <section id="lobby-view" data-view="lobby" hidden>
+      <div class="grid">
+        <!-- Admin Panel (shown only to admin) -->
+        <article id="admin-panel">
+          <header>
+            <i class="fa-solid fa-cog"></i> Tournament Settings
+          </header>
+
+          <form id="tournament-config">
+            <label for="tournament-name">
+              Tournament Name
+              <input type="text" id="tournament-name" name="tournament-name"
+                     placeholder="Friday Night Smash" required>
+            </label>
+
+            <fieldset>
+              <legend>Tournament Type</legend>
+
+              <details name="tournament-type" open>
+                <summary>
+                  <label>
+                    <input type="radio" name="type" value="single" checked>
+                    <i class="fa-solid fa-trophy"></i> Single Elimination
+                  </label>
+                </summary>
+                <p>Standard knockout format. One loss and you're out.</p>
+              </details>
+
+              <details name="tournament-type">
+                <summary>
+                  <label>
+                    <input type="radio" name="type" value="double">
+                    <i class="fa-solid fa-arrows-split-up-and-left"></i> Double Elimination
+                  </label>
+                </summary>
+                <p>Losers get a second chance in the losers bracket. Two losses to be eliminated.</p>
+              </details>
+
+              <details name="tournament-type">
+                <summary>
+                  <label>
+                    <input type="radio" name="type" value="mariokart">
+                    <i class="fa-solid fa-flag-checkered"></i> Points Race
+                  </label>
+                </summary>
+                <p>Mario Kart style scoring. Random matchups, accumulate points across games.</p>
+                <div class="grid">
+                  <label for="players-per-game">
+                    Players per Game
+                    <input type="number" id="players-per-game" name="players-per-game"
+                           value="4" min="2" max="12">
+                    <small>2-12 players compete in each game</small>
+                  </label>
+                  <label for="games-per-player">
+                    Games per Player
+                    <input type="number" id="games-per-player" name="games-per-player"
+                           value="5" min="1" max="20">
+                    <small>How many games each person plays</small>
+                  </label>
+                </div>
+                <label for="points-table">
+                  Scoring System
+                  <select id="points-table" name="points-table">
+                    <option value="standard">Standard (15, 12, 10, 9, 8, 7...)</option>
+                    <option value="simple">Simple (10, 8, 6, 4, 2, 1)</option>
+                    <option value="f1">F1 Style (25, 18, 15, 12, 10...)</option>
+                  </select>
+                </label>
+              </details>
+
+              <details name="tournament-type">
+                <summary>
+                  <label>
+                    <input type="radio" name="type" value="doubles">
+                    <i class="fa-solid fa-user-group"></i> Doubles
+                  </label>
+                </summary>
+                <p>Team-based brackets. Players form teams and compete together.</p>
+                <div class="grid">
+                  <label for="team-size">
+                    Team Size
+                    <input type="number" id="team-size" name="team-size"
+                           value="2" min="2" max="4">
+                    <small>Players per team (typically 2)</small>
+                  </label>
+                  <label for="doubles-bracket-type">
+                    Bracket Type
+                    <select id="doubles-bracket-type" name="doubles-bracket-type">
+                      <option value="single">Single Elimination</option>
+                      <option value="double">Double Elimination</option>
+                    </select>
+                  </label>
+                </div>
+              </details>
+            </fieldset>
+
+            <fieldset>
+              <legend>Seeding</legend>
+              <label>
+                <input type="radio" name="seeding" value="random" checked>
+                Random
+              </label>
+              <label>
+                <input type="radio" name="seeding" value="manual">
+                Manual (drag to reorder)
+              </label>
+            </fieldset>
+
+            <fieldset id="team-assignment-fieldset" hidden>
+              <legend>Team Assignments</legend>
+              <div id="team-assignment-controls">
+                <button type="button" id="auto-assign-teams-btn" class="outline">
+                  <i class="fa-solid fa-shuffle"></i> Auto-Assign Teams
+                </button>
+                <button type="button" id="clear-teams-btn" class="outline secondary">
+                  <i class="fa-solid fa-xmark"></i> Clear
+                </button>
+              </div>
+              <div id="team-assignment-status"></div>
+              <div id="team-assignment-grid" class="team-grid">
+                <!-- Dynamically populated with team boxes -->
+              </div>
+              <div id="unassigned-participants">
+                <h5>Unassigned Participants</h5>
+                <ul id="unassigned-list" role="list">
+                  <!-- Participants not yet in a team -->
+                </ul>
+              </div>
+            </fieldset>
+
+            <button type="button" id="start-tournament-btn" disabled>
+              <i class="fa-solid fa-play"></i> Start Tournament
+            </button>
+          </form>
+        </article>
+
+        <!-- Participant Panel (shown only to non-admin) -->
+        <article id="participant-panel">
+          <header>
+            <i class="fa-solid fa-hourglass-half"></i> Waiting for Tournament
+          </header>
+          <p>The admin is setting up the tournament. You'll be notified when it starts.</p>
+
+          <label for="tournament-name-display">
+            Tournament Name
+            <input type="text" id="tournament-name-display" readonly disabled>
+          </label>
+
+          <form id="update-name-form">
+            <label for="my-name">
+              Your Name
+              <input type="text" id="my-name" name="my-name" required>
+            </label>
+            <button type="submit" class="outline">
+              <i class="fa-solid fa-pen"></i> Update Name
+            </button>
+          </form>
+
+          <hr>
+          <button type="button" id="leave-tournament-btn" class="secondary outline">
+            <i class="fa-solid fa-right-from-bracket"></i> Leave Tournament
+          </button>
+        </article>
+
+        <!-- Participants List -->
+        <article id="participants-panel">
+          <header>
+            <i class="fa-solid fa-users"></i> Participants (<span id="participant-count">0</span>)
+          </header>
+          <ul id="participant-list" role="list">
+            <!-- Populated by JS -->
+          </ul>
+
+          <footer>
+            <details>
+              <summary>Share Link</summary>
+              <div class="grid">
+                <input type="text" id="share-link" readonly>
+                <button type="button" id="copy-link-btn" class="outline">
+                  <i class="fa-solid fa-copy"></i>
+                </button>
+              </div>
+            </details>
+          </footer>
+        </article>
+      </div>
+    </section>
+
+    <!-- Bracket View -->
+    <section id="bracket-view" data-view="bracket" hidden>
+      <header class="bracket-header">
+        <hgroup>
+          <h2 id="bracket-title">Tournament</h2>
+          <p id="bracket-status">In Progress</p>
+        </hgroup>
+
+        <!-- For double elimination -->
+        <nav id="bracket-tabs" hidden>
+          <ul>
+            <li><button class="active" data-bracket="winners">Winners</button></li>
+            <li><button data-bracket="losers">Losers</button></li>
+            <li><button data-bracket="finals">Finals</button></li>
+          </ul>
+        </nav>
+      </header>
+
+      <div id="bracket-container">
+        <!-- Bracket rounds populated by JS -->
+      </div>
+
+      <!-- Standings for Mario Kart mode -->
+      <aside id="standings-panel" hidden>
+        <h3><i class="fa-solid fa-ranking-star"></i> Standings</h3>
+        <table id="standings-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Player</th>
+              <th>Points</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </aside>
+    </section>
+
+    <!-- Results View -->
+    <section id="results-view" data-view="results" hidden>
+      <article>
+        <header>
+          <i class="fa-solid fa-crown"></i> Tournament Complete!
+        </header>
+        <div id="final-standings">
+          <!-- Populated by JS -->
+        </div>
+        <footer>
+          <button id="new-tournament-btn">
+            <i class="fa-solid fa-rotate"></i> New Tournament
+          </button>
+        </footer>
+      </article>
+    </section>
+  </main>
+
+  <!-- Score Reporting Modal -->
+  <dialog id="score-modal">
+    <article>
+      <header>
+        <button aria-label="Close" rel="prev" class="close-modal"></button>
+        <h3>Report Match Result</h3>
+      </header>
+
+      <form id="score-form">
+        <div class="grid">
+          <div>
+            <label>
+              <span id="player1-name">Player 1</span>
+              <input type="number" id="score1" name="score1" min="0" value="0" required>
+            </label>
+          </div>
+          <div>
+            <label>
+              <span id="player2-name">Player 2</span>
+              <input type="number" id="score2" name="score2" min="0" value="0" required>
+            </label>
+          </div>
+        </div>
+
+        <fieldset>
+          <legend>Winner</legend>
+          <label>
+            <input type="radio" name="winner" value="player1" required>
+            <span id="winner-player1">Player 1</span>
+          </label>
+          <label>
+            <input type="radio" name="winner" value="player2">
+            <span id="winner-player2">Player 2</span>
+          </label>
+        </fieldset>
+
+        <input type="hidden" id="match-id" name="match-id">
+      </form>
+
+      <footer>
+        <button class="secondary close-modal">Cancel</button>
+        <button id="submit-score-btn">Submit Result</button>
+      </footer>
+    </article>
+  </dialog>
+
+  <!-- Race Result Modal (Points Race) -->
+  <dialog id="race-result-modal">
+    <article>
+      <header>
+        <button aria-label="Close" rel="prev" class="close-modal"></button>
+        <h3>Report Race Results</h3>
+        <small id="race-info">Game 1</small>
+      </header>
+
+      <p class="race-instructions">Drag players to set their finishing positions:</p>
+
+      <ol id="race-ranking-list" class="race-ranking">
+        <!-- Populated by JS with draggable items -->
+      </ol>
+
+      <input type="hidden" id="race-id" name="race-id">
+
+      <footer>
+        <button class="secondary close-modal">Cancel</button>
+        <button id="submit-race-btn">
+          <i class="fa-solid fa-flag-checkered"></i> Submit Results
+        </button>
+      </footer>
+    </article>
+  </dialog>
+
+  <!-- Toast Container -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- Main App Script -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
