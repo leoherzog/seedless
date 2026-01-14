@@ -55,6 +55,12 @@ export const CONFIG = {
     // Delay before sending state to new peers (allows connection to stabilize)
     stateResponseDelay: 500,
   },
+
+  // Validation limits
+  validation: {
+    maxNameLength: 100,
+    maxMatchIdLength: 50,
+  },
 };
 
 // Warn if using default appId (helps remind forkers to change it)

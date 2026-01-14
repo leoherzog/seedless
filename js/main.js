@@ -28,16 +28,34 @@ import {
   getLocalUserId,
 } from './state/persistence.js';
 import { joinRoom, leaveRoom, getSelfId, ActionTypes } from './network/room.js';
-import { setupStateSync, announceJoin, broadcastState } from './network/sync.js';
+import { setupStateSync, announceJoin, broadcastState, markStateInitialized, resetSyncState } from './network/sync.js';
 import { showSuccess, showError, showToast } from './components/toast.js';
-import { initLobby } from './components/lobby.js';
-import { initBracketView } from './components/bracket-view.js';
+import { initLobby, cleanupLobby } from './components/lobby.js';
+import { initBracketView, cleanupBracketView } from './components/bracket-view.js';
+import { debounce } from './utils/debounce.js';
 
 // Make room globally accessible for components
 window.seedlessRoom = null;
 
 // Flag to prevent concurrent connection attempts
 let isConnecting = false;
+
+// Auto-save on state changes (debounced to avoid excessive writes)
+const autoSave = debounce(() => {
+  const roomId = store.get('meta.id');
+  if (roomId) {
+    saveTournament(roomId, store.serialize());
+  }
+}, 1000);
+
+// Set up auto-save listener
+store.on('change', (event) => {
+  // Don't auto-save for local-only changes
+  if (event.path && event.path.startsWith('local.')) {
+    return;
+  }
+  autoSave();
+});
 
 /**
  * Initialize application
@@ -239,10 +257,10 @@ async function connectToRoom(roomId, options = {}) {
     window.seedlessRoom = room;
 
     // Get persistent local user ID (survives page refresh)
-    const odocalUserId = getLocalUserId();
+    const localUserId = getLocalUserId();
 
     // Store local peer info
-    store.set('local.odocalUserId', odocalUserId);
+    store.set('local.localUserId', localUserId);
     store.set('local.peerId', room.selfId);
     store.set('local.name', name);
     store.set('local.isConnected', true);
@@ -271,7 +289,7 @@ async function connectToRoom(roomId, options = {}) {
       // Initialize as admin (use persistent ID)
       store.batch({
         'meta.id': roomId,
-        'meta.adminId': odocalUserId,
+        'meta.adminId': localUserId,
         'meta.adminToken': adminToken,
         'meta.createdAt': existingData?.meta?.createdAt || Date.now(),
       });
@@ -280,10 +298,13 @@ async function connectToRoom(roomId, options = {}) {
       if (existingData) {
         store.deserialize(existingData);
         // Update adminId to current persistent ID (token proves we're the admin)
-        store.set('meta.adminId', odocalUserId);
+        store.set('meta.adminId', localUserId);
         // Reset all participants to disconnected (will be updated as peers actually connect)
         resetAllParticipantsOffline();
       }
+
+      // Admin is authoritative, mark state as initialized
+      markStateInitialized();
     } else {
       // Store room ID for non-admin
       store.set('meta.id', roomId);
@@ -298,14 +319,14 @@ async function connectToRoom(roomId, options = {}) {
 
     // Add self as participant (use persistent ID, not transient peerId)
     store.addParticipant({
-      id: odocalUserId,
+      id: localUserId,
       peerId: room.selfId,
       name: name,
       isConnected: true,
     });
 
     // Announce join to peers
-    announceJoin(room, name, odocalUserId);
+    announceJoin(room, name, localUserId);
 
     // Setup peer event handlers
     room.onPeerJoin((peerId) => {
@@ -365,10 +386,17 @@ async function disconnectFromRoom() {
     window.seedlessRoom = null;
   }
 
+  // Cleanup component listeners before resetting state
+  cleanupLobby();
+  cleanupBracketView();
+
   // Reset local state (keep preferences)
   const localName = store.get('local.name');
   store.reset();
   store.set('local.name', localName);
+
+  // Reset sync state (clear peerId mappings and initialization flag)
+  resetSyncState();
 
   updateConnectionStatus('disconnected');
   updatePeerCount();

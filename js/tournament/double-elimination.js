@@ -397,53 +397,6 @@ function checkTournamentComplete(bracket) {
 }
 
 /**
- * Get active matches
- */
-export function getActiveMatches(bracket) {
-  const active = [];
-
-  // Winners bracket
-  for (const round of bracket.winners.rounds) {
-    for (const match of round.matches) {
-      if (isMatchPlayable(match)) {
-        active.push(match);
-      }
-    }
-  }
-
-  // Losers bracket
-  for (const round of bracket.losers.rounds) {
-    for (const match of round.matches) {
-      if (isMatchPlayable(match)) {
-        active.push(match);
-      }
-    }
-  }
-
-  // Grand finals
-  if (isMatchPlayable(bracket.grandFinals.match)) {
-    active.push(bracket.grandFinals.match);
-  }
-  if (bracket.grandFinals.reset.requiresPlay && isMatchPlayable(bracket.grandFinals.reset)) {
-    active.push(bracket.grandFinals.reset);
-  }
-
-  return active;
-}
-
-/**
- * Check if match is playable
- */
-function isMatchPlayable(match) {
-  return (
-    !match.winnerId &&
-    !match.isBye &&
-    match.participants[0] &&
-    match.participants[1]
-  );
-}
-
-/**
  * Get final standings
  */
 export function getStandings(bracket, participants) {
@@ -496,8 +449,4 @@ export function getStandings(bracket, participants) {
   }
 
   return standings;
-}
-
-export function canReportMatch(match, participantId) {
-  return match.participants.includes(participantId);
 }

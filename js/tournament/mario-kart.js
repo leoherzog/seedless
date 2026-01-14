@@ -242,15 +242,6 @@ export function recordRaceResult(tournament, gameId, results, reportedBy) {
 }
 
 /**
- * Get active games (not yet complete)
- */
-export function getActiveMatches(tournament) {
-  return Array.from(tournament.matches.values())
-    .filter(m => !m.complete)
-    .sort((a, b) => a.gameNumber - b.gameNumber);
-}
-
-/**
  * Get sorted standings
  */
 export function getStandings(tournament) {
@@ -267,25 +258,4 @@ export function getStandings(tournament) {
     place: i + 1,
     ...s,
   }));
-}
-
-/**
- * Check if participant can report a game
- */
-export function canReportMatch(game, participantId) {
-  return game.participants.includes(participantId);
-}
-
-/**
- * Get tournament progress summary
- */
-export function getTournamentSummary(tournament) {
-  return {
-    totalGames: tournament.totalGames,
-    gamesComplete: tournament.gamesComplete,
-    playersPerGame: tournament.playersPerGame,
-    gamesPerPlayer: tournament.gamesPerPlayer,
-    isComplete: tournament.isComplete,
-    standings: getStandings(tournament),
-  };
 }

@@ -6,18 +6,42 @@
 import { store } from '../state/store.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
+import { getDragAfterElement } from '../utils/drag-drop.js';
+
+// Track subscriptions for cleanup
+let bracketSubscriptions = [];
+
+// AbortController for drag-drop event listeners (cleaner than node cloning)
+let rankingDragController = null;
 
 /**
  * Initialize bracket view
  */
 export function initBracketView() {
+  // Clean up any existing subscriptions first
+  cleanupBracketView();
+
   setupBracketTabs();
   setupScoreModal();
   setupRaceResultModal();
 
-  // Listen for state changes
-  store.on('change', updateBracketUI);
-  store.on('match:update', onMatchUpdate);
+  // Listen for state changes and track subscriptions
+  bracketSubscriptions.push(store.on('change', updateBracketUI));
+  bracketSubscriptions.push(store.on('match:update', onMatchUpdate));
+}
+
+/**
+ * Clean up bracket view subscriptions
+ */
+export function cleanupBracketView() {
+  bracketSubscriptions.forEach(unsubscribe => unsubscribe());
+  bracketSubscriptions = [];
+
+  // Abort drag-drop listeners
+  if (rankingDragController) {
+    rankingDragController.abort();
+    rankingDragController = null;
+  }
 }
 
 /**
@@ -142,7 +166,7 @@ function renderBracket(bracketFilter = null) {
  */
 function renderSingleEliminationBracket(container, bracket) {
   const participants = store.get('participants');
-  const localUserId = store.get('local.odocalUserId');
+  const localUserId = store.get('local.localUserId');
 
   container.innerHTML = bracket.rounds.map(round => `
     <div class="bracket-round" data-round="${round.number}">
@@ -160,7 +184,7 @@ function renderSingleEliminationBracket(container, bracket) {
  */
 function renderDoubleEliminationBracket(container, bracket, filter) {
   const participants = store.get('participants');
-  const localUserId = store.get('local.odocalUserId');
+  const localUserId = store.get('local.localUserId');
 
   let rounds;
   if (filter === 'winners') {
@@ -194,7 +218,7 @@ function renderDoubleEliminationBracket(container, bracket, filter) {
 function renderMarioKartRaces(container, bracket) {
   const matches = store.get('matches');
   const participants = store.get('participants');
-  const localUserId = store.get('local.odocalUserId');
+  const localUserId = store.get('local.localUserId');
   const isAdmin = store.isAdmin();
 
   if (!matches || matches.size === 0) {
@@ -487,7 +511,7 @@ async function onSubmitScore() {
     store.updateMatch(matchId, {
       scores: [score1, score2],
       winnerId,
-      reportedBy: store.get('local.odocalUserId'),
+      reportedBy: store.get('local.localUserId'),
       reportedAt: Date.now(),
     });
 
@@ -519,7 +543,7 @@ async function verifyMatch(matchId) {
   if (!match || !match.winnerId) return;
 
   store.updateMatch(matchId, {
-    verifiedBy: store.get('local.odocalUserId'),
+    verifiedBy: store.get('local.localUserId'),
   });
 
   // Broadcast verification
@@ -600,70 +624,71 @@ function openRaceResultModal(gameId) {
 function setupRankingDragDrop(list, pointsTable) {
   let draggedItem = null;
 
-  // Remove existing listeners by cloning
-  const newList = list.cloneNode(true);
-  list.parentNode.replaceChild(newList, list);
+  // Abort previous listeners if any (cleaner than node cloning)
+  if (rankingDragController) {
+    rankingDragController.abort();
+  }
+  rankingDragController = new AbortController();
+  const { signal } = rankingDragController;
 
-  newList.addEventListener('dragstart', (e) => {
+  list.addEventListener('dragstart', (e) => {
     draggedItem = e.target.closest('li');
     if (draggedItem) {
       draggedItem.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
     }
-  });
+  }, { signal });
 
-  newList.addEventListener('dragover', (e) => {
+  list.addEventListener('dragover', (e) => {
     e.preventDefault();
-    const afterElement = getRankingDragAfterElement(newList, e.clientY);
+    const afterElement = getDragAfterElement(list, e.clientY);
     if (draggedItem) {
       if (afterElement) {
-        newList.insertBefore(draggedItem, afterElement);
+        list.insertBefore(draggedItem, afterElement);
       } else {
-        newList.appendChild(draggedItem);
+        list.appendChild(draggedItem);
       }
-      updatePointsPreviews(newList, pointsTable);
+      updatePointsPreviews(list, pointsTable);
     }
-  });
+  }, { signal });
 
-  newList.addEventListener('dragend', () => {
+  list.addEventListener('dragend', () => {
     if (draggedItem) {
       draggedItem.classList.remove('dragging');
       draggedItem = null;
     }
-  });
+  }, { signal });
 
   // Touch support for mobile
   let touchItem = null;
-  let touchStartY = 0;
 
-  newList.addEventListener('touchstart', (e) => {
+  list.addEventListener('touchstart', (e) => {
     const li = e.target.closest('li');
     if (li) {
       touchItem = li;
-      touchStartY = e.touches[0].clientY;
       li.classList.add('dragging');
     }
-  }, { passive: true });
+  }, { passive: true, signal });
 
-  newList.addEventListener('touchmove', (e) => {
+  list.addEventListener('touchmove', (e) => {
     if (!touchItem) return;
     e.preventDefault();
     const y = e.touches[0].clientY;
-    const afterElement = getRankingDragAfterElement(newList, y);
+    const afterElement = getDragAfterElement(list, y);
     if (afterElement) {
-      newList.insertBefore(touchItem, afterElement);
+      list.insertBefore(touchItem, afterElement);
     } else {
-      newList.appendChild(touchItem);
+      list.appendChild(touchItem);
     }
-    updatePointsPreviews(newList, pointsTable);
-  }, { passive: false });
+    updatePointsPreviews(list, pointsTable);
+  }, { passive: false, signal });
 
-  newList.addEventListener('touchend', () => {
+  list.addEventListener('touchend', () => {
     if (touchItem) {
       touchItem.classList.remove('dragging');
       touchItem = null;
     }
-  });
+  }, { signal });
 }
 
 /**
@@ -677,23 +702,6 @@ function updatePointsPreviews(list, pointsTable) {
       pointsEl.textContent = `+${pointsTable[idx] || 0} pts`;
     }
   });
-}
-
-/**
- * Get element to insert dragged item before
- */
-function getRankingDragAfterElement(container, y) {
-  const draggableElements = [...container.querySelectorAll('li:not(.dragging)')];
-
-  return draggableElements.reduce((closest, child) => {
-    const box = child.getBoundingClientRect();
-    const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) {
-      return { offset, element: child };
-    } else {
-      return closest;
-    }
-  }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
 /**
@@ -723,7 +731,7 @@ async function onSubmitRaceResult() {
     const bracket = store.get('bracket');
     const matches = store.get('matches');
     const standings = store.get('standings');
-    const reportedBy = store.get('local.odocalUserId');
+    const reportedBy = store.get('local.localUserId');
 
     // Reconstruct tournament object for recordRaceResult
     const tournament = {

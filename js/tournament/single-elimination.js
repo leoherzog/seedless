@@ -211,34 +211,6 @@ function checkTournamentComplete(bracket) {
 }
 
 /**
- * Get active matches (can be played now)
- * @param {Object} bracket - Bracket structure
- * @returns {Object[]} Array of playable matches
- */
-export function getActiveMatches(bracket) {
-  const active = [];
-
-  for (const round of bracket.rounds) {
-    for (const match of round.matches) {
-      // Match is active if:
-      // 1. No winner yet
-      // 2. Both participants are set
-      // 3. Not a bye
-      if (
-        !match.winnerId &&
-        !match.isBye &&
-        match.participants[0] &&
-        match.participants[1]
-      ) {
-        active.push(match);
-      }
-    }
-  }
-
-  return active;
-}
-
-/**
  * Get final standings
  * @param {Object} bracket - Bracket structure
  * @param {Map} participants - Participants map
@@ -302,14 +274,4 @@ export function getStandings(bracket, participants) {
   }
 
   return standings;
-}
-
-/**
- * Check if a participant can report a match
- * @param {Object} match - Match object
- * @param {string} participantId - Participant's ID
- * @returns {boolean}
- */
-export function canReportMatch(match, participantId) {
-  return match.participants.includes(participantId);
 }

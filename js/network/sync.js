@@ -4,16 +4,19 @@
  */
 
 import { store } from '../state/store.js';
-import { saveTournament } from '../state/persistence.js';
 import { ActionTypes } from './room.js';
+import { CONFIG } from '../../config.js';
 
 // --- Validation helpers ---
-const MAX_NAME_LENGTH = 100;
-const MAX_MATCH_ID_LENGTH = 50;
+const MAX_NAME_LENGTH = CONFIG.validation.maxNameLength;
+const MAX_MATCH_ID_LENGTH = CONFIG.validation.maxMatchIdLength;
 
-// Map peerId (transient) to odocalUserId (persistent)
+// Map peerId (transient) to localUserId (persistent)
 // This allows us to identify participants across page refreshes
 const peerIdToUserId = new Map();
+
+// Track whether we've received initial state (prevents race conditions)
+let stateInitialized = false;
 
 function isValidName(name) {
   return typeof name === 'string' && name.length > 0 && name.length <= MAX_NAME_LENGTH;
@@ -28,6 +31,41 @@ function isValidScores(scores) {
     scores.length === 2 &&
     typeof scores[0] === 'number' &&
     typeof scores[1] === 'number';
+}
+
+/**
+ * Validate incoming state object structure
+ * @param {Object} state - State object to validate
+ * @returns {boolean} True if valid
+ */
+function isValidState(state) {
+  if (!state || typeof state !== 'object') return false;
+
+  // Meta must be an object if present
+  if (state.meta !== undefined && (typeof state.meta !== 'object' || state.meta === null)) {
+    return false;
+  }
+
+  // Participants must be an array of [id, participant] entries if present
+  if (state.participants !== undefined) {
+    if (!Array.isArray(state.participants)) return false;
+    for (const entry of state.participants) {
+      if (!Array.isArray(entry) || entry.length !== 2) return false;
+      if (typeof entry[0] !== 'string') return false;
+      if (typeof entry[1] !== 'object' || entry[1] === null) return false;
+    }
+  }
+
+  // Matches must be an array of [id, match] entries if present
+  if (state.matches !== undefined) {
+    if (!Array.isArray(state.matches)) return false;
+    for (const entry of state.matches) {
+      if (!Array.isArray(entry) || entry.length !== 2) return false;
+      if (typeof entry[0] !== 'string') return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -56,11 +94,17 @@ export function setupStateSync(room) {
     const remoteState = payload.state;
     const isRemoteAdmin = payload.isAdmin;
 
+    // Validate incoming state structure
+    if (!isValidState(remoteState)) {
+      console.warn(`[Sync] Invalid state structure from ${peerId}`);
+      return;
+    }
+
     // Merge with local state
     if (remoteState) {
       const adminId = remoteState.meta?.adminId;
 
-      // If this is from the admin, register their peerId → odocalUserId mapping
+      // If this is from the admin, register their peerId → localUserId mapping
       if (isRemoteAdmin && adminId) {
         peerIdToUserId.set(peerId, adminId);
       }
@@ -68,20 +112,18 @@ export function setupStateSync(room) {
       // Merge state (admin state is given priority in store.merge)
       store.merge(remoteState, adminId);
 
-      // Persist merged state
-      if (store.get('meta.id')) {
-        saveTournament(store.get('meta.id'), store.serialize());
-      }
+      // Mark state as initialized (prevents race conditions with early messages)
+      stateInitialized = true;
 
       // Re-announce ourselves to the admin if this is from admin
       // This handles the case where our initial p:join was sent before WebRTC connected
       if (isRemoteAdmin && !store.isAdmin()) {
         const localName = store.get('local.name');
-        const localUserId = store.get('local.odocalUserId');
+        const localUserId = store.get('local.localUserId');
         if (localName && localUserId) {
           room.broadcast(ActionTypes.PARTICIPANT_JOIN, {
             name: localName,
-            odocalUserId: localUserId,
+            localUserId: localUserId,
             joinedAt: Date.now(),
           });
         }
@@ -98,97 +140,84 @@ export function setupStateSync(room) {
     }
 
     // Use persistent userId if provided, fall back to peerId for backwards compatibility
-    const odocalUserId = payload.odocalUserId || peerId;
+    const localUserId = payload.localUserId || peerId;
 
-    // Store the peerId → odocalUserId mapping for message routing
-    peerIdToUserId.set(peerId, odocalUserId);
+    // Store the peerId → localUserId mapping for message routing
+    peerIdToUserId.set(peerId, localUserId);
 
-    console.info(`[Sync] Participant join: ${payload.name} (${odocalUserId}, peer: ${peerId})`);
+    console.info(`[Sync] Participant join: ${payload.name} (${localUserId}, peer: ${peerId})`);
 
     // Add or update participant
-    const existing = store.getParticipant(odocalUserId);
+    const existing = store.getParticipant(localUserId);
     if (existing) {
-      store.updateParticipant(odocalUserId, {
+      store.updateParticipant(localUserId, {
         name: payload.name,
         peerId: peerId,
         isConnected: true,
       });
     } else {
       store.addParticipant({
-        id: odocalUserId,
+        id: localUserId,
         peerId: peerId,
         name: payload.name,
         teamId: payload.teamId || null,
         seed: store.getParticipantList().length + 1,
       });
     }
-
-    // Persist
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
-    }
   });
 
   // --- Handle participant updates ---
   room.onAction(ActionTypes.PARTICIPANT_UPDATE, (payload, peerId) => {
-    let odocalUserId = peerIdToUserId.get(peerId);
+    let localUserId = peerIdToUserId.get(peerId);
 
     // If no mapping exists, try to find participant by peerId
-    if (!odocalUserId) {
+    if (!localUserId) {
       const participantByPeerId = store.getParticipantByPeerId(peerId);
       if (participantByPeerId) {
-        odocalUserId = participantByPeerId.id;
+        localUserId = participantByPeerId.id;
         // Cache the mapping for future use
-        peerIdToUserId.set(peerId, odocalUserId);
+        peerIdToUserId.set(peerId, localUserId);
       } else {
         // Still no mapping - use peerId as fallback
-        odocalUserId = peerId;
+        localUserId = peerId;
       }
     }
 
-    console.info(`[Sync] Participant update from ${odocalUserId}:`, payload);
+    console.info(`[Sync] Participant update from ${localUserId}:`, payload);
 
     // If participant doesn't exist and we have a name, add them
-    const existing = store.getParticipant(odocalUserId);
+    const existing = store.getParticipant(localUserId);
     if (!existing && payload.name) {
       console.info(`[Sync] Participant not found, adding as new participant`);
       store.addParticipant({
-        id: odocalUserId,
+        id: localUserId,
         peerId: peerId,
         name: payload.name,
         isConnected: true,
       });
-      peerIdToUserId.set(peerId, odocalUserId);
+      peerIdToUserId.set(peerId, localUserId);
     } else {
-      store.updateParticipant(odocalUserId, payload);
-    }
-
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
+      store.updateParticipant(localUserId, payload);
     }
   });
 
   // --- Handle participant leave ---
   room.onAction(ActionTypes.PARTICIPANT_LEAVE, (payload, peerId) => {
-    const odocalUserId = peerIdToUserId.get(peerId) || peerId;
-    console.info(`[Sync] Participant leave: ${odocalUserId}`);
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
+    console.info(`[Sync] Participant leave: ${localUserId}`);
 
     // Mark as disconnected but don't remove (they might rejoin)
-    store.updateParticipant(odocalUserId, { isConnected: false });
-
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
-    }
+    store.updateParticipant(localUserId, { isConnected: false });
   });
 
   // --- Handle tournament start (admin only) ---
   room.onAction(ActionTypes.TOURNAMENT_START, async (payload, peerId) => {
     const adminId = store.get('meta.adminId');
-    const odocalUserId = peerIdToUserId.get(peerId) || peerId;
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
 
     // Only accept from admin
-    if (odocalUserId !== adminId) {
-      console.warn(`[Sync] Rejected tournament start from non-admin: ${odocalUserId}`);
+    if (localUserId !== adminId) {
+      console.warn(`[Sync] Rejected tournament start from non-admin: ${localUserId}`);
       return;
     }
 
@@ -203,10 +232,6 @@ export function setupStateSync(room) {
     }
     store.set('meta.status', 'active');
 
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
-    }
-
     // Navigate to bracket view for non-admins
     if (!store.isAdmin()) {
       const { navigateToBracket } = await import('../state/url-state.js');
@@ -217,10 +242,10 @@ export function setupStateSync(room) {
   // --- Handle tournament reset (admin only) ---
   room.onAction(ActionTypes.TOURNAMENT_RESET, (payload, peerId) => {
     const adminId = store.get('meta.adminId');
-    const odocalUserId = peerIdToUserId.get(peerId) || peerId;
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
 
-    if (odocalUserId !== adminId) {
-      console.warn(`[Sync] Rejected tournament reset from non-admin: ${odocalUserId}`);
+    if (localUserId !== adminId) {
+      console.warn(`[Sync] Rejected tournament reset from non-admin: ${localUserId}`);
       return;
     }
 
@@ -229,14 +254,16 @@ export function setupStateSync(room) {
     store.set('meta.status', 'lobby');
     store.set('bracket', null);
     store.setMatches(new Map());
-
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
-    }
   });
 
   // --- Handle match results ---
   room.onAction(ActionTypes.MATCH_RESULT, (payload, peerId) => {
+    // Wait for state initialization before processing match results
+    if (!stateInitialized && !store.isAdmin()) {
+      console.info(`[Sync] Ignoring match result - state not yet initialized`);
+      return;
+    }
+
     // Validate payload
     if (!payload ||
         !isValidMatchId(payload.matchId) ||
@@ -248,11 +275,11 @@ export function setupStateSync(room) {
     }
 
     // Look up the persistent user ID for this peer
-    const odocalUserId = peerIdToUserId.get(peerId) || peerId;
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
 
-    console.info(`[Sync] Match result from ${odocalUserId}:`, payload);
+    console.info(`[Sync] Match result from ${localUserId}:`, payload);
 
-    const { matchId, scores, winnerId, reportedAt } = payload;
+    const { matchId, scores, winnerId, reportedAt, version: incomingVersion = 0 } = payload;
     const match = store.getMatch(matchId);
 
     if (!match) {
@@ -269,52 +296,53 @@ export function setupStateSync(room) {
       const bracket = store.get('bracket');
       const teams = bracket?.teams || [];
       const userTeamIds = teams
-        .filter(t => t.members.some(m => m.id === odocalUserId))
+        .filter(t => t.members.some(m => m.id === localUserId))
         .map(t => t.id);
       isParticipant = match.participants.some(teamId => userTeamIds.includes(teamId));
     } else {
-      isParticipant = match.participants.includes(odocalUserId);
+      isParticipant = match.participants.includes(localUserId);
     }
 
-    const isAdmin = odocalUserId === store.get('meta.adminId');
+    const isAdmin = localUserId === store.get('meta.adminId');
 
     if (!isParticipant && !isAdmin) {
-      console.warn(`[Sync] Rejected match result from non-participant: ${odocalUserId}`);
+      console.warn(`[Sync] Rejected match result from non-participant: ${localUserId}`);
       return;
     }
 
-    // Apply LWW logic
+    // Apply LWW logic with logical clock
     // Accept update if:
-    // 1. Newer timestamp (standard LWW), OR
-    // 2. Admin is reporting and match isn't already admin-verified
+    // 1. Higher version (logical clock), OR
+    // 2. Same version but newer timestamp, OR
+    // 3. Admin is reporting and match isn't already admin-verified
+    const existingVersion = match.version || 0;
     const existingReportedAt = match.reportedAt || 0;
-    const shouldUpdate = reportedAt > existingReportedAt ||
+    const shouldUpdate =
+      (incomingVersion > existingVersion) ||
+      (incomingVersion === existingVersion && reportedAt > existingReportedAt) ||
       (isAdmin && !match.verifiedBy);
 
     if (shouldUpdate) {
       store.updateMatch(matchId, {
         scores,
         winnerId,
-        reportedBy: odocalUserId,
+        reportedBy: localUserId,
         reportedAt,
+        version: incomingVersion,  // Store version for future comparisons
       });
 
       // Update bracket advancement
       advanceWinner(matchId, winnerId);
-
-      if (store.get('meta.id')) {
-        saveTournament(store.get('meta.id'), store.serialize());
-      }
     }
   });
 
   // --- Handle match verification (admin only) ---
   room.onAction(ActionTypes.MATCH_VERIFY, (payload, peerId) => {
     const adminId = store.get('meta.adminId');
-    const odocalUserId = peerIdToUserId.get(peerId) || peerId;
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
 
-    if (odocalUserId !== adminId) {
-      console.warn(`[Sync] Rejected match verify from non-admin: ${odocalUserId}`);
+    if (localUserId !== adminId) {
+      console.warn(`[Sync] Rejected match verify from non-admin: ${localUserId}`);
       return;
     }
 
@@ -323,40 +351,32 @@ export function setupStateSync(room) {
     store.updateMatch(matchId, {
       scores,
       winnerId,
-      verifiedBy: odocalUserId,
+      verifiedBy: localUserId,
       reportedAt: Date.now(),
     });
 
     advanceWinner(matchId, winnerId);
-
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
-    }
   });
 
   // --- Handle standings updates (Mario Kart mode) ---
   room.onAction(ActionTypes.STANDINGS_UPDATE, (payload, peerId) => {
     const adminId = store.get('meta.adminId');
-    const odocalUserId = peerIdToUserId.get(peerId) || peerId;
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
 
     // Only accept from admin
-    if (odocalUserId !== adminId) return;
+    if (localUserId !== adminId) return;
 
     if (payload.standings) {
       store.deserialize({ standings: payload.standings });
-    }
-
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
     }
   });
 
   // --- Handle race/game results (Points Race mode) ---
   room.onAction(ActionTypes.RACE_RESULT, async (payload, peerId) => {
     const { gameId, results, reportedAt } = payload;
-    const odocalUserId = peerIdToUserId.get(peerId) || peerId;
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
 
-    console.info(`[Sync] Race result from ${odocalUserId}:`, payload);
+    console.info(`[Sync] Race result from ${localUserId}:`, payload);
 
     // Get game from matches
     const game = store.getMatch(gameId);
@@ -366,11 +386,11 @@ export function setupStateSync(room) {
     }
 
     // Verify reporter is a participant in the game
-    const isParticipant = game.participants.includes(odocalUserId);
-    const isAdmin = odocalUserId === store.get('meta.adminId');
+    const isParticipant = game.participants.includes(localUserId);
+    const isAdmin = localUserId === store.get('meta.adminId');
 
     if (!isParticipant && !isAdmin) {
-      console.warn(`[Sync] Rejected race result from non-participant: ${odocalUserId}`);
+      console.warn(`[Sync] Rejected race result from non-participant: ${localUserId}`);
       return;
     }
 
@@ -395,7 +415,7 @@ export function setupStateSync(room) {
         standings: standings,
       };
 
-      recordRaceResult(tournament, gameId, results, odocalUserId);
+      recordRaceResult(tournament, gameId, results, localUserId);
 
       // Update store
       store.set('bracket', {
@@ -410,11 +430,6 @@ export function setupStateSync(room) {
         store.set('meta.status', 'complete');
       }
 
-      // Persist
-      if (store.get('meta.id')) {
-        saveTournament(store.get('meta.id'), store.serialize());
-      }
-
     } catch (e) {
       console.error('[Sync] Failed to apply race result:', e);
     }
@@ -423,9 +438,9 @@ export function setupStateSync(room) {
   // --- Handle peer join/leave for presence ---
   room.onPeerJoin((peerId) => {
     // Try to find participant by peerId mapping or direct lookup
-    const odocalUserId = peerIdToUserId.get(peerId);
-    if (odocalUserId) {
-      store.updateParticipant(odocalUserId, { isConnected: true, peerId: peerId });
+    const localUserId = peerIdToUserId.get(peerId);
+    if (localUserId) {
+      store.updateParticipant(localUserId, { isConnected: true, peerId: peerId });
     }
 
     // Request state from new peer (might have fresher data)
@@ -434,9 +449,9 @@ export function setupStateSync(room) {
 
   room.onPeerLeave((peerId) => {
     // Find participant by peerId mapping
-    const odocalUserId = peerIdToUserId.get(peerId);
-    if (odocalUserId) {
-      store.updateParticipant(odocalUserId, { isConnected: false });
+    const localUserId = peerIdToUserId.get(peerId);
+    if (localUserId) {
+      store.updateParticipant(localUserId, { isConnected: false });
     }
     // Clean up mapping
     peerIdToUserId.delete(peerId);
@@ -632,12 +647,12 @@ export function broadcastState(room) {
  * Announce joining a room
  * @param {Object} room - Room connection
  * @param {string} name - Display name
- * @param {string} odocalUserId - Persistent user ID
+ * @param {string} localUserId - Persistent user ID
  */
-export function announceJoin(room, name, odocalUserId) {
+export function announceJoin(room, name, localUserId) {
   room.broadcast(ActionTypes.PARTICIPANT_JOIN, {
     name,
-    odocalUserId,
+    localUserId,
     joinedAt: Date.now(),
   });
 }
@@ -655,6 +670,7 @@ export function reportMatchResult(room, matchId, scores, winnerId) {
     scores,
     winnerId,
     reportedAt: Date.now(),
+    version: store.get('meta.version') || 0,  // Logical clock for conflict resolution
   });
 }
 
@@ -688,5 +704,20 @@ export function reportRaceResult(room, gameId, results) {
     results,
     reportedAt: Date.now(),
   });
+}
+
+/**
+ * Mark state as initialized (call when admin creates room or loads from storage)
+ */
+export function markStateInitialized() {
+  stateInitialized = true;
+}
+
+/**
+ * Reset sync state (call when leaving a room)
+ */
+export function resetSyncState() {
+  stateInitialized = false;
+  peerIdToUserId.clear();
 }
 

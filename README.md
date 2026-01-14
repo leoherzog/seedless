@@ -10,8 +10,8 @@ A fully client-side tournament bracket system using peer-to-peer communication. 
 - **Multiple Tournament Types**:
   - Single Elimination
   - Double Elimination
-  - Points Race (Mario Kart style) - *Coming Soon*
-  - Doubles (team-based) - *Coming Soon*
+  - Points Race (Mario Kart style)
+  - Doubles (team-based)
 - **Admin Controls**: Tournament creator manages settings and can verify results
 - **Participant Reporting**: Match participants can report their own results
 - **Persistent State**: Tournament state saved to localStorage and synced across peers

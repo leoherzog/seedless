@@ -7,7 +7,6 @@
 export const URL_PARAMS = {
   ROOM: 'room',
   VIEW: 'view',
-  MATCH: 'match',
   BRACKET: 'bracket', // 'winners' | 'losers' for double elim
 };
 
@@ -29,7 +28,6 @@ export function parseUrlState() {
   return {
     roomId: params.get(URL_PARAMS.ROOM),
     view: params.get(URL_PARAMS.VIEW) || VIEWS.HOME,
-    matchId: params.get(URL_PARAMS.MATCH),
     bracketType: params.get(URL_PARAMS.BRACKET),
   };
 }
@@ -76,7 +74,6 @@ function parseUrlFromParams(params) {
   return {
     roomId: params.get(URL_PARAMS.ROOM),
     view: params.get(URL_PARAMS.VIEW) || VIEWS.HOME,
-    matchId: params.get(URL_PARAMS.MATCH),
     bracketType: params.get(URL_PARAMS.BRACKET),
   };
 }
@@ -110,7 +107,6 @@ export function navigateToHome() {
   updateUrlState({
     [URL_PARAMS.ROOM]: null,
     [URL_PARAMS.VIEW]: VIEWS.HOME,
-    [URL_PARAMS.MATCH]: null,
     [URL_PARAMS.BRACKET]: null,
   }, true);
 }

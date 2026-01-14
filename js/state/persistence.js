@@ -154,13 +154,13 @@ export function saveDisplayName(name) {
  */
 export function getLocalUserId() {
   const prefs = loadPreferences();
-  if (prefs.odocalUserId) {
-    return prefs.odocalUserId;
+  if (prefs.localUserId) {
+    return prefs.localUserId;
   }
   // Generate a new persistent ID
-  const odocalUserId = 'user_' + generateAdminToken().slice(0, 16);
-  savePreferences({ odocalUserId: odocalUserId });
-  return odocalUserId;
+  const localUserId = 'user_' + generateAdminToken().slice(0, 16);
+  savePreferences({ localUserId: localUserId });
+  return localUserId;
 }
 
 /**
@@ -188,16 +188,6 @@ export function loadAdminToken(roomId) {
   if (!roomId) return null;
   const key = STORAGE_PREFIX + roomId + '_admin';
   return localStorage.getItem(key);
-}
-
-/**
- * Delete admin token for a room
- * @param {string} roomId - Room identifier
- */
-export function deleteAdminToken(roomId) {
-  if (!roomId) return;
-  const key = STORAGE_PREFIX + roomId + '_admin';
-  localStorage.removeItem(key);
 }
 
 /**

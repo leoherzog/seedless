@@ -27,7 +27,7 @@ Open `http://localhost:8000` in browser.
 
 **Dual ID System**: Participants have two IDs:
 - `peerId` - Transient WebRTC peer ID (changes on reconnect)
-- `odocalUserId` - Persistent ID stored in localStorage (survives page refresh)
+- `localUserId` - Persistent ID stored in localStorage (survives page refresh)
 
 The `peerIdToUserId` map in `js/network/sync.js` translates between them.
 

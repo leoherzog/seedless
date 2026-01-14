@@ -7,22 +7,37 @@ import { store } from '../state/store.js';
 import { getRoomLink } from '../state/url-state.js';
 import { showSuccess, showError, showInfo, showToast } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
+import { getDragAfterElement } from '../utils/drag-drop.js';
 import { CONFIG } from '../../config.js';
+
+// Track subscriptions for cleanup
+let lobbySubscriptions = [];
 
 /**
  * Initialize lobby view
  */
 export function initLobby() {
+  // Clean up any existing subscriptions first
+  cleanupLobby();
+
   setupAdminPanel();
   setupParticipantPanel();
   setupParticipantList();
   setupShareLink();
   setupTeamAssignmentDelegation(); // Event delegation for team assignment (set up once)
 
-  // Listen for state changes
-  store.on('change', updateLobbyUI);
-  store.on('participant:join', onParticipantJoin);
-  store.on('participant:leave', onParticipantLeave);
+  // Listen for state changes and track subscriptions
+  lobbySubscriptions.push(store.on('change', updateLobbyUI));
+  lobbySubscriptions.push(store.on('participant:join', onParticipantJoin));
+  lobbySubscriptions.push(store.on('participant:leave', onParticipantLeave));
+}
+
+/**
+ * Clean up lobby subscriptions
+ */
+export function cleanupLobby() {
+  lobbySubscriptions.forEach(unsubscribe => unsubscribe());
+  lobbySubscriptions = [];
 }
 
 /**
@@ -146,9 +161,9 @@ function setupParticipantPanel() {
       store.set('local.name', newName);
 
       // Update participant in store
-      const odocalUserId = store.get('local.odocalUserId');
-      if (odocalUserId) {
-        store.updateParticipant(odocalUserId, { name: newName });
+      const localUserId = store.get('local.localUserId');
+      if (localUserId) {
+        store.updateParticipant(localUserId, { name: newName });
 
         // Announce update to peers
         const room = window.seedlessRoom;
@@ -240,9 +255,9 @@ function setupShareLink() {
       await navigator.clipboard.writeText(shareInput.value);
       showSuccess('Link copied!');
     } catch (e) {
+      // Clipboard API not available - select text for manual copy
       shareInput.select();
-      document.execCommand('copy');
-      showSuccess('Link copied!');
+      showInfo('Press Ctrl+C to copy');
     }
   });
 
@@ -337,7 +352,7 @@ function updateLobbyUI() {
 function renderParticipantList(participants) {
   const list = document.getElementById('participant-list');
   const adminId = store.get('meta.adminId');
-  const localUserId = store.get('local.odocalUserId');
+  const localUserId = store.get('local.localUserId');
   const seedingMode = store.get('meta.config.seedingMode');
   const isAdmin = store.isAdmin();
 
@@ -566,20 +581,6 @@ function onDragEnd() {
     draggedItem.classList.remove('dragging');
     draggedItem = null;
   }
-}
-
-function getDragAfterElement(container, y) {
-  const draggableElements = [...container.querySelectorAll('li:not(.dragging)')];
-
-  return draggableElements.reduce((closest, child) => {
-    const box = child.getBoundingClientRect();
-    const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) {
-      return { offset, element: child };
-    } else {
-      return closest;
-    }
-  }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
 // --- Team Assignment Functions (Doubles Mode) ---
