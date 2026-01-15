@@ -12,7 +12,8 @@ import {
   isValidState,
   shouldUpdateMatch,
   isValidMatchResultPayload,
-  isValidParticipantJoinPayload
+  isValidParticipantJoinPayload,
+  isValidParticipantUpdatePayload
 } from './sync-validators.js';
 
 // Map peerId (transient) to localUserId (persistent)
@@ -122,6 +123,12 @@ export function setupStateSync(room) {
 
   // --- Handle participant updates ---
   room.onAction(ActionTypes.PARTICIPANT_UPDATE, (payload, peerId) => {
+    // Validate payload structure (allowlist-based to prevent field injection)
+    if (!isValidParticipantUpdatePayload(payload)) {
+      console.warn(`[Sync] Invalid participant update payload from ${peerId}`);
+      return;
+    }
+
     const adminId = store.get('meta.adminId');
     let senderUserId = peerIdToUserId.get(peerId);
 
@@ -149,29 +156,61 @@ export function setupStateSync(room) {
       console.info(`[Sync] Participant update from ${targetUserId}:`, payload);
     }
 
+    // Clean payload - remove 'id' field before passing to store (it's used for routing only)
+    const { id, ...cleanPayload } = payload;
+
     // If participant doesn't exist and we have a name, add them
     const existing = store.getParticipant(targetUserId);
-    if (!existing && payload.name) {
+    if (!existing && cleanPayload.name) {
       console.info(`[Sync] Participant not found, adding as new participant`);
       store.addParticipant({
         id: targetUserId,
         peerId: peerId,
-        name: payload.name,
+        name: cleanPayload.name,
         isConnected: true,
       });
       peerIdToUserId.set(peerId, targetUserId);
     } else {
-      store.updateParticipant(targetUserId, payload);
+      store.updateParticipant(targetUserId, cleanPayload);
     }
   });
 
   // --- Handle participant leave ---
-  room.onAction(ActionTypes.PARTICIPANT_LEAVE, (payload, peerId) => {
-    const localUserId = peerIdToUserId.get(peerId) || peerId;
-    console.info(`[Sync] Participant leave: ${localUserId}`);
+  room.onAction(ActionTypes.PARTICIPANT_LEAVE, async (payload, peerId) => {
+    const senderUserId = peerIdToUserId.get(peerId) || peerId;
 
-    // Mark as disconnected but don't remove (they might rejoin)
-    store.updateParticipant(localUserId, { isConnected: false });
+    // Check if this is an admin removal (has removedId) or voluntary leave
+    if (payload.removedId) {
+      const myUserId = store.get('local.localUserId');
+
+      // Was I removed?
+      if (payload.removedId === myUserId) {
+        console.info('[Sync] You have been removed from the tournament');
+
+        // Show notification
+        const { showToast } = await import('../components/toast.js');
+        showToast('You have been removed from the tournament', 'warning');
+
+        // Disconnect from room
+        if (window.seedlessRoom) {
+          window.seedlessRoom.leave();
+          window.seedlessRoom = null;
+        }
+
+        // Navigate home
+        const { navigateToHome } = await import('../state/url-state.js');
+        navigateToHome();
+        return;
+      }
+
+      // Someone else was removed - remove from our store
+      console.info(`[Sync] Participant removed by admin: ${payload.removedId}`);
+      store.removeParticipant(payload.removedId);
+    } else {
+      // Voluntary leave - mark as disconnected (they might rejoin)
+      console.info(`[Sync] Participant leave: ${senderUserId}`);
+      store.updateParticipant(senderUserId, { isConnected: false });
+    }
   });
 
   // --- Handle tournament start (admin only) ---
@@ -194,6 +233,10 @@ export function setupStateSync(room) {
       if (payload.bracket.type) {
         store.set('meta.type', payload.bracket.type);
       }
+      // Deserialize standings if present (Mario Kart mode)
+      if (payload.bracket.standings) {
+        store.deserialize({ standings: payload.bracket.standings });
+      }
     }
     if (payload.matches) {
       store.deserialize({ matches: payload.matches });
@@ -208,7 +251,7 @@ export function setupStateSync(room) {
   });
 
   // --- Handle tournament reset (admin only) ---
-  room.onAction(ActionTypes.TOURNAMENT_RESET, (payload, peerId) => {
+  room.onAction(ActionTypes.TOURNAMENT_RESET, async (payload, peerId) => {
     const adminId = store.get('meta.adminId');
     const localUserId = peerIdToUserId.get(peerId) || peerId;
 
@@ -222,6 +265,15 @@ export function setupStateSync(room) {
     store.set('meta.status', 'lobby');
     store.set('bracket', null);
     store.setMatches(new Map());
+    // Clear mode-specific data (standings for Mario Kart, teamAssignments for Doubles)
+    store.deserialize({ standings: [] });
+    store.clearTeamAssignments();
+
+    // Navigate non-admins back to lobby view
+    if (!store.isAdmin()) {
+      const { updateUrlState, URL_PARAMS, VIEWS } = await import('../state/url-state.js');
+      updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.LOBBY });
+    }
   });
 
   // --- Handle match results ---
@@ -251,6 +303,12 @@ export function setupStateSync(room) {
       return;
     }
 
+    // Validate winnerId is actually a participant in the match
+    if (!match.participants.includes(winnerId)) {
+      console.warn(`[Sync] Winner ${winnerId} not in match participants: ${match.participants}`);
+      return;
+    }
+
     // Verify reporter is a participant in the match (using persistent ID)
     let isParticipant;
     const tournamentType = store.get('meta.type');
@@ -271,6 +329,12 @@ export function setupStateSync(room) {
 
     if (!isParticipant && !isAdmin) {
       console.warn(`[Sync] Rejected match result from non-participant: ${localUserId}`);
+      return;
+    }
+
+    // Protect verified matches from non-admin overwrites
+    if (match.verifiedBy && !isAdmin) {
+      console.warn(`[Sync] Rejected update to verified match from non-admin: ${localUserId}`);
       return;
     }
 
@@ -407,8 +471,8 @@ export function setupStateSync(room) {
     if (localUserId) {
       store.updateParticipant(localUserId, { isConnected: false });
     }
-    // Clean up mapping
-    peerIdToUserId.delete(peerId);
+    // NOTE: Don't delete peerIdToUserId mapping here - peer may reconnect with same localUserId
+    // Mapping cleanup happens in resetSyncState() when leaving room entirely
   });
 
   // --- Initial state request ---

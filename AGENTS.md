@@ -17,6 +17,17 @@ npx serve
 
 Open `http://localhost:8000` in browser.
 
+## Testing
+
+Tests use Deno's built-in test runner:
+```bash
+deno task test           # Run all tests
+deno task test:watch     # Watch mode
+deno task test:coverage  # Generate coverage report
+```
+
+Tests are in `tests/` with mocks in `tests/mocks/` and integration tests in `tests/integration/`.
+
 ## Architecture
 
 ### Key Concepts
@@ -42,17 +53,23 @@ js/
 │   └── url-state.js     # URL hash routing (#room=slug&view=bracket)
 ├── network/
 │   ├── room.js          # Trystero room wrapper, action channel setup
-│   └── sync.js          # P2P state sync, conflict resolution, message handlers
+│   ├── sync.js          # P2P state sync, conflict resolution, message handlers
+│   └── sync-validators.js # Payload validation and LWW conflict resolution
 ├── tournament/
 │   ├── single-elimination.js  # Bracket generation and match advancement
 │   ├── double-elimination.js  # Losers bracket support
-│   ├── mario-kart.js          # Points race mode (stub)
-│   ├── doubles.js             # Team mode (stub)
+│   ├── mario-kart.js          # Points race mode with balanced scheduling
+│   ├── doubles.js             # Team-based tournament adapter
 │   └── bracket-utils.js       # Seeding positions, round names
-└── components/
-    ├── lobby.js         # Pre-tournament participant management
-    ├── bracket-view.js  # Tournament bracket rendering
-    └── toast.js         # Notification system
+├── components/
+│   ├── lobby.js         # Pre-tournament participant management
+│   ├── bracket-view.js  # Tournament bracket rendering
+│   └── toast.js         # Notification system
+└── utils/
+    ├── html.js          # HTML escaping
+    ├── debounce.js      # Debounce utility
+    ├── drag-drop.js     # Drag-and-drop helpers
+    └── tournament-helpers.js # Match status, ordinals, team helpers
 ```
 
 ### State Flow
@@ -76,9 +93,10 @@ Messages wrap payload with `senderId` and `timestamp` for conflict resolution.
 
 `config.js` exports `CONFIG` object with:
 - `appId` - Must be unique per fork to isolate tournament networks
-- `relayUrls` - WebTorrent tracker URLs for peer discovery
-- `defaults` - Tournament configuration defaults
+- `defaults` - Tournament configuration defaults (bestOf, teamSize, seedingMode)
 - `pointsTables` - Scoring presets for Mario Kart mode
+- `validation` - Input validation limits (maxNameLength, maxMatchIdLength)
+- `network` - Network timing settings (stateResponseDelay)
 
 ## Important Patterns
 

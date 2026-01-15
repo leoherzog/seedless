@@ -133,3 +133,33 @@ export function isValidMatchResultPayload(payload) {
 export function isValidParticipantJoinPayload(payload) {
   return payload && isValidName(payload.name);
 }
+
+/**
+ * Validate a participant update payload
+ * Allowlist-based validation to prevent field injection
+ * @param {Object} payload - Payload to validate
+ * @returns {boolean} True if valid
+ */
+export function isValidParticipantUpdatePayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+
+  // Check for prototype pollution attempts (these don't appear in Object.keys())
+  // Use hasOwnProperty to avoid false positives from inherited properties
+  const hasOwn = Object.prototype.hasOwnProperty;
+  if (hasOwn.call(payload, '__proto__') || hasOwn.call(payload, 'constructor') || hasOwn.call(payload, 'prototype')) return false;
+
+  const allowedFields = ['name', 'seed', 'id', 'teamId', 'peerId', 'isConnected'];
+  for (const key of Object.keys(payload)) {
+    if (!allowedFields.includes(key)) return false;
+  }
+
+  // Validate field types if present
+  if (payload.name !== undefined && !isValidName(payload.name)) return false;
+  if (payload.seed !== undefined && typeof payload.seed !== 'number') return false;
+  if (payload.id !== undefined && typeof payload.id !== 'string') return false;
+  if (payload.teamId !== undefined && payload.teamId !== null && typeof payload.teamId !== 'string') return false;
+  if (payload.peerId !== undefined && typeof payload.peerId !== 'string') return false;
+  if (payload.isConnected !== undefined && typeof payload.isConnected !== 'boolean') return false;
+
+  return true;
+}

@@ -535,7 +535,8 @@ async function onStartTournament() {
     } else if (tournamentType === 'mariokart') {
       const { generateMarioKartTournament } = await import('../tournament/mario-kart.js');
       const result = generateMarioKartTournament(seededParticipants, store.get('meta.config'));
-      bracket = { ...result, matches: undefined, standings: undefined };
+      // Include standings in bracket for broadcast (serialized as array for transmission)
+      bracket = { ...result, matches: undefined, standings: Array.from(result.standings.entries()) };
       matches = result.matches;
       store.deserialize({ standings: Array.from(result.standings.entries()) });
     } else if (tournamentType === 'doubles') {

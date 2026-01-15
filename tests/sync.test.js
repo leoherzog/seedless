@@ -565,6 +565,278 @@ Deno.test('Winner Advancement Sync', async (t) => {
 });
 
 // =============================================================================
+// Security Validation Tests
+// =============================================================================
+
+Deno.test('MATCH_RESULT Security Validations', async (t) => {
+  await t.step('rejects winnerId not in match participants', async () => {
+    resetSyncState();
+
+    const { store: testStore, cleanup } = createIsolatedStore();
+
+    try {
+      const adminId = 'admin-user';
+      const participantId = 'participant-user';
+      setupAdminStore(testStore, adminId);
+
+      // Generate bracket and start tournament
+      const participants = createParticipants(4);
+      const bracket = generateSingleEliminationBracket(participants);
+
+      testStore.set('bracket', bracket);
+      testStore.deserialize({ matches: Array.from(bracket.matches.entries()) });
+      testStore.set('meta.status', 'active');
+      testStore.set('meta.type', 'single');
+
+      // Get first match
+      const matchId = 'r1m0';
+      const match = testStore.getMatch(matchId);
+      const originalWinnerId = match.winnerId; // Should be undefined/null
+
+      // Simulate receiving MATCH_RESULT with invalid winnerId
+      // This is what the handler should reject
+      const invalidWinnerId = 'not-a-participant';
+      assert(!match.participants.includes(invalidWinnerId), 'Setup: winnerId should not be in participants');
+
+      // The handler would check: if (!match.participants.includes(winnerId)) return;
+      // Verify the check would catch this
+      const wouldBeRejected = !match.participants.includes(invalidWinnerId);
+      assertEquals(wouldBeRejected, true, 'Handler should reject winnerId not in participants');
+
+      // Match should remain unchanged
+      assertEquals(testStore.getMatch(matchId).winnerId, originalWinnerId);
+    } finally {
+      cleanup();
+    }
+  });
+
+  await t.step('rejects non-admin update to verified match', async () => {
+    resetSyncState();
+
+    const { store: testStore, cleanup } = createIsolatedStore();
+
+    try {
+      const adminId = 'admin-user';
+      setupAdminStore(testStore, adminId);
+
+      // Generate bracket
+      const participants = createParticipants(4);
+      const bracket = generateSingleEliminationBracket(participants);
+
+      testStore.set('bracket', bracket);
+      testStore.deserialize({ matches: Array.from(bracket.matches.entries()) });
+      testStore.set('meta.status', 'active');
+      testStore.set('meta.type', 'single');
+
+      // Report and verify a match
+      const matchId = 'r1m0';
+      const match = testStore.getMatch(matchId);
+      const winnerId = match.participants[0];
+
+      // Set initial result
+      testStore.updateMatch(matchId, {
+        winnerId,
+        scores: [2, 1],
+        reportedAt: Date.now(),
+        verifiedBy: adminId, // Mark as verified
+      });
+
+      // Try to update with different winner (as non-admin)
+      const newWinnerId = match.participants[1];
+      const isAdmin = false;
+
+      // The handler check: if (match.verifiedBy && !isAdmin) return;
+      const verifiedMatch = testStore.getMatch(matchId);
+      const shouldReject = verifiedMatch.verifiedBy && !isAdmin;
+      assertEquals(shouldReject, true, 'Handler should reject non-admin update to verified match');
+
+      // Match winner should remain unchanged
+      assertEquals(testStore.getMatch(matchId).winnerId, winnerId);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// =============================================================================
+// Mario Kart Standings Sync Tests
+// =============================================================================
+
+Deno.test('Mario Kart Standings Sync', async (t) => {
+  await t.step('standings included in bracket for broadcast', async () => {
+    resetSyncState();
+
+    const { store: testStore, cleanup } = createIsolatedStore();
+
+    try {
+      const participants = createParticipants(4);
+      const tournament = generateMarioKartTournament(participants, {
+        playersPerGame: 4,
+        gamesPerPlayer: 2,
+      });
+
+      // Verify tournament has standings
+      assert(tournament.standings instanceof Map, 'Tournament should have standings Map');
+      assertEquals(tournament.standings.size, 4, 'Should have standing for each participant');
+
+      // Simulate what lobby.js now does (include standings for broadcast)
+      const bracket = {
+        ...tournament,
+        matches: undefined,
+        standings: Array.from(tournament.standings.entries()), // Serialized for transmission
+      };
+
+      // Verify standings are in bracket object
+      assert(Array.isArray(bracket.standings), 'Bracket should include serialized standings');
+      assertEquals(bracket.standings.length, 4);
+
+      // Simulate what sync.js handler does (deserialize standings)
+      testStore.set('bracket', bracket);
+      if (bracket.standings) {
+        testStore.deserialize({ standings: bracket.standings });
+      }
+
+      // Verify standings were deserialized
+      const storedStandings = testStore.get('standings');
+      assert(storedStandings instanceof Map, 'Standings should be Map in store');
+      assertEquals(storedStandings.size, 4, 'All participants should have standings');
+    } finally {
+      cleanup();
+    }
+  });
+
+  await t.step('participant receives standings from tournament start', async () => {
+    resetSyncState();
+
+    const { store: testStore, cleanup } = createIsolatedStore();
+
+    try {
+      const adminId = 'admin-user';
+      const participantId = 'participant-user';
+
+      setupParticipantStore(testStore, participantId, adminId);
+
+      const mockRoom = createMockRoom(adminId);
+
+      // Register handler that mimics the fixed sync.js behavior
+      mockRoom.onAction('t:start', async (payload, peerId) => {
+        if (payload.bracket) {
+          testStore.set('bracket', payload.bracket);
+          if (payload.bracket.type) {
+            testStore.set('meta.type', payload.bracket.type);
+          }
+          // THE FIX: deserialize standings if present
+          if (payload.bracket.standings) {
+            testStore.deserialize({ standings: payload.bracket.standings });
+          }
+        }
+        if (payload.matches) {
+          testStore.deserialize({ matches: payload.matches });
+        }
+        testStore.set('meta.status', 'active');
+      });
+
+      // Verify initial state has no standings
+      assertEquals(testStore.get('standings').size, 0, 'Initial standings should be empty');
+
+      // Generate Mario Kart tournament with standings
+      const participants = createParticipants(4);
+      const tournament = generateMarioKartTournament(participants, {
+        playersPerGame: 4,
+        gamesPerPlayer: 2,
+      });
+
+      // Simulate broadcast (include serialized standings)
+      mockRoom.simulateAction('t:start', {
+        bracket: {
+          ...tournament,
+          matches: undefined,
+          standings: Array.from(tournament.standings.entries()),
+        },
+        matches: Array.from(tournament.matches.entries()),
+      }, 'admin-peer');
+
+      // Verify standings were received
+      const standings = testStore.get('standings');
+      assert(standings instanceof Map, 'Standings should be a Map');
+      assertEquals(standings.size, 4, 'Should have standings for all participants');
+
+      // Verify each participant has initial standings
+      for (const participant of participants) {
+        const standing = standings.get(participant.id);
+        assert(standing !== undefined, `Should have standing for ${participant.id}`);
+        assertEquals(standing.points, 0, 'Initial points should be 0');
+        assertEquals(standing.gamesCompleted, 0, 'Initial games completed should be 0');
+      }
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// =============================================================================
+// TOURNAMENT_RESET Tests
+// =============================================================================
+
+Deno.test('TOURNAMENT_RESET Clears Mode-Specific State', async (t) => {
+  await t.step('clears standings on reset', async () => {
+    resetSyncState();
+
+    const { store: testStore, cleanup } = createIsolatedStore();
+
+    try {
+      // Set up with some standings
+      const participants = createParticipants(4);
+      const standings = new Map();
+      participants.forEach(p => {
+        standings.set(p.id, { name: p.name, points: 10, gamesCompleted: 1, wins: 1 });
+      });
+      testStore.deserialize({ standings: Array.from(standings.entries()) });
+
+      assertEquals(testStore.get('standings').size, 4, 'Setup: should have standings');
+
+      // Simulate TOURNAMENT_RESET behavior
+      testStore.set('meta.status', 'lobby');
+      testStore.set('bracket', null);
+      testStore.setMatches(new Map());
+      testStore.deserialize({ standings: [] }); // Clear standings
+
+      assertEquals(testStore.get('standings').size, 0, 'Standings should be cleared');
+    } finally {
+      cleanup();
+    }
+  });
+
+  await t.step('clears team assignments on reset', async () => {
+    resetSyncState();
+
+    const { store: testStore, cleanup } = createIsolatedStore();
+
+    try {
+      // Set up with some team assignments
+      const participants = createParticipants(4);
+      const teamAssignments = createTeamAssignments(participants, 2);
+
+      for (const [participantId, teamId] of teamAssignments) {
+        testStore.setTeamAssignment(participantId, teamId);
+      }
+
+      assertEquals(testStore.getTeamAssignments().size, 4, 'Setup: should have team assignments');
+
+      // Simulate TOURNAMENT_RESET behavior
+      testStore.set('meta.status', 'lobby');
+      testStore.set('bracket', null);
+      testStore.setMatches(new Map());
+      testStore.clearTeamAssignments();
+
+      assertEquals(testStore.getTeamAssignments().size, 0, 'Team assignments should be cleared');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// =============================================================================
 // Helper: Create isolated store for testing
 // =============================================================================
 

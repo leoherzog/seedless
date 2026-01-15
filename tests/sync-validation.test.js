@@ -10,7 +10,8 @@ import {
   isValidState,
   shouldUpdateMatch,
   isValidMatchResultPayload,
-  isValidParticipantJoinPayload
+  isValidParticipantJoinPayload,
+  isValidParticipantUpdatePayload
 } from '../js/network/sync-validators.js';
 
 Deno.test('isValidName', async (t) => {
@@ -327,5 +328,82 @@ Deno.test('isValidParticipantJoinPayload', async (t) => {
     // Returns falsy (null/undefined) rather than explicit false
     assertEquals(!!isValidParticipantJoinPayload(null), false);
     assertEquals(!!isValidParticipantJoinPayload(undefined), false);
+  });
+});
+
+Deno.test('isValidParticipantUpdatePayload', async (t) => {
+  await t.step('accepts valid payload with name only', () => {
+    assertEquals(isValidParticipantUpdatePayload({ name: 'Alice' }), true);
+  });
+
+  await t.step('accepts valid payload with seed only', () => {
+    assertEquals(isValidParticipantUpdatePayload({ seed: 5 }), true);
+  });
+
+  await t.step('accepts valid payload with multiple allowed fields', () => {
+    assertEquals(isValidParticipantUpdatePayload({
+      name: 'Bob',
+      seed: 3,
+      id: 'user123',
+      teamId: 'team-1',
+      isConnected: true
+    }), true);
+  });
+
+  await t.step('accepts valid payload with null teamId', () => {
+    // teamId can be null (unassigned)
+    assertEquals(isValidParticipantUpdatePayload({ teamId: null }), true);
+  });
+
+  await t.step('accepts empty payload (no fields to update)', () => {
+    assertEquals(isValidParticipantUpdatePayload({}), true);
+  });
+
+  await t.step('rejects payload with disallowed fields', () => {
+    assertEquals(isValidParticipantUpdatePayload({ name: 'Alice', isAdmin: true }), false);
+    assertEquals(isValidParticipantUpdatePayload({ foo: 'bar' }), false);
+    // Use JSON.parse to simulate how __proto__ arrives over network (P2P messages are JSON)
+    // Object literal { __proto__: {} } sets prototype, doesn't create own property
+    assertEquals(isValidParticipantUpdatePayload(JSON.parse('{"__proto__":{}}')), false);
+    assertEquals(isValidParticipantUpdatePayload({ constructor: {} }), false);
+  });
+
+  await t.step('rejects invalid name type', () => {
+    assertEquals(isValidParticipantUpdatePayload({ name: '' }), false); // empty string
+    assertEquals(isValidParticipantUpdatePayload({ name: 123 }), false);
+    assertEquals(isValidParticipantUpdatePayload({ name: null }), false);
+  });
+
+  await t.step('rejects invalid seed type', () => {
+    assertEquals(isValidParticipantUpdatePayload({ seed: '5' }), false);
+    assertEquals(isValidParticipantUpdatePayload({ seed: null }), false);
+    assertEquals(isValidParticipantUpdatePayload({ seed: [1] }), false);
+  });
+
+  await t.step('rejects invalid id type', () => {
+    assertEquals(isValidParticipantUpdatePayload({ id: 123 }), false);
+    assertEquals(isValidParticipantUpdatePayload({ id: null }), false);
+  });
+
+  await t.step('rejects invalid teamId type (non-null, non-string)', () => {
+    assertEquals(isValidParticipantUpdatePayload({ teamId: 123 }), false);
+    assertEquals(isValidParticipantUpdatePayload({ teamId: {} }), false);
+  });
+
+  await t.step('rejects invalid isConnected type', () => {
+    assertEquals(isValidParticipantUpdatePayload({ isConnected: 'true' }), false);
+    assertEquals(isValidParticipantUpdatePayload({ isConnected: 1 }), false);
+    assertEquals(isValidParticipantUpdatePayload({ isConnected: null }), false);
+  });
+
+  await t.step('rejects null/undefined payload', () => {
+    assertEquals(isValidParticipantUpdatePayload(null), false);
+    assertEquals(isValidParticipantUpdatePayload(undefined), false);
+  });
+
+  await t.step('rejects non-object payload', () => {
+    assertEquals(isValidParticipantUpdatePayload('invalid'), false);
+    assertEquals(isValidParticipantUpdatePayload(123), false);
+    assertEquals(isValidParticipantUpdatePayload([]), false);
   });
 });

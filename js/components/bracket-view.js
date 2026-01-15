@@ -568,6 +568,24 @@ async function verifyMatch(matchId) {
   const match = store.getMatch(matchId);
   if (!match || !match.winnerId) return;
 
+  // Get winner name for confirmation dialog
+  const tournamentType = store.get('meta.type');
+  let winnerName;
+  if (tournamentType === 'doubles') {
+    const bracket = store.get('bracket');
+    const team = bracket?.teams?.find(t => t.id === match.winnerId);
+    winnerName = team?.name || match.winnerId;
+  } else {
+    const winner = store.getParticipant(match.winnerId);
+    winnerName = winner?.name || match.winnerId;
+  }
+
+  // Confirmation dialog to prevent accidental verification
+  const scoresDisplay = match.scores ? match.scores.join(' - ') : 'N/A';
+  if (!confirm(`Verify match result?\n\nWinner: ${winnerName}\nScores: ${scoresDisplay}`)) {
+    return;
+  }
+
   store.updateMatch(matchId, {
     verifiedBy: store.get('local.localUserId'),
   });
