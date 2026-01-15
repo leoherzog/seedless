@@ -14,5 +14,8 @@
     "@std/internal@1.0.12": {
       "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
     }
+  },
+  "remote": {
+    "https://cdn.jsdelivr.net/npm/trystero/torrent/+esm": "62324b73b90a6105e68c22bb9ced18337068d9ced85d945bcf63353cba7a21fe"
   }
 }

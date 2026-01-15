@@ -582,22 +582,6 @@ function updateSlot(participants, slot, value) {
 }
 
 /**
- * Broadcast local state to all peers (admin use)
- * @param {Object} room - Room connection
- */
-export function broadcastState(room) {
-  if (!store.isAdmin()) {
-    console.warn('[Sync] Only admin can broadcast full state');
-    return;
-  }
-
-  room.broadcast(ActionTypes.STATE_RESPONSE, {
-    state: store.serialize(),
-    isAdmin: true,
-  });
-}
-
-/**
  * Announce joining a room
  * @param {Object} room - Room connection
  * @param {string} name - Display name

@@ -314,6 +314,10 @@ async function connectToRoom(roomId, options = {}) {
 
   updateConnectionStatus('connecting');
 
+  // Re-initialize component listeners (they may have been cleaned up by disconnectFromRoom)
+  initLobby();
+  initBracketView();
+
   try {
     // Check for existing tournament data and admin token
     const existingData = loadTournament(roomId);

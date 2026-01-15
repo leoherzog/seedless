@@ -1,4 +1,7 @@
 {
+  "imports": {
+    "trystero/torrent": "https://cdn.jsdelivr.net/npm/trystero/torrent/+esm"
+  },
   "tasks": {
     "test": "deno test --allow-read",
     "test:watch": "deno test --allow-read --watch",

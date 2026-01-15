@@ -1,34 +1,10 @@
 /**
  * Trystero Room Management
- * Handles P2P room lifecycle using WebTorrent trackers
+ * Handles P2P room lifecycle using BitTorrent
  */
 
 import { CONFIG } from '../../config.js';
-
-// Dynamic import of Trystero (works with CDN or local)
-let trystero = null;
-
-async function loadTrystero() {
-  if (trystero) return trystero;
-
-  // Try CDN first, fall back to local
-  const sources = [
-    'https://esm.run/trystero/torrent',
-    './lib/trystero-torrent.min.js',
-  ];
-
-  for (const src of sources) {
-    try {
-      trystero = await import(src);
-      console.info(`[Seedless] Loaded Trystero from ${src}`);
-      return trystero;
-    } catch (e) {
-      console.warn(`[Seedless] Failed to load Trystero from ${src}:`, e.message);
-    }
-  }
-
-  throw new Error('Failed to load Trystero from any source');
-}
+import { joinRoom as trysteroJoin, selfId } from 'trystero/torrent';
 
 /**
  * @typedef {Object} RoomConnection
@@ -55,8 +31,6 @@ export async function joinRoom(roomId, options = {}) {
     console.warn('[Seedless] Already in a room, leaving first');
     await leaveRoom();
   }
-
-  const { joinRoom: trysteroJoin, selfId } = await loadTrystero();
 
   const config = {
     appId: CONFIG.appId,
@@ -198,14 +172,6 @@ export async function leaveRoom() {
     activeRoom.leave();
     activeRoom = null;
   }
-}
-
-/**
- * Get local peer ID
- * @returns {string|null}
- */
-export function getSelfId() {
-  return activeRoom?.selfId || null;
 }
 
 // Export action type constants (max 12 bytes each)

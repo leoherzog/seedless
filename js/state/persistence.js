@@ -70,6 +70,8 @@ export function loadTournament(roomId) {
 /**
  * Clean up old tournaments
  * Removes tournaments older than retention period
+ * Also removes corrupted data and entries without savedAt timestamp
+ * Preserves preferences, admin tokens, and other non-tournament data
  */
 export function cleanupOldTournaments() {
   const cutoff = Date.now() - (RETENTION_DAYS * 24 * 60 * 60 * 1000);
@@ -78,17 +80,23 @@ export function cleanupOldTournaments() {
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const key = localStorage.key(i);
     if (key && key.startsWith(STORAGE_PREFIX)) {
+      // Skip special keys (admin tokens, preferences)
+      if (key.endsWith('_admin') || key.endsWith('_preferences')) {
+        continue;
+      }
+
       try {
         const stored = localStorage.getItem(key);
         if (stored) {
           const data = JSON.parse(stored);
-          if (!data.savedAt || data.savedAt < cutoff) {
+          // Remove entries that don't have savedAt or are older than cutoff
+          if (!data || typeof data !== 'object' || !data.savedAt || data.savedAt < cutoff) {
             localStorage.removeItem(key);
             cleaned++;
           }
         }
       } catch (e) {
-        // Invalid data, remove it
+        // Invalid JSON - remove it
         localStorage.removeItem(key);
         cleaned++;
       }

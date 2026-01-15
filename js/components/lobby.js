@@ -313,6 +313,9 @@ function updateLobbyUI() {
   if (roomId) {
     roomDisplay.hidden = false;
     roomCode.textContent = roomId;
+  } else {
+    roomDisplay.hidden = true;
+    roomCode.textContent = '';
   }
 
   // Update share link
@@ -321,6 +324,9 @@ function updateLobbyUI() {
   if (roomId) {
     shareInput.value = getRoomLink(roomId);
     shareBtn.hidden = false;
+  } else {
+    shareInput.value = '';
+    shareBtn.hidden = true;
   }
 
   // Update start button state

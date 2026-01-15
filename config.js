@@ -9,7 +9,7 @@ export const CONFIG = {
   // This ensures your tournaments are isolated from other Seedless instances
   appId: 'seedless-tournament-v1',
 
-  // Trystero strategy (torrent = WebTorrent trackers)
+  // Trystero strategy
   strategy: 'torrent',
 
   // Default tournament settings

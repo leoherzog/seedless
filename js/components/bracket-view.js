@@ -7,6 +7,7 @@ import { store } from '../state/store.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
+import { getOrdinalSuffix } from '../utils/tournament-helpers.js';
 
 // Track subscriptions for cleanup
 let bracketSubscriptions = [];
@@ -793,12 +794,6 @@ async function onSubmitRaceResult() {
       store.set('meta.status', 'complete');
     }
 
-    // Save to localStorage
-    const { saveTournament } = await import('../state/persistence.js');
-    if (store.get('meta.id')) {
-      saveTournament(store.get('meta.id'), store.serialize());
-    }
-
     // Close modal
     document.getElementById('race-result-modal').close();
     showSuccess('Game result recorded!');
@@ -858,13 +853,4 @@ function renderStandings() {
       <td>${s.gamesCompleted}</td>
     </tr>
   `).join('');
-}
-
-/**
- * Get ordinal suffix (1st, 2nd, 3rd, etc.)
- */
-function getOrdinalSuffix(n) {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return s[(v - 20) % 10] || s[v] || s[0];
 }
