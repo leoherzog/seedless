@@ -5,6 +5,6 @@
   "tasks": {
     "test": "deno test --allow-read",
     "test:watch": "deno test --allow-read --watch",
-    "test:coverage": "deno test --allow-read --coverage=coverage && deno coverage coverage"
+    "test:coverage": "rm -rf coverage && deno test --allow-read --coverage=coverage && deno coverage coverage"
   }
 }
