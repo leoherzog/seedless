@@ -198,6 +198,19 @@ async function onCreateRoom(e) {
     return;
   }
 
+  // Check if room already exists and user is not the original admin
+  const existingData = loadTournament(slug);
+  const storedAdminToken = loadAdminToken(slug);
+  const existingAdminToken = existingData?.meta?.adminToken;
+  const hasMatchingToken = storedAdminToken && existingAdminToken &&
+    storedAdminToken === existingAdminToken;
+
+  // Show confirmation modal if room exists but user is not the admin
+  if (existingData && !hasMatchingToken) {
+    showRoomExistsModal(slug, name);
+    return;
+  }
+
   // Save name for next time
   saveDisplayName(name);
   store.set('local.name', name);
@@ -244,6 +257,53 @@ async function onJoinRoom(e) {
     console.error('Failed to join room:', err);
     showError('Failed to join room. Please try again.');
   }
+}
+
+/**
+ * Show room exists confirmation modal
+ * @param {string} slug - Room slug
+ * @param {string} name - User's display name
+ */
+function showRoomExistsModal(slug, name) {
+  const modal = document.getElementById('room-exists-modal');
+  const roomNameEl = document.getElementById('existing-room-name');
+  const joinBtn = document.getElementById('join-existing-btn');
+
+  // Set room name in modal
+  roomNameEl.textContent = slug;
+
+  // Handle join button click
+  const handleJoin = async () => {
+    modal.close();
+    joinBtn.removeEventListener('click', handleJoin);
+
+    // Save name for next time
+    saveDisplayName(name);
+    store.set('local.name', name);
+
+    try {
+      await connectToRoom(slug, { isAdmin: false, name });
+      navigateToRoom(slug);
+    } catch (err) {
+      console.error('Failed to join room:', err);
+      showError('Failed to join room. Please try again.');
+    }
+  };
+
+  joinBtn.addEventListener('click', handleJoin);
+
+  // Handle close button and backdrop click
+  const closeHandler = () => {
+    joinBtn.removeEventListener('click', handleJoin);
+  };
+  modal.addEventListener('close', closeHandler, { once: true });
+
+  // Setup close buttons
+  modal.querySelectorAll('.close-modal').forEach(btn => {
+    btn.onclick = () => modal.close();
+  });
+
+  modal.showModal();
 }
 
 /**

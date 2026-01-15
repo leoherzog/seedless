@@ -9,20 +9,8 @@ export const CONFIG = {
   // This ensures your tournaments are isolated from other Seedless instances
   appId: 'seedless-tournament-v1',
 
-  // Trystero strategy (torrent = BitTorrent DHT)
+  // Trystero strategy (torrent = WebTorrent trackers)
   strategy: 'torrent',
-
-  // WebTorrent trackers for peer discovery
-  // These are public trackers that support WebSocket connections
-  relayUrls: [
-    'wss://tracker.openwebtorrent.com',
-    'wss://tracker.btorrent.xyz',
-    'wss://tracker.webtorrent.dev',
-    'wss://tracker.files.fm:7073/announce'
-  ],
-
-  // How many trackers to connect to simultaneously
-  relayRedundancy: 2,
 
   // Default tournament settings
   defaults: {

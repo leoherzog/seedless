@@ -412,6 +412,26 @@
     </article>
   </dialog>
 
+  <!-- Room Exists Confirmation Modal -->
+  <dialog id="room-exists-modal">
+    <article>
+      <header>
+        <button aria-label="Close" rel="prev" class="close-modal"></button>
+        <h3><i class="fa-solid fa-circle-exclamation"></i> Room Already Exists</h3>
+      </header>
+
+      <p>A room named "<code id="existing-room-name"></code>" already exists.</p>
+      <p>Would you like to join as a participant instead?</p>
+
+      <footer>
+        <button class="secondary close-modal">Cancel</button>
+        <button id="join-existing-btn">
+          <i class="fa-solid fa-right-to-bracket"></i> Join Existing Room
+        </button>
+      </footer>
+    </article>
+  </dialog>
+
   <!-- Toast Container -->
   <div id="toast-container" aria-live="polite"></div>
 

@@ -1,6 +1,6 @@
 /**
  * Trystero Room Management
- * Handles P2P room lifecycle using BitTorrent trackers
+ * Handles P2P room lifecycle using WebTorrent trackers
  */
 
 import { CONFIG } from '../../config.js';
@@ -14,7 +14,6 @@ async function loadTrystero() {
   // Try CDN first, fall back to local
   const sources = [
     'https://esm.run/trystero/torrent',
-    'https://cdn.jsdelivr.net/npm/trystero@0.21/+esm',
     './lib/trystero-torrent.min.js',
   ];
 
@@ -61,8 +60,6 @@ export async function joinRoom(roomId, options = {}) {
 
   const config = {
     appId: CONFIG.appId,
-    relayUrls: CONFIG.relayUrls,
-    relayRedundancy: CONFIG.relayRedundancy,
     password: options.password || undefined,
   };
 
