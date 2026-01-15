@@ -28,18 +28,18 @@
   <!-- Navigation -->
   <nav class="container">
     <ul>
-      <li><a href="/" id="home-link" style="text-decoration: none; color: inherit;"><strong><i class="fa-solid fa-seedling"></i> Seedless</strong></a></li>
+      <li><a href="/" id="home-link" style="text-decoration: none; color: inherit;"><strong><span class="fa-solid fa-seedling"></span> Seedless</strong></a></li>
     </ul>
     <ul>
       <li id="room-display" hidden>
         <small>Room: <code id="room-code"></code></small>
       </li>
       <li id="connection-status" hidden>
-        <small><i class="fa-solid fa-circle" id="status-icon"></i> <span id="peer-count">0</span> in room</small>
+        <small><span class="fa-solid fa-circle" id="status-icon"></span> <span id="peer-count">0</span> in room</small>
       </li>
       <li>
         <button class="outline" id="share-btn" hidden>
-          <i class="fa-solid fa-share-nodes"></i> Share
+          <span class="fa-solid fa-share-nodes"></span> Share
         </button>
       </li>
     </ul>
@@ -56,7 +56,7 @@
       <div class="grid">
         <article>
           <header>
-            <i class="fa-solid fa-plus"></i> Create Tournament
+            <span class="fa-solid fa-plus"></span> Create Tournament
           </header>
           <form id="create-room-form">
             <label for="room-slug">
@@ -73,14 +73,14 @@
                      placeholder="Player 1" required>
             </label>
             <button type="submit">
-              <i class="fa-solid fa-trophy"></i> Create Room
+              <span class="fa-solid fa-trophy"></span> Create Room
             </button>
           </form>
         </article>
 
         <article>
           <header>
-            <i class="fa-solid fa-right-to-bracket"></i> Join Tournament
+            <span class="fa-solid fa-right-to-bracket"></span> Join Tournament
           </header>
           <form id="join-room-form">
             <label for="join-slug">
@@ -94,7 +94,7 @@
                      placeholder="Player 2" required>
             </label>
             <button type="submit" class="secondary">
-              <i class="fa-solid fa-users"></i> Join Room
+              <span class="fa-solid fa-users"></span> Join Room
             </button>
           </form>
         </article>
@@ -107,7 +107,7 @@
         <!-- Admin Panel (shown only to admin) -->
         <article id="admin-panel">
           <header>
-            <i class="fa-solid fa-cog"></i> Tournament Settings
+            <span class="fa-solid fa-cog"></span> Tournament Settings
           </header>
 
           <form id="tournament-config">
@@ -124,7 +124,7 @@
                 <summary>
                   <label>
                     <input type="radio" name="type" value="single" checked>
-                    <i class="fa-solid fa-trophy"></i> Single Elimination
+                    <span class="fa-solid fa-trophy"></span> Single Elimination
                   </label>
                 </summary>
                 <p>Standard knockout format. One loss and you're out.</p>
@@ -134,7 +134,7 @@
                 <summary>
                   <label>
                     <input type="radio" name="type" value="double">
-                    <i class="fa-solid fa-arrows-split-up-and-left"></i> Double Elimination
+                    <span class="fa-solid fa-arrows-split-up-and-left"></span> Double Elimination
                   </label>
                 </summary>
                 <p>Losers get a second chance in the losers bracket. Two losses to be eliminated.</p>
@@ -144,7 +144,7 @@
                 <summary>
                   <label>
                     <input type="radio" name="type" value="mariokart">
-                    <i class="fa-solid fa-flag-checkered"></i> Points Race
+                    <span class="fa-solid fa-flag-checkered"></span> Points Race
                   </label>
                 </summary>
                 <p>Mario Kart style scoring. Random matchups, accumulate points across games.</p>
@@ -177,7 +177,7 @@
                 <summary>
                   <label>
                     <input type="radio" name="type" value="doubles">
-                    <i class="fa-solid fa-user-group"></i> Doubles
+                    <span class="fa-solid fa-user-group"></span> Doubles
                   </label>
                 </summary>
                 <p>Team-based brackets. Players form teams and compete together.</p>
@@ -215,10 +215,10 @@
               <legend>Team Assignments</legend>
               <div id="team-assignment-controls">
                 <button type="button" id="auto-assign-teams-btn" class="outline">
-                  <i class="fa-solid fa-shuffle"></i> Auto-Assign Teams
+                  <span class="fa-solid fa-shuffle"></span> Auto-Assign Teams
                 </button>
                 <button type="button" id="clear-teams-btn" class="outline secondary">
-                  <i class="fa-solid fa-xmark"></i> Clear
+                  <span class="fa-solid fa-xmark"></span> Clear
                 </button>
               </div>
               <div id="team-assignment-status"></div>
@@ -234,7 +234,7 @@
             </fieldset>
 
             <button type="button" id="start-tournament-btn" disabled>
-              <i class="fa-solid fa-play"></i> Start Tournament
+              <span class="fa-solid fa-play"></span> Start Tournament
             </button>
           </form>
         </article>
@@ -242,7 +242,7 @@
         <!-- Participant Panel (shown only to non-admin) -->
         <article id="participant-panel">
           <header>
-            <i class="fa-solid fa-hourglass-half"></i> Waiting for Tournament
+            <span class="fa-solid fa-hourglass-half"></span> Waiting for Tournament
           </header>
           <p>The admin is setting up the tournament. You'll be notified when it starts.</p>
 
@@ -252,25 +252,25 @@
           </label>
 
           <form id="update-name-form">
-            <label for="my-name">
-              Your Name
+            <label for="my-name">Your Name</label>
+            <div role="group">
               <input type="text" id="my-name" name="my-name" required>
-            </label>
-            <button type="submit" class="outline">
-              <i class="fa-solid fa-pen"></i> Update Name
-            </button>
+              <button type="submit" class="outline" aria-label="Update name" data-tooltip="Update name">
+                <span class="fa-solid fa-pen"></span>
+              </button>
+            </div>
           </form>
 
           <hr>
           <button type="button" id="leave-tournament-btn" class="secondary outline">
-            <i class="fa-solid fa-right-from-bracket"></i> Leave Tournament
+            <span class="fa-solid fa-right-from-bracket"></span> Leave Tournament
           </button>
         </article>
 
         <!-- Participants List -->
         <article id="participants-panel">
           <header>
-            <i class="fa-solid fa-users"></i> Participants (<span id="participant-count">0</span>)
+            <span class="fa-solid fa-users"></span> Participants (<span id="participant-count">0</span>)
           </header>
           <ul id="participant-list" role="list">
             <!-- Populated by JS -->
@@ -282,7 +282,7 @@
               <div class="grid">
                 <input type="text" id="share-link" readonly>
                 <button type="button" id="copy-link-btn" class="outline">
-                  <i class="fa-solid fa-copy"></i>
+                  <span class="fa-solid fa-copy"></span>
                 </button>
               </div>
             </details>
@@ -302,7 +302,7 @@
         <!-- For double elimination -->
         <nav id="bracket-tabs" hidden>
           <ul>
-            <li><button class="active" data-bracket="winners">Winners</button></li>
+            <li><button aria-current="true" data-bracket="winners">Winners</button></li>
             <li><button data-bracket="losers">Losers</button></li>
             <li><button data-bracket="finals">Finals</button></li>
           </ul>
@@ -315,7 +315,7 @@
 
       <!-- Standings for Mario Kart mode -->
       <aside id="standings-panel" hidden>
-        <h3><i class="fa-solid fa-ranking-star"></i> Standings</h3>
+        <h3><span class="fa-solid fa-ranking-star"></span> Standings</h3>
         <table id="standings-table">
           <thead>
             <tr>
@@ -335,14 +335,14 @@
     <section id="results-view" data-view="results" hidden>
       <article>
         <header>
-          <i class="fa-solid fa-crown"></i> Tournament Complete!
+          <span class="fa-solid fa-crown"></span> Tournament Complete!
         </header>
         <div id="final-standings">
           <!-- Populated by JS -->
         </div>
         <footer>
           <button id="new-tournament-btn">
-            <i class="fa-solid fa-rotate"></i> New Tournament
+            <span class="fa-solid fa-rotate"></span> New Tournament
           </button>
         </footer>
       </article>
@@ -415,7 +415,7 @@
       <footer>
         <button class="secondary close-modal">Cancel</button>
         <button id="submit-race-btn">
-          <i class="fa-solid fa-flag-checkered"></i> Submit Results
+          <span class="fa-solid fa-flag-checkered"></span> Submit Results
         </button>
       </footer>
     </article>
@@ -426,7 +426,7 @@
     <article>
       <header>
         <button aria-label="Close" rel="prev" class="close-modal"></button>
-        <h3><i class="fa-solid fa-circle-exclamation"></i> Room Already Exists</h3>
+        <h3><span class="fa-solid fa-circle-exclamation"></span> Room Already Exists</h3>
       </header>
 
       <p>A room named "<code id="existing-room-name"></code>" already exists.</p>
@@ -435,7 +435,7 @@
       <footer>
         <button class="secondary close-modal">Cancel</button>
         <button id="join-existing-btn">
-          <i class="fa-solid fa-right-to-bracket"></i> Join Existing Room
+          <span class="fa-solid fa-right-to-bracket"></span> Join Existing Room
         </button>
       </footer>
     </article>

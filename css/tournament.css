@@ -201,7 +201,7 @@ nav #connection-status {
   padding: 0.5rem 1rem;
 }
 
-#bracket-tabs button.active {
+#bracket-tabs button[aria-current="true"] {
   background: var(--pico-primary);
   color: var(--pico-primary-inverse);
 }
@@ -228,11 +228,9 @@ nav #connection-status {
   color: var(--pico-muted-color);
 }
 
-/* Match cards */
+/* Match cards - uses PicoCSS <article> styling for background/border/radius */
 .match-card {
-  background: var(--pico-card-background-color);
-  border: 1px solid var(--pico-card-border-color);
-  border-radius: var(--pico-border-radius);
+  /* Base card styling provided by PicoCSS <article> */
 }
 
 .match-card header {
@@ -607,11 +605,9 @@ body:not(.is-admin) #admin-panel {
   gap: 1rem;
 }
 
-/* Game card */
+/* Game card - uses PicoCSS <article> styling for background/border/radius */
 .game-card {
-  background: var(--pico-card-background-color);
-  border: 1px solid var(--pico-card-border-color);
-  border-radius: var(--pico-border-radius);
+  /* Base card styling provided by PicoCSS <article> */
   overflow: hidden;
 }
 

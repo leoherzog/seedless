@@ -36,7 +36,7 @@ export function showToast(message, type = 'info', duration = CONFIG.ui.toastDura
     : 'fa-info-circle';
 
   toast.innerHTML = `
-    <i class="fa-solid ${icon}"></i>
+    <span class="fa-solid ${icon}"></span>
     <span>${escapeHtml(message)}</span>
   `;
 

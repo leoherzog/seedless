@@ -56,8 +56,8 @@ function setupBracketTabs() {
 
   buttons.forEach(btn => {
     btn.addEventListener('click', () => {
-      buttons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      buttons.forEach(b => b.removeAttribute('aria-current'));
+      btn.setAttribute('aria-current', 'true');
       renderBracket(btn.dataset.bracket);
     });
   });
@@ -238,7 +238,7 @@ function renderMarioKartRaces(container, bracket) {
   container.innerHTML = `
     <div class="games-header">
       <span class="progress-text">
-        <i class="fa-solid fa-flag-checkered"></i>
+        <span class="fa-solid fa-flag-checkered"></span>
         ${gamesComplete} / ${totalGames} games complete
       </span>
       ${bracket.isComplete ? '<mark>Tournament Complete!</mark>' : ''}
@@ -293,7 +293,7 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
       ${canReport ? `
         <footer>
           <button class="report-race-btn" data-race="${game.id}">
-            <i class="fa-solid fa-flag-checkered"></i> Report Results
+            <span class="fa-solid fa-flag-checkered"></span> Report Results
           </button>
         </footer>
       ` : ''}
@@ -351,17 +351,17 @@ function renderMatchCard(match, participants, localUserId) {
         <footer>
           ${canReport ? `
             <button class="report-btn" data-match="${match.id}">
-              <i class="fa-solid fa-edit"></i> Report
+              <span class="fa-solid fa-edit"></span> Report
             </button>
           ` : ''}
           ${needsVerify ? `
             <button class="verify-btn outline" data-match="${match.id}">
-              <i class="fa-solid fa-check"></i> Verify
+              <span class="fa-solid fa-check"></span> Verify
             </button>
           ` : ''}
           ${canAdminEdit ? `
             <button class="edit-btn outline" data-match="${match.id}">
-              <i class="fa-solid fa-pen"></i> Edit
+              <span class="fa-solid fa-pen"></span> Edit
             </button>
           ` : ''}
         </footer>
@@ -423,9 +423,9 @@ function renderTeamMatchCard(match, localUserId) {
 
       ${canReport || needsVerify || canAdminEdit ? `
         <footer>
-          ${canReport ? `<button class="report-btn" data-match="${match.id}"><i class="fa-solid fa-edit"></i> Report</button>` : ''}
-          ${needsVerify ? `<button class="verify-btn outline" data-match="${match.id}"><i class="fa-solid fa-check"></i> Verify</button>` : ''}
-          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${match.id}"><i class="fa-solid fa-pen"></i> Edit</button>` : ''}
+          ${canReport ? `<button class="report-btn" data-match="${match.id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
+          ${needsVerify ? `<button class="verify-btn outline" data-match="${match.id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
+          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${match.id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
         </footer>
       ` : ''}
     </article>
@@ -634,7 +634,7 @@ function openRaceResultModal(gameId) {
     const points = pointsTable[idx] || 0;
     return `
       <li data-participant-id="${pid}" draggable="true">
-        <i class="fa-solid fa-grip-vertical drag-handle"></i>
+        <span class="fa-solid fa-grip-vertical drag-handle"></span>
         <span class="participant-name">${escapeHtml(p?.name || 'Unknown')}</span>
         <span class="points-preview">+${points} pts</span>
       </li>

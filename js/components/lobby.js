@@ -150,10 +150,45 @@ function setupAdminPanel() {
 function setupParticipantPanel() {
   const updateForm = document.getElementById('update-name-form');
   const leaveBtn = document.getElementById('leave-tournament-btn');
+  const nameInput = document.getElementById('my-name');
+  const submitBtn = updateForm.querySelector('button[type="submit"]');
+
+  // Track if name is locked (read-only mode)
+  let nameLocked = false;
+
+  /**
+   * Lock the name input (make disabled)
+   */
+  function lockNameInput() {
+    nameLocked = true;
+    nameInput.disabled = true;
+    submitBtn.innerHTML = '<span class="fa-solid fa-pen"></span>';
+    submitBtn.setAttribute('aria-label', 'Edit name');
+    submitBtn.setAttribute('data-tooltip', 'Edit name');
+  }
+
+  /**
+   * Unlock the name input (make editable)
+   */
+  function unlockNameInput() {
+    nameLocked = false;
+    nameInput.disabled = false;
+    submitBtn.innerHTML = '<span class="fa-solid fa-check"></span>';
+    submitBtn.setAttribute('aria-label', 'Update name');
+    submitBtn.setAttribute('data-tooltip', 'Update name');
+    nameInput.focus();
+    nameInput.select();
+  }
 
   updateForm.addEventListener('submit', (e) => {
     e.preventDefault();
-    const nameInput = document.getElementById('my-name');
+
+    // If locked, unlock and return
+    if (nameLocked) {
+      unlockNameInput();
+      return;
+    }
+
     const newName = nameInput.value.trim();
 
     if (newName) {
@@ -172,9 +207,19 @@ function setupParticipantPanel() {
         }
 
         showSuccess('Name updated!');
+
+        // Lock the input after successful update
+        lockNameInput();
       }
     }
   });
+
+  // If user already has a name saved, lock it initially
+  const existingName = store.get('local.name');
+  if (existingName && nameInput) {
+    nameInput.value = existingName;
+    lockNameInput();
+  }
 
   // Leave tournament button
   if (leaveBtn) {
@@ -375,12 +420,12 @@ function renderParticipantList(participants) {
       </div>
       <div class="participant-actions">
         <span class="participant-status ${p.isConnected ? 'online' : 'offline'}">
-          <i class="fa-solid fa-circle"></i>
+          <span class="fa-solid fa-circle"></span>
         </span>
         ${isAdmin && p.id !== adminId ? `
           <button type="button" class="remove-participant-btn outline secondary"
                   data-participant-id="${p.id}" title="Remove participant">
-            <i class="fa-solid fa-xmark"></i>
+            <span class="fa-solid fa-xmark"></span>
           </button>
         ` : ''}
       </div>
@@ -653,13 +698,13 @@ function renderTeamAssignmentUI() {
     teamBox.dataset.teamId = teamId;
 
     teamBox.innerHTML = `
-      <h5>Team ${i} ${isFull ? '<i class="fa-solid fa-check"></i>' : ''}</h5>
+      <h5>Team ${i} ${isFull ? '<span class="fa-solid fa-check"></span>' : ''}</h5>
       <ul class="team-members" data-team-id="${teamId}">
         ${members.map(m => `
           <li data-participant-id="${m.id}" draggable="true">
             <span>${escapeHtml(m.name)}</span>
             <button type="button" class="remove-from-team" data-participant-id="${m.id}">
-              <i class="fa-solid fa-xmark"></i>
+              <span class="fa-solid fa-xmark"></span>
             </button>
           </li>
         `).join('')}
@@ -696,11 +741,11 @@ async function updateTeamValidationStatus() {
   const statusEl = document.getElementById('team-assignment-status');
   if (statusEl) {
     if (validation.valid && validation.completeTeams >= 2) {
-      statusEl.innerHTML = `<mark class="success"><i class="fa-solid fa-check"></i> ${validation.completeTeams} teams ready</mark>`;
+      statusEl.innerHTML = `<mark class="success"><span class="fa-solid fa-check"></span> ${validation.completeTeams} teams ready</mark>`;
     } else if (validation.completeTeams >= 2) {
-      statusEl.innerHTML = `<mark class="warning"><i class="fa-solid fa-triangle-exclamation"></i> ${validation.completeTeams} teams ready, ${participants.length - (validation.completeTeams * teamSize)} unassigned</mark>`;
+      statusEl.innerHTML = `<mark class="warning"><span class="fa-solid fa-triangle-exclamation"></span> ${validation.completeTeams} teams ready, ${participants.length - (validation.completeTeams * teamSize)} unassigned</mark>`;
     } else {
-      statusEl.innerHTML = `<mark class="warning"><i class="fa-solid fa-triangle-exclamation"></i> Need at least 2 complete teams</mark>`;
+      statusEl.innerHTML = `<mark class="warning"><span class="fa-solid fa-triangle-exclamation"></span> Need at least 2 complete teams</mark>`;
     }
   }
 
