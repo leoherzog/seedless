@@ -5,11 +5,15 @@
 
 import { store } from '../state/store.js';
 import { ActionTypes } from './room.js';
-import { CONFIG } from '../../config.js';
-
-// --- Validation helpers ---
-const MAX_NAME_LENGTH = CONFIG.validation.maxNameLength;
-const MAX_MATCH_ID_LENGTH = CONFIG.validation.maxMatchIdLength;
+import {
+  isValidName,
+  isValidMatchId,
+  isValidScores,
+  isValidState,
+  shouldUpdateMatch,
+  isValidMatchResultPayload,
+  isValidParticipantJoinPayload
+} from './sync-validators.js';
 
 // Map peerId (transient) to localUserId (persistent)
 // This allows us to identify participants across page refreshes
@@ -17,56 +21,6 @@ const peerIdToUserId = new Map();
 
 // Track whether we've received initial state (prevents race conditions)
 let stateInitialized = false;
-
-function isValidName(name) {
-  return typeof name === 'string' && name.length > 0 && name.length <= MAX_NAME_LENGTH;
-}
-
-function isValidMatchId(matchId) {
-  return typeof matchId === 'string' && matchId.length > 0 && matchId.length <= MAX_MATCH_ID_LENGTH;
-}
-
-function isValidScores(scores) {
-  return Array.isArray(scores) &&
-    scores.length === 2 &&
-    typeof scores[0] === 'number' &&
-    typeof scores[1] === 'number';
-}
-
-/**
- * Validate incoming state object structure
- * @param {Object} state - State object to validate
- * @returns {boolean} True if valid
- */
-function isValidState(state) {
-  if (!state || typeof state !== 'object') return false;
-
-  // Meta must be an object if present
-  if (state.meta !== undefined && (typeof state.meta !== 'object' || state.meta === null)) {
-    return false;
-  }
-
-  // Participants must be an array of [id, participant] entries if present
-  if (state.participants !== undefined) {
-    if (!Array.isArray(state.participants)) return false;
-    for (const entry of state.participants) {
-      if (!Array.isArray(entry) || entry.length !== 2) return false;
-      if (typeof entry[0] !== 'string') return false;
-      if (typeof entry[1] !== 'object' || entry[1] === null) return false;
-    }
-  }
-
-  // Matches must be an array of [id, match] entries if present
-  if (state.matches !== undefined) {
-    if (!Array.isArray(state.matches)) return false;
-    for (const entry of state.matches) {
-      if (!Array.isArray(entry) || entry.length !== 2) return false;
-      if (typeof entry[0] !== 'string') return false;
-    }
-  }
-
-  return true;
-}
 
 /**
  * Set up state synchronization for a room connection
@@ -134,7 +88,7 @@ export function setupStateSync(room) {
   // --- Handle participant join announcements ---
   room.onAction(ActionTypes.PARTICIPANT_JOIN, (payload, peerId) => {
     // Validate payload
-    if (!payload || !isValidName(payload.name)) {
+    if (!isValidParticipantJoinPayload(payload)) {
       console.warn(`[Sync] Invalid participant join payload from ${peerId}`);
       return;
     }
@@ -275,11 +229,7 @@ export function setupStateSync(room) {
     }
 
     // Validate payload
-    if (!payload ||
-        !isValidMatchId(payload.matchId) ||
-        !isValidScores(payload.scores) ||
-        typeof payload.winnerId !== 'string' ||
-        typeof payload.reportedAt !== 'number') {
+    if (!isValidMatchResultPayload(payload)) {
       console.warn(`[Sync] Invalid match result payload from ${peerId}`);
       return;
     }
@@ -321,18 +271,8 @@ export function setupStateSync(room) {
     }
 
     // Apply LWW logic with logical clock
-    // Accept update if:
-    // 1. Higher version (logical clock), OR
-    // 2. Same version but newer timestamp, OR
-    // 3. Admin is reporting and match isn't already admin-verified
-    const existingVersion = match.version || 0;
-    const existingReportedAt = match.reportedAt || 0;
-    const shouldUpdate =
-      (incomingVersion > existingVersion) ||
-      (incomingVersion === existingVersion && reportedAt > existingReportedAt) ||
-      (isAdmin && !match.verifiedBy);
-
-    if (shouldUpdate) {
+    const incoming = { version: incomingVersion, reportedAt };
+    if (shouldUpdateMatch(incoming, match, isAdmin)) {
       store.updateMatch(matchId, {
         scores,
         winnerId,
