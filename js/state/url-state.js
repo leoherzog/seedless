@@ -15,8 +15,6 @@ export const VIEWS = {
   HOME: 'home',
   LOBBY: 'lobby',
   BRACKET: 'bracket',
-  STANDINGS: 'standings',
-  RESULTS: 'results',
 };
 
 /**

@@ -149,7 +149,7 @@ function generateLosersBracket(bracketSize, winnersRounds) {
       currentSize = currentSize / 2;
     }
 
-    const matchCount = isMinorRound ? currentSize / 2 : currentSize / 2;
+    const matchCount = currentSize / 2;
     const roundMatches = [];
 
     for (let m = 0; m < Math.max(1, matchCount); m++) {

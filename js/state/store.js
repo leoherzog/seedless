@@ -57,18 +57,6 @@ class EventEmitter {
     }
   }
 
-  /**
-   * Remove all listeners for a specific event
-   * @param {string} event - Event name, or '*' for all events
-   */
-  offAll(event = '*') {
-    if (event === '*') {
-      this._listeners.clear();
-    } else if (this._listeners.has(event)) {
-      this._listeners.get(event).clear();
-    }
-  }
-
   emit(event, data) {
     if (this._listeners.has(event)) {
       for (const callback of this._listeners.get(event)) {

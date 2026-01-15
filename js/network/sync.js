@@ -168,36 +168,46 @@ export function setupStateSync(room) {
 
   // --- Handle participant updates ---
   room.onAction(ActionTypes.PARTICIPANT_UPDATE, (payload, peerId) => {
-    let localUserId = peerIdToUserId.get(peerId);
+    const adminId = store.get('meta.adminId');
+    let senderUserId = peerIdToUserId.get(peerId);
 
     // If no mapping exists, try to find participant by peerId
-    if (!localUserId) {
+    if (!senderUserId) {
       const participantByPeerId = store.getParticipantByPeerId(peerId);
       if (participantByPeerId) {
-        localUserId = participantByPeerId.id;
+        senderUserId = participantByPeerId.id;
         // Cache the mapping for future use
-        peerIdToUserId.set(peerId, localUserId);
+        peerIdToUserId.set(peerId, senderUserId);
       } else {
         // Still no mapping - use peerId as fallback
-        localUserId = peerId;
+        senderUserId = peerId;
       }
     }
 
-    console.info(`[Sync] Participant update from ${localUserId}:`, payload);
+    // Admin can update any participant by providing explicit id in payload
+    // Non-admin updates apply to self only
+    let targetUserId;
+    if (senderUserId === adminId && payload.id) {
+      targetUserId = payload.id;
+      console.info(`[Sync] Admin updating participant ${targetUserId}:`, payload);
+    } else {
+      targetUserId = senderUserId;
+      console.info(`[Sync] Participant update from ${targetUserId}:`, payload);
+    }
 
     // If participant doesn't exist and we have a name, add them
-    const existing = store.getParticipant(localUserId);
+    const existing = store.getParticipant(targetUserId);
     if (!existing && payload.name) {
       console.info(`[Sync] Participant not found, adding as new participant`);
       store.addParticipant({
-        id: localUserId,
+        id: targetUserId,
         peerId: peerId,
         name: payload.name,
         isConnected: true,
       });
-      peerIdToUserId.set(peerId, localUserId);
+      peerIdToUserId.set(peerId, targetUserId);
     } else {
-      store.updateParticipant(localUserId, payload);
+      store.updateParticipant(targetUserId, payload);
     }
   });
 

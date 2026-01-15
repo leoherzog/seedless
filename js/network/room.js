@@ -171,13 +171,6 @@ export async function joinRoom(roomId, options = {}) {
     },
 
     /**
-     * Ping a peer to measure latency
-     */
-    async ping(peerId) {
-      return room.ping(peerId);
-    },
-
-    /**
      * Leave the room
      */
     leave() {

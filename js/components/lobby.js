@@ -568,9 +568,15 @@ function onDrop(e) {
     // Update seeds based on new order
     const list = document.getElementById('participant-list');
     const items = list.querySelectorAll('li');
+    const room = window.seedlessRoom;
     items.forEach((item, index) => {
       const participantId = item.dataset.participantId;
-      store.updateParticipant(participantId, { seed: index + 1 });
+      const newSeed = index + 1;
+      store.updateParticipant(participantId, { seed: newSeed });
+      // Broadcast seed change to peers (admin can specify target id)
+      if (room) {
+        room.broadcast('p:upd', { id: participantId, seed: newSeed });
+      }
     });
     updateLobbyUI();
   }

@@ -2,100 +2,134 @@
  * Tests for bracket-utils.js
  */
 
-import { describe, test, assertEqual, assertTrue } from './run.js';
-import { nextPowerOf2, getSeedPositions, getRoundName } from '../js/tournament/bracket-utils.js';
+import { assertEquals, assert } from "jsr:@std/assert";
+import { nextPowerOf2, getSeedPositions, getRoundName } from "../js/tournament/bracket-utils.js";
 
-await describe('nextPowerOf2', async () => {
-  await test('returns 2 for 1', () => {
-    assertEqual(nextPowerOf2(1), 2);
+Deno.test("nextPowerOf2", async (t) => {
+  await t.step("returns 2 for 1", () => {
+    assertEquals(nextPowerOf2(1), 2);
   });
 
-  await test('returns 2 for 2', () => {
-    assertEqual(nextPowerOf2(2), 2);
+  await t.step("returns 2 for 2", () => {
+    assertEquals(nextPowerOf2(2), 2);
   });
 
-  await test('returns 4 for 3', () => {
-    assertEqual(nextPowerOf2(3), 4);
+  await t.step("returns 4 for 3", () => {
+    assertEquals(nextPowerOf2(3), 4);
   });
 
-  await test('returns 4 for 4', () => {
-    assertEqual(nextPowerOf2(4), 4);
+  await t.step("returns 4 for 4", () => {
+    assertEquals(nextPowerOf2(4), 4);
   });
 
-  await test('returns 8 for 5', () => {
-    assertEqual(nextPowerOf2(5), 8);
+  await t.step("returns 8 for 5", () => {
+    assertEquals(nextPowerOf2(5), 8);
   });
 
-  await test('returns 8 for 8', () => {
-    assertEqual(nextPowerOf2(8), 8);
+  await t.step("returns 8 for 8", () => {
+    assertEquals(nextPowerOf2(8), 8);
   });
 
-  await test('returns 16 for 9', () => {
-    assertEqual(nextPowerOf2(9), 16);
+  await t.step("returns 16 for 9", () => {
+    assertEquals(nextPowerOf2(9), 16);
   });
 
-  await test('returns 16 for 16', () => {
-    assertEqual(nextPowerOf2(16), 16);
+  await t.step("returns 16 for 16", () => {
+    assertEquals(nextPowerOf2(16), 16);
   });
 
-  await test('returns 32 for 17', () => {
-    assertEqual(nextPowerOf2(17), 32);
+  await t.step("returns 32 for 17", () => {
+    assertEquals(nextPowerOf2(17), 32);
+  });
+
+  // Edge cases
+  await t.step("returns 2 for 0", () => {
+    assertEquals(nextPowerOf2(0), 2);
+  });
+
+  await t.step("returns 2 for negative numbers", () => {
+    assertEquals(nextPowerOf2(-1), 2);
+    assertEquals(nextPowerOf2(-100), 2);
+  });
+
+  await t.step("handles large numbers", () => {
+    assertEquals(nextPowerOf2(1000), 1024);
+    assertEquals(nextPowerOf2(1024), 1024);
+    assertEquals(nextPowerOf2(1025), 2048);
   });
 });
 
-await describe('getSeedPositions', async () => {
-  await test('returns correct positions for bracket of 2', () => {
+Deno.test("getSeedPositions", async (t) => {
+  await t.step("returns correct positions for bracket of 2", () => {
     const positions = getSeedPositions(2);
-    assertEqual(positions.length, 2);
-    assertEqual(positions[0], 0);
-    assertEqual(positions[1], 1);
+    assertEquals(positions.length, 2);
+    assertEquals(positions[0], 0);
+    assertEquals(positions[1], 1);
   });
 
-  await test('returns correct positions for bracket of 4', () => {
+  await t.step("returns correct positions for bracket of 4", () => {
     const positions = getSeedPositions(4);
-    assertEqual(positions.length, 4);
+    assertEquals(positions.length, 4);
     // Standard seeding: 1 vs 4, 2 vs 3
     // So seed 1 at pos 0, seed 2 at pos 2, seed 3 at pos 3, seed 4 at pos 1
-    assertEqual(positions[0], 0);  // Seed 1
-    assertEqual(positions[3], 1);  // Seed 4
-    assertEqual(positions[1], 2);  // Seed 2
-    assertEqual(positions[2], 3);  // Seed 3
+    assertEquals(positions[0], 0);  // Seed 1
+    assertEquals(positions[3], 1);  // Seed 4
+    assertEquals(positions[1], 2);  // Seed 2
+    assertEquals(positions[2], 3);  // Seed 3
   });
 
-  await test('returns correct number of positions for bracket of 8', () => {
+  await t.step("returns correct positions for bracket of 8", () => {
     const positions = getSeedPositions(8);
-    assertEqual(positions.length, 8);
-    // Seed 1 should be at position 0
-    assertEqual(positions[0], 0);
-    // Seed 2 should face seed 7 or 8 first (opposite half)
-    assertTrue(positions[1] >= 4, 'Seed 2 should be in bottom half');
+    assertEquals(positions.length, 8);
+    // Expected matchup order: [1, 8, 4, 5, 3, 6, 2, 7]
+    // positions[seed-1] = bracket_position
+    assertEquals(positions[0], 0);  // Seed 1 at position 0
+    assertEquals(positions[7], 1);  // Seed 8 at position 1 (1v8 matchup)
+    assertEquals(positions[3], 2);  // Seed 4 at position 2
+    assertEquals(positions[4], 3);  // Seed 5 at position 3 (4v5 matchup)
+    assertEquals(positions[2], 4);  // Seed 3 at position 4
+    assertEquals(positions[5], 5);  // Seed 6 at position 5 (3v6 matchup)
+    assertEquals(positions[1], 6);  // Seed 2 at position 6
+    assertEquals(positions[6], 7);  // Seed 7 at position 7 (2v7 matchup)
   });
 
-  await test('returns correct number of positions for bracket of 16', () => {
+  await t.step("returns correct positions for bracket of 16", () => {
     const positions = getSeedPositions(16);
-    assertEqual(positions.length, 16);
+    assertEquals(positions.length, 16);
+    // Verify key seeding properties:
+    // Seed 1 at position 0
+    assertEquals(positions[0], 0);
+    // Seed 16 paired with seed 1 (1v16)
+    assertEquals(positions[15], 1);
+    // Seed 2 in opposite half from seed 1 (position >= 8)
+    assert(positions[1] >= 8, "Seed 2 should be in opposite half");
+    // Seed 2 paired with seed 15 (2v15)
+    assertEquals(positions[14], positions[1] + 1);
   });
 });
 
-await describe('getRoundName', async () => {
-  await test('returns Finals for final round of 2', () => {
-    assertEqual(getRoundName(1, 1), 'Finals');
+Deno.test("getRoundName", async (t) => {
+  await t.step("returns Finals for final round of 2", () => {
+    assertEquals(getRoundName(1, 1), "Finals");
   });
 
-  await test('returns Finals for final round of 4', () => {
-    assertEqual(getRoundName(2, 2), 'Finals');
+  await t.step("returns Finals for final round of 4", () => {
+    assertEquals(getRoundName(2, 2), "Finals");
   });
 
-  await test('returns Semi-Finals for semi-final round', () => {
-    assertEqual(getRoundName(1, 2), 'Semi-Finals');
+  await t.step("returns Semi-Finals for semi-final round", () => {
+    assertEquals(getRoundName(1, 2), "Semi-Finals");
   });
 
-  await test('returns Quarter-Finals for quarter-final round', () => {
-    assertEqual(getRoundName(1, 3), 'Quarter-Finals');
+  await t.step("returns Quarter-Finals for quarter-final round", () => {
+    assertEquals(getRoundName(1, 3), "Quarter-Finals");
   });
 
-  await test('returns Round N for early rounds', () => {
-    const name = getRoundName(1, 4);
-    assertTrue(name.includes('Round') || name.includes('R1'), `Expected round name, got ${name}`);
+  await t.step("returns Round 1 for first round of 4 rounds", () => {
+    assertEquals(getRoundName(1, 4), "Round 1");
+  });
+
+  await t.step("returns Round 2 for second round of 5 rounds", () => {
+    assertEquals(getRoundName(2, 5), "Round 2");
   });
 });

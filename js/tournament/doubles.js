@@ -97,35 +97,6 @@ export function recordMatchResult(tournament, matchId, scores, winnerId, reporte
 }
 
 /**
- * Check if participant can report (must be on a team in the match)
- */
-export function canReportMatch(match, participantId, teams) {
-  // Find which team(s) the participant is on
-  const participantTeams = teams
-    .filter(t => t.members.some(m => m.id === participantId))
-    .map(t => t.id);
-
-  // Check if any of their teams are in this match
-  return match.participants.some(teamId => participantTeams.includes(teamId));
-}
-
-/**
- * Get team by ID
- */
-export function getTeam(tournament, teamId) {
-  return tournament.teams.find(t => t.id === teamId);
-}
-
-/**
- * Get team for a participant
- */
-export function getParticipantTeam(tournament, participantId) {
-  return tournament.teams.find(t =>
-    t.members.some(m => m.id === participantId)
-  );
-}
-
-/**
  * Validate team assignments
  */
 export function validateTeamAssignments(participants, teamAssignments, teamSize) {

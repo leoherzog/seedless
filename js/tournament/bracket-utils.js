@@ -9,6 +9,7 @@
  * @returns {number} Next power of 2 >= n
  */
 export function nextPowerOf2(n) {
+  if (n <= 1) return 2;
   return Math.pow(2, Math.ceil(Math.log2(n)));
 }
 
@@ -20,42 +21,47 @@ export function nextPowerOf2(n) {
  * @returns {number[]} Array mapping seed index to bracket position
  */
 export function getSeedPositions(bracketSize) {
+  // Generate the correct matchup order for standard tournament seeding
+  // For 4 teams: [1, 4, 2, 3] - so 1v4 at positions 0,1 and 2v3 at positions 2,3
+  // For 8 teams: [1, 8, 4, 5, 3, 6, 2, 7]
+  const order = generateMatchupOrder(bracketSize);
+
+  // Map seed to position: positions[seed-1] = bracket_position
   const positions = new Array(bracketSize);
-
-  // Recursive placement for proper bracket distribution
-  function placeSeeds(seeds, start, end) {
-    if (seeds.length === 1) {
-      positions[seeds[0] - 1] = start;
-      return;
-    }
-
-    const mid = Math.floor((start + end) / 2) + 1;
-    const top = [];
-    const bottom = [];
-
-    // Split seeds - first goes top, second goes bottom
-    for (let i = 0; i < seeds.length; i += 2) {
-      top.push(seeds[i]);
-      if (i + 1 < seeds.length) {
-        bottom.push(seeds[i + 1]);
-      }
-    }
-
-    placeSeeds(top, start, mid - 1);
-    placeSeeds(bottom, mid, end);
+  for (let pos = 0; pos < bracketSize; pos++) {
+    const seed = order[pos];
+    positions[seed - 1] = pos;
   }
-
-  // Generate standard seed matchups
-  // For 8 teams: [1,8], [4,5], [3,6], [2,7]
-  const matchups = [];
-  for (let i = 0; i < bracketSize / 2; i++) {
-    matchups.push(i + 1);
-    matchups.push(bracketSize - i);
-  }
-
-  placeSeeds(matchups, 0, bracketSize - 1);
 
   return positions;
+}
+
+/**
+ * Generate the matchup order for standard bracket seeding
+ * This ensures proper bracket structure where:
+ * - Seeds 1 and 2 are on opposite halves (meet only in finals)
+ * - Seeds 1v(n), 2v(n-1), etc. are first round matchups
+ * - Higher seeds get favorable bracket positions
+ * @param {number} n - Bracket size (must be power of 2)
+ * @returns {number[]} Seeds in bracket position order
+ */
+function generateMatchupOrder(n) {
+  if (n === 2) return [1, 2];
+
+  // Get the matchup order for half the bracket size
+  const prev = generateMatchupOrder(n / 2);
+
+  // Expand each seed s to a pair [s, n+1-s] (opponents in round 1)
+  const pairs = prev.map(s => [s, n + 1 - s]);
+
+  // Split pairs into top and bottom halves
+  // Bottom half pairs are reversed to maintain proper bracket structure
+  const half = pairs.length / 2;
+  const top = pairs.slice(0, half);
+  const bottom = pairs.slice(half).reverse();
+
+  // Flatten and return: top half matches, then bottom half matches
+  return [...top.flat(), ...bottom.flat()];
 }
 
 /**
@@ -69,8 +75,8 @@ export function getRoundName(roundNumber, totalRounds) {
 
   switch (fromFinals) {
     case 0: return 'Finals';
-    case 1: return 'Semifinals';
-    case 2: return 'Quarterfinals';
+    case 1: return 'Semi-Finals';
+    case 2: return 'Quarter-Finals';
     default: return `Round ${roundNumber}`;
   }
 }

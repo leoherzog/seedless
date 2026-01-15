@@ -27,8 +27,8 @@ import {
   generateAdminToken,
   getLocalUserId,
 } from './state/persistence.js';
-import { joinRoom, leaveRoom, getSelfId, ActionTypes } from './network/room.js';
-import { setupStateSync, announceJoin, broadcastState, markStateInitialized, resetSyncState } from './network/sync.js';
+import { joinRoom, leaveRoom, ActionTypes } from './network/room.js';
+import { setupStateSync, announceJoin, markStateInitialized, resetSyncState } from './network/sync.js';
 import { showSuccess, showError, showToast } from './components/toast.js';
 import { initLobby, cleanupLobby } from './components/lobby.js';
 import { initBracketView, cleanupBracketView } from './components/bracket-view.js';
@@ -116,11 +116,8 @@ function setupFormHandlers() {
  * Setup navigation handlers
  */
 function setupNavigationHandlers() {
-  // Handle back/forward navigation
-  window.addEventListener('popstate', () => {
-    const urlState = parseUrlState();
-    handleUrlChange(urlState);
-  });
+  // Note: popstate is handled by url-state.js which fires 'urlstatechange' events
+  // We listen to urlstatechange in init() to avoid duplicate handling
 }
 
 /**
