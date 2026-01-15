@@ -111,7 +111,8 @@ function updateBracketUI() {
 
   // Update title
   document.getElementById('bracket-title').textContent = store.get('meta.name') || 'Tournament';
-  document.getElementById('bracket-status').textContent = status === 'complete' ? 'Complete' : 'In Progress';
+  const localName = store.get('local.name') || 'In Progress';
+  document.getElementById('bracket-status').textContent = status === 'complete' ? 'Complete' : localName;
 
   // Show/hide tabs for double elimination (including doubles mode with double-elim bracket)
   const tabs = document.getElementById('bracket-tabs');
@@ -317,6 +318,7 @@ function renderMatchCard(match, participants, localUserId) {
 
   const isAdmin = store.isAdmin();
   const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
+  const canAdminEdit = match.winnerId && isAdmin;
 
   let status = 'pending';
   if (match.winnerId) {
@@ -344,7 +346,7 @@ function renderMatchCard(match, participants, localUserId) {
         </div>
       </div>
 
-      ${canReport || needsVerify ? `
+      ${canReport || needsVerify || canAdminEdit ? `
         <footer>
           ${canReport ? `
             <button class="report-btn" data-match="${match.id}">
@@ -354,6 +356,11 @@ function renderMatchCard(match, participants, localUserId) {
           ${needsVerify ? `
             <button class="verify-btn outline" data-match="${match.id}">
               <i class="fa-solid fa-check"></i> Verify
+            </button>
+          ` : ''}
+          ${canAdminEdit ? `
+            <button class="edit-btn outline" data-match="${match.id}">
+              <i class="fa-solid fa-pen"></i> Edit
             </button>
           ` : ''}
         </footer>
@@ -383,6 +390,7 @@ function renderTeamMatchCard(match, localUserId) {
 
   const isAdmin = store.isAdmin();
   const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
+  const canAdminEdit = match.winnerId && isAdmin;
 
   let status = 'pending';
   if (match.winnerId) {
@@ -412,10 +420,11 @@ function renderTeamMatchCard(match, localUserId) {
         </div>
       </div>
 
-      ${canReport || needsVerify ? `
+      ${canReport || needsVerify || canAdminEdit ? `
         <footer>
           ${canReport ? `<button class="report-btn" data-match="${match.id}"><i class="fa-solid fa-edit"></i> Report</button>` : ''}
           ${needsVerify ? `<button class="verify-btn outline" data-match="${match.id}"><i class="fa-solid fa-check"></i> Verify</button>` : ''}
+          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${match.id}"><i class="fa-solid fa-pen"></i> Edit</button>` : ''}
         </footer>
       ` : ''}
     </article>
@@ -432,6 +441,10 @@ function addMatchCardHandlers(container) {
 
   container.querySelectorAll('.verify-btn').forEach(btn => {
     btn.addEventListener('click', () => verifyMatch(btn.dataset.match));
+  });
+
+  container.querySelectorAll('.edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => openScoreModal(btn.dataset.match));
   });
 }
 
@@ -485,6 +498,15 @@ function openScoreModal(matchId) {
   document.getElementById('score-form').dataset.p1 = match.participants[0];
   document.getElementById('score-form').dataset.p2 = match.participants[1];
 
+  // Pre-select winner radio if match already has a winner (for edit mode)
+  const winnerRadios = document.querySelectorAll('input[name="winner"]');
+  winnerRadios.forEach(radio => radio.checked = false);
+  if (match.winnerId === match.participants[0]) {
+    document.querySelector('input[name="winner"][value="player1"]').checked = true;
+  } else if (match.winnerId === match.participants[1]) {
+    document.querySelector('input[name="winner"][value="player2"]').checked = true;
+  }
+
   // Open modal
   document.getElementById('score-modal').showModal();
 }
@@ -515,10 +537,13 @@ async function onSubmitScore() {
       reportedAt: Date.now(),
     });
 
+    // Advance winner to next match locally
+    const { advanceWinner, reportMatchResult } = await import('../network/sync.js');
+    advanceWinner(matchId, winnerId);
+
     // Broadcast to peers
     const room = window.seedlessRoom;
     if (room) {
-      const { reportMatchResult } = await import('../network/sync.js');
       reportMatchResult(room, matchId, [score1, score2], winnerId);
     }
 
@@ -545,6 +570,10 @@ async function verifyMatch(matchId) {
   store.updateMatch(matchId, {
     verifiedBy: store.get('local.localUserId'),
   });
+
+  // Advance winner to next match (in case it wasn't advanced during initial report)
+  const { advanceWinner } = await import('../network/sync.js');
+  advanceWinner(matchId, match.winnerId);
 
   // Broadcast verification
   const room = window.seedlessRoom;

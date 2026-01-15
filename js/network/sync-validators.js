@@ -104,8 +104,8 @@ export function shouldUpdateMatch(incoming, existing, isAdmin) {
     return true;
   }
 
-  // 3. Admin is reporting and match isn't already admin-verified
-  if (isAdmin && !existing.verifiedBy) {
+  // 3. Admin can always override (even verified matches)
+  if (isAdmin) {
     return true;
   }
 

@@ -379,3 +379,193 @@ Deno.test("tournament completion", async (t) => {
     assertEquals(tournament.isComplete, true);
   });
 });
+
+Deno.test("scoring systems", async (t) => {
+  await t.step("sequential scoring: 4-player game gives 4, 3, 2, 1 points", () => {
+    const participants = createParticipants(4);
+    // Sequential mode: string marker, not an array
+    const tournament = generateMarioKartTournament(participants, {
+      playersPerGame: 4,
+      gamesPerPlayer: 1,
+      pointsTable: 'sequential',
+    });
+
+    const gameId = tournament.matches.keys().next().value;
+    const game = tournament.matches.get(gameId);
+
+    const results = game.participants.map((pId, idx) => ({
+      participantId: pId,
+      position: idx + 1,
+    }));
+
+    recordRaceResult(tournament, gameId, results, "player-1");
+
+    // 4-player game: 1st=4, 2nd=3, 3rd=2, 4th=1
+    assertEquals(tournament.standings.get(game.participants[0]).points, 4);
+    assertEquals(tournament.standings.get(game.participants[1]).points, 3);
+    assertEquals(tournament.standings.get(game.participants[2]).points, 2);
+    assertEquals(tournament.standings.get(game.participants[3]).points, 1);
+  });
+
+  await t.step("sequential scoring: 2-player game gives 2, 1 points", () => {
+    const participants = createParticipants(2);
+    const tournament = generateMarioKartTournament(participants, {
+      playersPerGame: 2,
+      gamesPerPlayer: 1,
+      pointsTable: 'sequential',
+    });
+
+    const gameId = tournament.matches.keys().next().value;
+    const game = tournament.matches.get(gameId);
+
+    const results = game.participants.map((pId, idx) => ({
+      participantId: pId,
+      position: idx + 1,
+    }));
+
+    recordRaceResult(tournament, gameId, results, "player-1");
+
+    // 2-player game: 1st=2, 2nd=1
+    assertEquals(tournament.standings.get(game.participants[0]).points, 2);
+    assertEquals(tournament.standings.get(game.participants[1]).points, 1);
+  });
+
+  await t.step("sequential scoring: 6-player game gives 6, 5, 4, 3, 2, 1 points", () => {
+    const participants = createParticipants(6);
+    const tournament = generateMarioKartTournament(participants, {
+      playersPerGame: 6,
+      gamesPerPlayer: 1,
+      pointsTable: 'sequential',
+    });
+
+    const gameId = tournament.matches.keys().next().value;
+    const game = tournament.matches.get(gameId);
+
+    const results = game.participants.map((pId, idx) => ({
+      participantId: pId,
+      position: idx + 1,
+    }));
+
+    recordRaceResult(tournament, gameId, results, "player-1");
+
+    // 6-player game: 1st=6, 2nd=5, ..., 6th=1
+    assertEquals(tournament.standings.get(game.participants[0]).points, 6);
+    assertEquals(tournament.standings.get(game.participants[1]).points, 5);
+    assertEquals(tournament.standings.get(game.participants[2]).points, 4);
+    assertEquals(tournament.standings.get(game.participants[3]).points, 3);
+    assertEquals(tournament.standings.get(game.participants[4]).points, 2);
+    assertEquals(tournament.standings.get(game.participants[5]).points, 1);
+  });
+
+  await t.step("sequential scoring: handles varying game sizes dynamically", () => {
+    // This test verifies that sequential scoring adapts per-game
+    // even when games have different numbers of players
+    const participants = createParticipants(5);
+    const tournament = generateMarioKartTournament(participants, {
+      playersPerGame: 4,  // Target 4 players, but last game might have fewer
+      gamesPerPlayer: 1,
+      pointsTable: 'sequential',
+    });
+
+    // Find games with different player counts
+    const games = Array.from(tournament.matches.values());
+
+    for (const game of games) {
+      if (game.complete) continue;
+
+      const playerCount = game.participants.length;
+      const results = game.participants.map((pId, idx) => ({
+        participantId: pId,
+        position: idx + 1,
+      }));
+
+      recordRaceResult(tournament, game.id, results, "player-1");
+
+      // Verify first place gets playerCount points, last gets 1
+      const firstPlaceStanding = tournament.standings.get(game.participants[0]);
+      const lastPlaceStanding = tournament.standings.get(game.participants[playerCount - 1]);
+
+      // Get points from this specific game's history
+      const firstHistory = firstPlaceStanding.history.find(h => h.gameId === game.id);
+      const lastHistory = lastPlaceStanding.history.find(h => h.gameId === game.id);
+
+      assertEquals(firstHistory.points, playerCount, `1st place should get ${playerCount} points in ${playerCount}-player game`);
+      assertEquals(lastHistory.points, 1, `Last place should get 1 point in ${playerCount}-player game`);
+    }
+  });
+
+  await t.step("standard scoring system", () => {
+    const participants = createParticipants(4);
+    const standardTable = [15, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    const tournament = generateMarioKartTournament(participants, {
+      playersPerGame: 4,
+      gamesPerPlayer: 1,
+      pointsTable: standardTable,
+    });
+
+    const gameId = tournament.matches.keys().next().value;
+    const game = tournament.matches.get(gameId);
+
+    const results = game.participants.map((pId, idx) => ({
+      participantId: pId,
+      position: idx + 1,
+    }));
+
+    recordRaceResult(tournament, gameId, results, "player-1");
+
+    assertEquals(tournament.standings.get(game.participants[0]).points, 15);
+    assertEquals(tournament.standings.get(game.participants[1]).points, 12);
+    assertEquals(tournament.standings.get(game.participants[2]).points, 10);
+    assertEquals(tournament.standings.get(game.participants[3]).points, 9);
+  });
+
+  await t.step("F1 scoring system", () => {
+    const participants = createParticipants(4);
+    const f1Table = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+    const tournament = generateMarioKartTournament(participants, {
+      playersPerGame: 4,
+      gamesPerPlayer: 1,
+      pointsTable: f1Table,
+    });
+
+    const gameId = tournament.matches.keys().next().value;
+    const game = tournament.matches.get(gameId);
+
+    const results = game.participants.map((pId, idx) => ({
+      participantId: pId,
+      position: idx + 1,
+    }));
+
+    recordRaceResult(tournament, gameId, results, "player-1");
+
+    assertEquals(tournament.standings.get(game.participants[0]).points, 25);
+    assertEquals(tournament.standings.get(game.participants[1]).points, 18);
+    assertEquals(tournament.standings.get(game.participants[2]).points, 15);
+    assertEquals(tournament.standings.get(game.participants[3]).points, 12);
+  });
+
+  await t.step("simple scoring system", () => {
+    const participants = createParticipants(4);
+    const simpleTable = [10, 8, 6, 4, 2, 1];
+    const tournament = generateMarioKartTournament(participants, {
+      playersPerGame: 4,
+      gamesPerPlayer: 1,
+      pointsTable: simpleTable,
+    });
+
+    const gameId = tournament.matches.keys().next().value;
+    const game = tournament.matches.get(gameId);
+
+    const results = game.participants.map((pId, idx) => ({
+      participantId: pId,
+      position: idx + 1,
+    }));
+
+    recordRaceResult(tournament, gameId, results, "player-1");
+
+    assertEquals(tournament.standings.get(game.participants[0]).points, 10);
+    assertEquals(tournament.standings.get(game.participants[1]).points, 8);
+    assertEquals(tournament.standings.get(game.participants[2]).points, 6);
+    assertEquals(tournament.standings.get(game.participants[3]).points, 4);
+  });
+});

@@ -289,10 +289,63 @@ class Store extends EventEmitter {
     if (match) {
       Object.assign(match, updates);
       this._state.meta.version++;
+
+      // Also update the bracket's embedded match (they can be separate objects after deserialization)
+      this._updateBracketEmbeddedMatch(id, updates);
+
       this.emit('match:update', { id, match, updates });
       this.emit('change', { path: 'matches' });
     }
     return this;
+  }
+
+  /**
+   * Update a match embedded in the bracket structure
+   * After JSON deserialization, bracket.rounds[].matches[] are separate objects from the matches Map
+   * @private
+   */
+  _updateBracketEmbeddedMatch(id, updates) {
+    const bracket = this._state.bracket;
+    if (!bracket) return;
+
+    // Single elimination: bracket.rounds[].matches[]
+    if (bracket.rounds) {
+      for (const round of bracket.rounds) {
+        if (!round.matches) continue;
+        const match = round.matches.find(m => m.id === id);
+        if (match) {
+          Object.assign(match, updates);
+          return;
+        }
+      }
+    }
+
+    // Double elimination: bracket.winners/losers/grandFinals
+    if (bracket.winners?.rounds) {
+      for (const round of bracket.winners.rounds) {
+        const match = round.matches?.find(m => m.id === id);
+        if (match) {
+          Object.assign(match, updates);
+          return;
+        }
+      }
+    }
+    if (bracket.losers?.rounds) {
+      for (const round of bracket.losers.rounds) {
+        const match = round.matches?.find(m => m.id === id);
+        if (match) {
+          Object.assign(match, updates);
+          return;
+        }
+      }
+    }
+    if (bracket.grandFinals?.match?.id === id) {
+      Object.assign(bracket.grandFinals.match, updates);
+      return;
+    }
+    if (bracket.grandFinals?.reset?.id === id) {
+      Object.assign(bracket.grandFinals.reset, updates);
+    }
   }
 
   // --- Admin helpers ---

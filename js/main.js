@@ -118,6 +118,16 @@ function setupFormHandlers() {
 function setupNavigationHandlers() {
   // Note: popstate is handled by url-state.js which fires 'urlstatechange' events
   // We listen to urlstatechange in init() to avoid duplicate handling
+
+  // Home link in nav
+  const homeLink = document.getElementById('home-link');
+  if (homeLink) {
+    homeLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await disconnectFromRoom();
+      navigateToHome();
+    });
+  }
 }
 
 /**
@@ -256,10 +266,25 @@ async function connectToRoom(roomId, options = {}) {
     // Get persistent local user ID (survives page refresh)
     const localUserId = getLocalUserId();
 
+    // Resolve display name from multiple sources (for page refresh/rejoin):
+    // 1. Provided name (from form submission)
+    // 2. Last saved display name (from localStorage preferences)
+    // 3. Existing participant data in this tournament (if rejoining)
+    let resolvedName = name;
+    if (!resolvedName) {
+      resolvedName = getLastDisplayName();
+    }
+    if (!resolvedName && existingData?.participants) {
+      const existingParticipant = existingData.participants.find(([id]) => id === localUserId);
+      if (existingParticipant) {
+        resolvedName = existingParticipant[1]?.name || '';
+      }
+    }
+
     // Store local peer info
     store.set('local.localUserId', localUserId);
     store.set('local.peerId', room.selfId);
-    store.set('local.name', name);
+    store.set('local.name', resolvedName);
     store.set('local.isConnected', true);
 
     // Setup state sync handlers
@@ -318,12 +343,12 @@ async function connectToRoom(roomId, options = {}) {
     store.addParticipant({
       id: localUserId,
       peerId: room.selfId,
-      name: name,
+      name: resolvedName,
       isConnected: true,
     });
 
     // Announce join to peers
-    announceJoin(room, name, localUserId);
+    announceJoin(room, resolvedName, localUserId);
 
     // Setup peer event handlers
     room.onPeerJoin((peerId) => {

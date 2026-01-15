@@ -18,6 +18,7 @@ export const CONFIG = {
     'wss://tracker.openwebtorrent.com',
     'wss://tracker.btorrent.xyz',
     'wss://tracker.webtorrent.dev',
+    'wss://tracker.files.fm:7073/announce'
   ],
 
   // How many trackers to connect to simultaneously
@@ -32,10 +33,12 @@ export const CONFIG = {
   },
 
   // Mario Kart style point tables
+  // Use 'sequential' string for dynamic N, N-1, ..., 1 scoring based on game size
   pointsTables: {
     standard: [15, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
     simple: [10, 8, 6, 4, 2, 1],
     f1: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1],
+    sequential: 'sequential',
   },
 
   // localStorage settings

@@ -200,10 +200,18 @@ export function recordRaceResult(tournament, gameId, results, reportedBy) {
   }
 
   // Calculate points based on position
+  // Sequential mode: N players = N, N-1, ..., 1 points (dynamic per-game)
+  const getPoints = (position, totalPlayers) => {
+    if (tournament.pointsTable === 'sequential') {
+      return totalPlayers - position + 1;
+    }
+    return tournament.pointsTable[position - 1] || 0;
+  };
+
   game.results = results.map((r, idx) => ({
     participantId: r.participantId,
     position: idx + 1,
-    points: tournament.pointsTable[idx] || 0,
+    points: getPoints(idx + 1, results.length),
   }));
 
   game.winnerId = results[0]?.participantId;

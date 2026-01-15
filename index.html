@@ -7,6 +7,7 @@
 
   <!-- PicoCSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.colors.min.css">
 
   <!-- FontAwesome 7 -->
   <script src="https://kit.fontawesome.com/837d39454a.js" crossorigin="anonymous"></script>
@@ -18,7 +19,7 @@
   <!-- Navigation -->
   <nav class="container">
     <ul>
-      <li><strong><i class="fa-solid fa-seedling"></i> Seedless</strong></li>
+      <li><a href="/" id="home-link" style="text-decoration: none; color: inherit;"><strong><i class="fa-solid fa-seedling"></i> Seedless</strong></a></li>
     </ul>
     <ul>
       <li id="room-display" hidden>
@@ -53,7 +54,7 @@
               Room Name
               <input type="text" id="room-slug" name="room-slug"
                      placeholder="friday-smash-tourney"
-                     pattern="[-a-z0-9]+"
+                     pattern="[a-z0-9\-]+"
                      required>
               <small>Lowercase letters, numbers, and hyphens only</small>
             </label>
@@ -158,6 +159,7 @@
                     <option value="standard">Standard (15, 12, 10, 9, 8, 7...)</option>
                     <option value="simple">Simple (10, 8, 6, 4, 2, 1)</option>
                     <option value="f1">F1 Style (25, 18, 15, 12, 10...)</option>
+                    <option value="sequential">Sequential (N, N-1, N-2... 1)</option>
                   </select>
                 </label>
               </details>

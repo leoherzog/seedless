@@ -496,3 +496,231 @@ Deno.test("Store - additional methods", async (t) => {
     assertEquals(v2, v1 + 1, "version should increment by exactly 1");
   });
 });
+
+Deno.test("Store.updateMatch - syncs to bracket embedded matches", async (t) => {
+  await t.step("updates single elimination bracket embedded match", () => {
+    const store = new Store();
+
+    // Simulate receiving bracket and matches separately (like from network)
+    // This creates separate object references
+    const bracket = {
+      type: "single",
+      rounds: [
+        {
+          number: 1,
+          name: "Semi-Finals",
+          matches: [
+            { id: "r1m0", participants: ["p1", "p2"], scores: [0, 0], winnerId: null },
+            { id: "r1m1", participants: ["p3", "p4"], scores: [0, 0], winnerId: null },
+          ],
+        },
+        {
+          number: 2,
+          name: "Finals",
+          matches: [
+            { id: "r2m0", participants: [null, null], scores: [0, 0], winnerId: null },
+          ],
+        },
+      ],
+    };
+
+    const matches = new Map([
+      ["r1m0", { id: "r1m0", participants: ["p1", "p2"], scores: [0, 0], winnerId: null }],
+      ["r1m1", { id: "r1m1", participants: ["p3", "p4"], scores: [0, 0], winnerId: null }],
+      ["r2m0", { id: "r2m0", participants: [null, null], scores: [0, 0], winnerId: null }],
+    ]);
+
+    store.set("bracket", bracket);
+    store.setMatches(matches);
+
+    // Update match via the Map (like advanceWinner does)
+    store.updateMatch("r2m0", { participants: ["p1", null] });
+
+    // Verify Map was updated
+    const mapMatch = store.getMatch("r2m0");
+    assertEquals(mapMatch.participants[0], "p1");
+
+    // Verify bracket embedded match was ALSO updated
+    const bracketMatch = store.get("bracket").rounds[1].matches[0];
+    assertEquals(bracketMatch.participants[0], "p1", "bracket embedded match should be updated");
+  });
+
+  await t.step("updates double elimination winners bracket embedded match", () => {
+    const store = new Store();
+
+    const bracket = {
+      type: "double",
+      winners: {
+        rounds: [
+          {
+            number: 1,
+            name: "Winners Round 1",
+            matches: [
+              { id: "w1m0", participants: ["p1", "p2"], scores: [0, 0], winnerId: null },
+            ],
+          },
+        ],
+      },
+      losers: { rounds: [] },
+      grandFinals: { match: { id: "gf1", participants: [null, null] } },
+    };
+
+    const matches = new Map([
+      ["w1m0", { id: "w1m0", participants: ["p1", "p2"], scores: [0, 0], winnerId: null }],
+      ["gf1", { id: "gf1", participants: [null, null] }],
+    ]);
+
+    store.set("bracket", bracket);
+    store.setMatches(matches);
+
+    store.updateMatch("w1m0", { winnerId: "p1", scores: [2, 1] });
+
+    // Verify bracket embedded match was updated
+    const bracketMatch = store.get("bracket").winners.rounds[0].matches[0];
+    assertEquals(bracketMatch.winnerId, "p1");
+    assertEquals(bracketMatch.scores[0], 2);
+  });
+
+  await t.step("updates double elimination losers bracket embedded match", () => {
+    const store = new Store();
+
+    const bracket = {
+      type: "double",
+      winners: { rounds: [] },
+      losers: {
+        rounds: [
+          {
+            number: 1,
+            name: "Losers Round 1",
+            matches: [
+              { id: "l1m0", participants: ["p3", "p4"], scores: [0, 0], winnerId: null },
+            ],
+          },
+        ],
+      },
+      grandFinals: { match: { id: "gf1", participants: [null, null] } },
+    };
+
+    const matches = new Map([
+      ["l1m0", { id: "l1m0", participants: ["p3", "p4"], scores: [0, 0], winnerId: null }],
+      ["gf1", { id: "gf1", participants: [null, null] }],
+    ]);
+
+    store.set("bracket", bracket);
+    store.setMatches(matches);
+
+    store.updateMatch("l1m0", { winnerId: "p3" });
+
+    const bracketMatch = store.get("bracket").losers.rounds[0].matches[0];
+    assertEquals(bracketMatch.winnerId, "p3");
+  });
+
+  await t.step("updates grand finals match", () => {
+    const store = new Store();
+
+    const bracket = {
+      type: "double",
+      winners: { rounds: [] },
+      losers: { rounds: [] },
+      grandFinals: {
+        match: { id: "gf1", participants: ["p1", "p2"], scores: [0, 0], winnerId: null },
+        reset: { id: "gf2", participants: [null, null], scores: [0, 0], winnerId: null },
+      },
+    };
+
+    const matches = new Map([
+      ["gf1", { id: "gf1", participants: ["p1", "p2"], scores: [0, 0], winnerId: null }],
+      ["gf2", { id: "gf2", participants: [null, null], scores: [0, 0], winnerId: null }],
+    ]);
+
+    store.set("bracket", bracket);
+    store.setMatches(matches);
+
+    store.updateMatch("gf1", { winnerId: "p2" });
+
+    const gf1 = store.get("bracket").grandFinals.match;
+    assertEquals(gf1.winnerId, "p2");
+  });
+
+  await t.step("updates grand finals reset match", () => {
+    const store = new Store();
+
+    const bracket = {
+      type: "double",
+      winners: { rounds: [] },
+      losers: { rounds: [] },
+      grandFinals: {
+        match: { id: "gf1", participants: ["p1", "p2"], winnerId: "p2" },
+        reset: { id: "gf2", participants: ["p1", "p2"], scores: [0, 0], winnerId: null },
+      },
+    };
+
+    const matches = new Map([
+      ["gf1", { id: "gf1", participants: ["p1", "p2"], winnerId: "p2" }],
+      ["gf2", { id: "gf2", participants: ["p1", "p2"], scores: [0, 0], winnerId: null }],
+    ]);
+
+    store.set("bracket", bracket);
+    store.setMatches(matches);
+
+    store.updateMatch("gf2", { winnerId: "p1" });
+
+    const gf2 = store.get("bracket").grandFinals.reset;
+    assertEquals(gf2.winnerId, "p1");
+  });
+
+  await t.step("handles missing bracket gracefully", () => {
+    const store = new Store();
+
+    const matches = new Map([
+      ["m1", { id: "m1", participants: ["p1", "p2"], winnerId: null }],
+    ]);
+
+    store.setMatches(matches);
+    // No bracket set - should not throw
+    store.updateMatch("m1", { winnerId: "p1" });
+
+    assertEquals(store.getMatch("m1").winnerId, "p1");
+  });
+
+  await t.step("simulates network deserialization scenario", () => {
+    const store = new Store();
+
+    // Simulate what happens when tournament data comes over the network:
+    // JSON.stringify then JSON.parse creates separate objects
+    const originalData = {
+      bracket: {
+        type: "single",
+        rounds: [
+          { number: 1, matches: [{ id: "r1m0", participants: ["p1", "p2"], winnerId: null }] },
+          { number: 2, matches: [{ id: "r2m0", participants: [null, null], winnerId: null }] },
+        ],
+      },
+      matches: [
+        ["r1m0", { id: "r1m0", participants: ["p1", "p2"], winnerId: null }],
+        ["r2m0", { id: "r2m0", participants: [null, null], winnerId: null }],
+      ],
+    };
+
+    // Simulate JSON serialization/deserialization (network transmission)
+    const transmitted = JSON.parse(JSON.stringify(originalData));
+
+    // Load into store (like TOURNAMENT_START handler does)
+    store.set("bracket", transmitted.bracket);
+    store.deserialize({ matches: transmitted.matches });
+
+    // At this point, bracket.rounds[].matches[] and store.matches Map
+    // contain DIFFERENT JavaScript objects (same data, different references)
+
+    // Update via Map (like advanceWinner does)
+    store.updateMatch("r2m0", { participants: ["p1", null] });
+
+    // Both should be updated
+    assertEquals(store.getMatch("r2m0").participants[0], "p1", "Map should be updated");
+    assertEquals(
+      store.get("bracket").rounds[1].matches[0].participants[0],
+      "p1",
+      "Bracket embedded match should also be updated"
+    );
+  });
+});

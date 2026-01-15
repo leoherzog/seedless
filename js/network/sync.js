@@ -190,6 +190,10 @@ export function setupStateSync(room) {
     // Apply tournament state
     if (payload.bracket) {
       store.set('bracket', payload.bracket);
+      // Sync meta.type from bracket type (handles mariokart, doubles, etc.)
+      if (payload.bracket.type) {
+        store.set('meta.type', payload.bracket.type);
+      }
     }
     if (payload.matches) {
       store.deserialize({ matches: payload.matches });
@@ -420,7 +424,7 @@ export function setupStateSync(room) {
  * @param {string} matchId - Completed match ID
  * @param {string} winnerId - Winner's participant ID
  */
-function advanceWinner(matchId, winnerId) {
+export function advanceWinner(matchId, winnerId) {
   const bracket = store.get('bracket');
   if (!bracket) return;
 

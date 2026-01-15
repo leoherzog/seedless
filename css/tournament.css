@@ -5,10 +5,14 @@
 
 /* Root variables */
 :root {
-  --seedless-accent: #10b981;
-  --seedless-winner: #22c55e;
-  --seedless-loser: #ef4444;
-  --seedless-pending: #6b7280;
+  --seedless-accent: var(--pico-color-jade-500);
+  --seedless-winner: var(--pico-color-green-500);
+  --seedless-loser: var(--pico-color-red-500);
+  --seedless-pending: var(--pico-color-grey-500);
+  --seedless-gold: var(--pico-color-amber-350);
+  --seedless-silver: var(--pico-color-grey-350);
+  --seedless-bronze: var(--pico-color-pumpkin-500);
+  --seedless-warning: var(--pico-color-amber-500);
   --bracket-line-color: var(--pico-muted-border-color);
   --bracket-line-width: 2px;
 }
@@ -229,8 +233,6 @@ nav #connection-status {
   background: var(--pico-card-background-color);
   border: 1px solid var(--pico-card-border-color);
   border-radius: var(--pico-border-radius);
-  padding: 0;
-  overflow: hidden;
 }
 
 .match-card header {
@@ -373,20 +375,20 @@ nav #connection-status {
 }
 
 #final-standings .place.first {
-  background: linear-gradient(135deg, #ffd700 0%, #ffec8b 100%);
-  color: #000;
+  background: var(--seedless-gold);
+  color: var(--pico-color-amber-950);
   font-size: 1.2rem;
   font-weight: 600;
 }
 
 #final-standings .place.second {
-  background: linear-gradient(135deg, #c0c0c0 0%, #e8e8e8 100%);
-  color: #000;
+  background: var(--seedless-silver);
+  color: var(--pico-color-grey-950);
 }
 
 #final-standings .place.third {
-  background: linear-gradient(135deg, #cd7f32 0%, #daa06d 100%);
-  color: #000;
+  background: var(--seedless-bronze);
+  color: var(--pico-color-pumpkin-950);
 }
 
 /* Score modal */
@@ -552,15 +554,15 @@ body:not(.is-admin) #admin-panel {
 }
 
 .race-ranking li:first-child::before {
-  color: #ffd700; /* Gold for 1st */
+  color: var(--seedless-gold);
 }
 
 .race-ranking li:nth-child(2)::before {
-  color: #c0c0c0; /* Silver for 2nd */
+  color: var(--seedless-silver);
 }
 
 .race-ranking li:nth-child(3)::before {
-  color: #cd7f32; /* Bronze for 3rd */
+  color: var(--seedless-bronze);
 }
 
 .race-ranking li.dragging {
@@ -646,15 +648,15 @@ body:not(.is-admin) #admin-panel {
 }
 
 .game-card .game-participant .position.first {
-  color: #ffd700;
+  color: var(--seedless-gold);
 }
 
 .game-card .game-participant .position.second {
-  color: #c0c0c0;
+  color: var(--seedless-silver);
 }
 
 .game-card .game-participant .position.third {
-  color: #cd7f32;
+  color: var(--seedless-bronze);
 }
 
 .game-card .game-participant .name {
@@ -700,7 +702,7 @@ body:not(.is-admin) #admin-panel {
 }
 
 #standings-table tr.leader td {
-  background: color-mix(in srgb, #ffd700 15%, transparent);
+  background: color-mix(in srgb, var(--seedless-gold) 15%, transparent);
 }
 
 #standings-table td strong {
@@ -740,8 +742,8 @@ body:not(.is-admin) #admin-panel {
 }
 
 #team-assignment-status mark.warning {
-  background: color-mix(in srgb, #f59e0b 20%, transparent);
-  color: #f59e0b;
+  background: color-mix(in srgb, var(--seedless-warning) 20%, transparent);
+  color: var(--seedless-warning);
 }
 
 /* Team assignment grid */

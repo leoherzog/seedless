@@ -204,10 +204,11 @@ Deno.test('shouldUpdateMatch', async (t) => {
     assertEquals(shouldUpdateMatch(incoming, existing, true), true);
   });
 
-  await t.step('rejects admin update on verified match', () => {
+  await t.step('accepts admin update on verified match (admin can override)', () => {
     const incoming = { version: 0, reportedAt: 1000 };
     const existing = { version: 1, reportedAt: 2000, verifiedBy: 'admin1' };
-    assertEquals(shouldUpdateMatch(incoming, existing, true), false);
+    // Admin can always override, even verified matches
+    assertEquals(shouldUpdateMatch(incoming, existing, true), true);
   });
 
   await t.step('rejects lower version', () => {
