@@ -13,12 +13,18 @@ import { CONFIG } from '../../config.js';
 // Track subscriptions for cleanup
 let lobbySubscriptions = [];
 
+// AbortController for DOM event listeners
+let lobbyDomController = null;
+
 /**
  * Initialize lobby view
  */
 export function initLobby() {
   // Clean up any existing subscriptions first
   cleanupLobby();
+
+  // Create new AbortController for DOM listeners
+  lobbyDomController = new AbortController();
 
   setupAdminPanel();
   setupParticipantPanel();
@@ -33,17 +39,24 @@ export function initLobby() {
 }
 
 /**
- * Clean up lobby subscriptions
+ * Clean up lobby subscriptions and DOM event listeners
  */
 export function cleanupLobby() {
   lobbySubscriptions.forEach(unsubscribe => unsubscribe());
   lobbySubscriptions = [];
+
+  // Abort all DOM event listeners
+  if (lobbyDomController) {
+    lobbyDomController.abort();
+    lobbyDomController = null;
+  }
 }
 
 /**
  * Setup admin panel event handlers
  */
 function setupAdminPanel() {
+  const { signal } = lobbyDomController;
   const configForm = document.getElementById('tournament-config');
   const startBtn = document.getElementById('start-tournament-btn');
 
@@ -65,7 +78,7 @@ function setupAdminPanel() {
 
       // Show/hide team assignment panel for doubles
       updateTeamAssignmentPanel();
-    });
+    }, { signal });
   });
 
   // Seeding mode selection
@@ -74,14 +87,14 @@ function setupAdminPanel() {
     radio.addEventListener('change', (e) => {
       store.set('meta.config.seedingMode', e.target.value);
       updateParticipantListSortable();
-    });
+    }, { signal });
   });
 
   // Tournament name
   const nameInput = document.getElementById('tournament-name');
   nameInput.addEventListener('input', (e) => {
     store.set('meta.name', e.target.value);
-  });
+  }, { signal });
 
   // Players per game (for Points Race)
   const playersPerGameInput = document.getElementById('players-per-game');
@@ -89,7 +102,7 @@ function setupAdminPanel() {
     playersPerGameInput.addEventListener('input', (e) => {
       const value = parseInt(e.target.value) || 4;
       store.set('meta.config.playersPerGame', Math.min(12, Math.max(2, value)));
-    });
+    }, { signal });
   }
 
   // Games per player (for Points Race)
@@ -98,7 +111,7 @@ function setupAdminPanel() {
     gamesPerPlayerInput.addEventListener('input', (e) => {
       const value = parseInt(e.target.value) || 5;
       store.set('meta.config.gamesPerPlayer', Math.min(20, Math.max(1, value)));
-    });
+    }, { signal });
   }
 
   // Points table (for Points Race)
@@ -107,11 +120,11 @@ function setupAdminPanel() {
     pointsTableSelect.addEventListener('change', (e) => {
       const tableKey = e.target.value;
       store.set('meta.config.pointsTable', CONFIG.pointsTables[tableKey]);
-    });
+    }, { signal });
   }
 
   // Start button
-  startBtn.addEventListener('click', onStartTournament);
+  startBtn.addEventListener('click', onStartTournament, { signal });
 
   // Team size input (for Doubles)
   const teamSizeInput = document.getElementById('team-size');
@@ -120,7 +133,7 @@ function setupAdminPanel() {
       const value = parseInt(e.target.value) || 2;
       store.set('meta.config.teamSize', Math.min(4, Math.max(2, value)));
       renderTeamAssignmentUI();
-    });
+    }, { signal });
   }
 
   // Doubles bracket type
@@ -128,19 +141,19 @@ function setupAdminPanel() {
   if (doublesBracketType) {
     doublesBracketType.addEventListener('change', (e) => {
       store.set('meta.config.bracketType', e.target.value);
-    });
+    }, { signal });
   }
 
   // Auto-assign teams button
   const autoAssignBtn = document.getElementById('auto-assign-teams-btn');
   if (autoAssignBtn) {
-    autoAssignBtn.addEventListener('click', onAutoAssignTeams);
+    autoAssignBtn.addEventListener('click', onAutoAssignTeams, { signal });
   }
 
   // Clear teams button
   const clearTeamsBtn = document.getElementById('clear-teams-btn');
   if (clearTeamsBtn) {
-    clearTeamsBtn.addEventListener('click', onClearTeams);
+    clearTeamsBtn.addEventListener('click', onClearTeams, { signal });
   }
 }
 
@@ -148,6 +161,7 @@ function setupAdminPanel() {
  * Setup participant panel (non-admin view)
  */
 function setupParticipantPanel() {
+  const { signal } = lobbyDomController;
   const updateForm = document.getElementById('update-name-form');
   const leaveBtn = document.getElementById('leave-tournament-btn');
   const nameInput = document.getElementById('my-name');
@@ -212,7 +226,7 @@ function setupParticipantPanel() {
         lockNameInput();
       }
     }
-  });
+  }, { signal });
 
   // If user already has a name saved, lock it initially
   const existingName = store.get('local.name');
@@ -227,7 +241,7 @@ function setupParticipantPanel() {
       if (confirm('Are you sure you want to leave this tournament?')) {
         await leaveTournament();
       }
-    });
+    }, { signal });
   }
 }
 
@@ -257,13 +271,14 @@ async function leaveTournament() {
  * Setup participant list with drag-and-drop for manual seeding
  */
 function setupParticipantList() {
+  const { signal } = lobbyDomController;
   const list = document.getElementById('participant-list');
 
   // Drag and drop for manual seeding
-  list.addEventListener('dragstart', onDragStart);
-  list.addEventListener('dragover', onDragOver);
-  list.addEventListener('drop', onDrop);
-  list.addEventListener('dragend', onDragEnd);
+  list.addEventListener('dragstart', onDragStart, { signal });
+  list.addEventListener('dragover', onDragOver, { signal });
+  list.addEventListener('drop', onDrop, { signal });
+  list.addEventListener('dragend', onDragEnd, { signal });
 }
 
 /**
@@ -291,6 +306,7 @@ function updateParticipantListSortable() {
  * Setup share link functionality
  */
 function setupShareLink() {
+  const { signal } = lobbyDomController;
   const shareInput = document.getElementById('share-link');
   const copyBtn = document.getElementById('copy-link-btn');
   const shareBtn = document.getElementById('share-btn');
@@ -304,7 +320,7 @@ function setupShareLink() {
       shareInput.select();
       showInfo('Press Ctrl+C to copy');
     }
-  });
+  }, { signal });
 
   shareBtn.addEventListener('click', async () => {
     const roomId = store.get('meta.id');
@@ -328,7 +344,7 @@ function setupShareLink() {
         showError('Could not copy link');
       }
     }
-  });
+  }, { signal });
 }
 
 /**

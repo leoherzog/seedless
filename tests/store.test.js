@@ -212,7 +212,9 @@ Deno.test("Store.isAdmin/setAdmin", async (t) => {
 });
 
 Deno.test("Store.merge - meta resolution", async (t) => {
-  await t.step("prefers remote admin state over local non-admin", () => {
+  await t.step("rejects remote state claiming different admin", () => {
+    // Security fix: remote peers claiming a different adminId than our known admin
+    // should NOT be trusted to override admin-controlled data
     const store = new Store();
     store.set("meta.version", 10);
     store.set("meta.status", "lobby");
@@ -222,8 +224,26 @@ Deno.test("Store.merge - meta resolution", async (t) => {
       meta: { version: 5, status: "active", adminId: "remote-admin" },
     };
 
-    // Remote is admin (remoteAdminId matches remote state's adminId)
+    // Remote claims to be "remote-admin" but our admin is "local-admin"
     store.merge(remoteState, "remote-admin");
+
+    // State should NOT change - untrusted remote cannot override
+    assertEquals(store.get("meta.status"), "lobby");
+    assertEquals(store.get("meta.version"), 10);
+  });
+
+  await t.step("accepts remote admin state when adminId matches local", () => {
+    const store = new Store();
+    store.set("meta.version", 10);
+    store.set("meta.status", "lobby");
+    store.set("meta.adminId", "known-admin");
+
+    const remoteState = {
+      meta: { version: 5, status: "active", adminId: "known-admin" },
+    };
+
+    // Remote claims same adminId as our known admin - trusted
+    store.merge(remoteState, "known-admin");
 
     // Admin state should win despite lower version
     assertEquals(store.get("meta.status"), "active");

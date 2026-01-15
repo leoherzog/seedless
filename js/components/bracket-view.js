@@ -12,6 +12,23 @@ import { getOrdinalSuffix } from '../utils/tournament-helpers.js';
 // Track subscriptions for cleanup
 let bracketSubscriptions = [];
 
+/**
+ * Get points for a position based on points table configuration
+ * @param {Array|string} pointsTable - Points table array or 'sequential'
+ * @param {number} position - 0-indexed position in results
+ * @param {number} totalPlayers - Total number of players (for sequential scoring)
+ * @returns {number} Points for this position
+ */
+function getPointsForPosition(pointsTable, position, totalPlayers) {
+  if (pointsTable === 'sequential') {
+    return totalPlayers - position;
+  }
+  return Array.isArray(pointsTable) ? (pointsTable[position] || 0) : 0;
+}
+
+// AbortController for DOM event listeners
+let bracketDomController = null;
+
 // AbortController for drag-drop event listeners (cleaner than node cloning)
 let rankingDragController = null;
 
@@ -21,6 +38,9 @@ let rankingDragController = null;
 export function initBracketView() {
   // Clean up any existing subscriptions first
   cleanupBracketView();
+
+  // Create new AbortController for DOM listeners
+  bracketDomController = new AbortController();
 
   setupBracketTabs();
   setupScoreModal();
@@ -32,11 +52,17 @@ export function initBracketView() {
 }
 
 /**
- * Clean up bracket view subscriptions
+ * Clean up bracket view subscriptions and DOM event listeners
  */
 export function cleanupBracketView() {
   bracketSubscriptions.forEach(unsubscribe => unsubscribe());
   bracketSubscriptions = [];
+
+  // Abort all DOM event listeners
+  if (bracketDomController) {
+    bracketDomController.abort();
+    bracketDomController = null;
+  }
 
   // Abort drag-drop listeners
   if (rankingDragController) {
@@ -49,6 +75,7 @@ export function cleanupBracketView() {
  * Setup bracket tabs (for double elimination)
  */
 function setupBracketTabs() {
+  const { signal } = bracketDomController;
   const tabs = document.getElementById('bracket-tabs');
   if (!tabs) return;
 
@@ -59,7 +86,7 @@ function setupBracketTabs() {
       buttons.forEach(b => b.removeAttribute('aria-current'));
       btn.setAttribute('aria-current', 'true');
       renderBracket(btn.dataset.bracket);
-    });
+    }, { signal });
   });
 }
 
@@ -67,6 +94,7 @@ function setupBracketTabs() {
  * Setup score reporting modal
  */
 function setupScoreModal() {
+  const { signal } = bracketDomController;
   const modal = document.getElementById('score-modal');
   const closeButtons = modal.querySelectorAll('.close-modal');
   const submitBtn = document.getElementById('submit-score-btn');
@@ -74,7 +102,7 @@ function setupScoreModal() {
   const score2Input = document.getElementById('score2');
 
   closeButtons.forEach(btn => {
-    btn.addEventListener('click', () => modal.close());
+    btn.addEventListener('click', () => modal.close(), { signal });
   });
 
   // Auto-select winner based on scores
@@ -89,10 +117,10 @@ function setupScoreModal() {
       } else if (s2 > s1) {
         form.querySelector('input[value="player2"]').checked = true;
       }
-    });
+    }, { signal });
   });
 
-  submitBtn.addEventListener('click', onSubmitScore);
+  submitBtn.addEventListener('click', onSubmitScore, { signal });
 }
 
 /**
@@ -131,6 +159,11 @@ function updateBracketUI() {
 
   // Render bracket
   renderBracket();
+
+  // Render final standings when tournament is complete
+  if (status === 'complete') {
+    renderFinalStandings();
+  }
 }
 
 /**
@@ -530,12 +563,14 @@ async function onSubmitScore() {
   const winnerId = winnerRadio.value === 'player1' ? form.dataset.p1 : form.dataset.p2;
 
   try {
-    // Update local state
+    // Update local state with version for LWW conflict resolution
+    const currentVersion = store.get('meta.version') || 0;
     store.updateMatch(matchId, {
       scores: [score1, score2],
       winnerId,
       reportedBy: store.get('local.localUserId'),
       reportedAt: Date.now(),
+      version: currentVersion,
     });
 
     // Advance winner to next match locally
@@ -612,18 +647,19 @@ async function verifyMatch(matchId) {
  * Setup race result modal handlers
  */
 function setupRaceResultModal() {
+  const { signal } = bracketDomController;
   const modal = document.getElementById('race-result-modal');
   if (!modal) return;
 
   // Close button handlers
   modal.querySelectorAll('.close-modal').forEach(btn => {
-    btn.addEventListener('click', () => modal.close());
+    btn.addEventListener('click', () => modal.close(), { signal });
   });
 
   // Submit handler
   const submitBtn = document.getElementById('submit-race-btn');
   if (submitBtn) {
-    submitBtn.addEventListener('click', onSubmitRaceResult);
+    submitBtn.addEventListener('click', onSubmitRaceResult, { signal });
   }
 }
 
@@ -640,6 +676,7 @@ function openRaceResultModal(gameId) {
   const participants = store.get('participants');
   const bracket = store.get('bracket');
   const pointsTable = bracket?.pointsTable || [15, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+  const totalPlayers = game.participants.length;
 
   // Update modal header
   document.getElementById('race-info').textContent = `Game ${game.gameNumber}`;
@@ -649,7 +686,7 @@ function openRaceResultModal(gameId) {
   const list = document.getElementById('race-ranking-list');
   list.innerHTML = game.participants.map((pid, idx) => {
     const p = participants.get(pid);
-    const points = pointsTable[idx] || 0;
+    const points = getPointsForPosition(pointsTable, idx, totalPlayers);
     return `
       <li data-participant-id="${pid}" draggable="true">
         <span class="fa-solid fa-grip-vertical drag-handle"></span>
@@ -659,8 +696,8 @@ function openRaceResultModal(gameId) {
     `;
   }).join('');
 
-  // Setup drag-and-drop
-  setupRankingDragDrop(list, pointsTable);
+  // Setup drag-and-drop (pass totalPlayers for sequential scoring)
+  setupRankingDragDrop(list, pointsTable, totalPlayers);
 
   // Open modal
   document.getElementById('race-result-modal').showModal();
@@ -669,7 +706,7 @@ function openRaceResultModal(gameId) {
 /**
  * Setup drag-and-drop for race ranking
  */
-function setupRankingDragDrop(list, pointsTable) {
+function setupRankingDragDrop(list, pointsTable, totalPlayers) {
   let draggedItem = null;
 
   // Abort previous listeners if any (cleaner than node cloning)
@@ -696,7 +733,7 @@ function setupRankingDragDrop(list, pointsTable) {
       } else {
         list.appendChild(draggedItem);
       }
-      updatePointsPreviews(list, pointsTable);
+      updatePointsPreviews(list, pointsTable, totalPlayers);
     }
   }, { signal });
 
@@ -728,7 +765,7 @@ function setupRankingDragDrop(list, pointsTable) {
     } else {
       list.appendChild(touchItem);
     }
-    updatePointsPreviews(list, pointsTable);
+    updatePointsPreviews(list, pointsTable, totalPlayers);
   }, { passive: false, signal });
 
   list.addEventListener('touchend', () => {
@@ -742,12 +779,13 @@ function setupRankingDragDrop(list, pointsTable) {
 /**
  * Update points preview after reordering
  */
-function updatePointsPreviews(list, pointsTable) {
+function updatePointsPreviews(list, pointsTable, totalPlayers) {
   const items = list.querySelectorAll('li');
   items.forEach((item, idx) => {
     const pointsEl = item.querySelector('.points-preview');
     if (pointsEl) {
-      pointsEl.textContent = `+${pointsTable[idx] || 0} pts`;
+      const points = getPointsForPosition(pointsTable, idx, totalPlayers);
+      pointsEl.textContent = `+${points} pts`;
     }
   });
 }
@@ -871,4 +909,94 @@ function renderStandings() {
       <td>${s.gamesCompleted}</td>
     </tr>
   `).join('');
+}
+
+/**
+ * Render final standings when tournament is complete
+ */
+async function renderFinalStandings() {
+  const container = document.getElementById('final-standings');
+  if (!container) return;
+
+  const status = store.get('meta.status');
+  if (status !== 'complete') {
+    container.innerHTML = '';
+    return;
+  }
+
+  const type = store.get('meta.type');
+  const bracket = store.get('bracket');
+  const participants = store.get('participants');
+
+  if (!bracket) {
+    container.innerHTML = '<p>No bracket data available</p>';
+    return;
+  }
+
+  let standings = [];
+
+  // Ensure bracket has isComplete flag set (store may only set meta.status)
+  const completeBracket = { ...bracket, isComplete: true };
+
+  try {
+    if (type === 'mariokart') {
+      // Mario Kart uses standings from store
+      const storeStandings = store.get('standings');
+      if (storeStandings && storeStandings.size > 0) {
+        const { getStandings } = await import('../tournament/mario-kart.js');
+        standings = getStandings({
+          ...completeBracket,
+          standings: storeStandings,
+        });
+      }
+    } else if (type === 'doubles') {
+      // Doubles mode - async getStandings
+      const { getStandings } = await import('../tournament/doubles.js');
+      standings = await getStandings(completeBracket, participants);
+    } else if (type === 'double') {
+      // Double elimination
+      const { getStandings } = await import('../tournament/double-elimination.js');
+      standings = getStandings(completeBracket, participants);
+    } else {
+      // Single elimination (default)
+      const { getStandings } = await import('../tournament/single-elimination.js');
+      standings = getStandings(completeBracket, participants);
+    }
+  } catch (e) {
+    console.error('[Bracket] Failed to get standings:', e);
+    container.innerHTML = '<p>Could not load standings</p>';
+    return;
+  }
+
+  if (!standings || standings.length === 0) {
+    container.innerHTML = '<p>No standings available</p>';
+    return;
+  }
+
+  // Render standings HTML
+  container.innerHTML = standings.map(s => {
+    const placeClass = s.place === 1 ? 'first' : s.place === 2 ? 'second' : s.place === 3 ? 'third' : '';
+    const icon = s.place === 1 ? '<span class="fa-solid fa-trophy"></span>' :
+                 s.place === 2 ? '<span class="fa-solid fa-medal"></span>' :
+                 s.place === 3 ? '<span class="fa-solid fa-award"></span>' : '';
+
+    // Build name display (handles teams for doubles mode)
+    let nameDisplay = escapeHtml(s.name || 'Unknown');
+    if (s.team && s.team.members) {
+      const memberNames = s.team.members.map(m => escapeHtml(m.name)).join(' & ');
+      nameDisplay = `${escapeHtml(s.team.name)} <small>(${memberNames})</small>`;
+    }
+
+    // Add points for Mario Kart mode
+    const pointsDisplay = type === 'mariokart' && s.points !== undefined
+      ? ` <small>${s.points} pts</small>`
+      : '';
+
+    return `
+      <div class="place ${placeClass}">
+        <span class="position">${icon} ${s.place}${getOrdinalSuffix(s.place)}</span>
+        <span class="name">${nameDisplay}${pointsDisplay}</span>
+      </div>
+    `;
+  }).join('');
 }

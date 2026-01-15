@@ -14,9 +14,12 @@
  */
 export function debounce(func, wait) {
   let timeoutId = null;
+  let storedArgs = null;
+  let storedContext = null;
 
   const debounced = function(...args) {
-    const context = this;
+    storedContext = this;
+    storedArgs = args;
 
     if (timeoutId !== null) {
       clearTimeout(timeoutId);
@@ -24,7 +27,7 @@ export function debounce(func, wait) {
 
     timeoutId = setTimeout(() => {
       timeoutId = null;
-      func.apply(context, args);
+      func.apply(storedContext, storedArgs);
     }, wait);
   };
 
@@ -45,7 +48,7 @@ export function debounce(func, wait) {
     if (timeoutId !== null) {
       clearTimeout(timeoutId);
       timeoutId = null;
-      func.apply(this);
+      func.apply(storedContext, storedArgs);
     }
   };
 

@@ -80,19 +80,23 @@ Deno.test('Invalid Payload Handling - Wrong Types', async (t) => {
 // =============================================================================
 
 Deno.test('Invalid Field Values - Scores', async (t) => {
-  await t.step('negative scores pass type check', () => {
-    // Validator only checks structure, not semantic validity
-    assert(isValidScores([-1, -2]));
+  await t.step('negative scores are rejected', () => {
+    // Security improvement: scores must be non-negative
+    assertFalse(isValidScores([-1, -2]));
+    assertFalse(isValidScores([-1, 2]));
+    assertFalse(isValidScores([2, -1]));
   });
 
-  await t.step('NaN in scores passes type check', () => {
-    // typeof NaN === 'number'
-    assert(isValidScores([NaN, 1]));
+  await t.step('NaN in scores is rejected', () => {
+    // Security improvement: scores must be finite
+    assertFalse(isValidScores([NaN, 1]));
+    assertFalse(isValidScores([1, NaN]));
   });
 
-  await t.step('Infinity in scores passes type check', () => {
-    assert(isValidScores([Infinity, 1]));
-    assert(isValidScores([1, -Infinity]));
+  await t.step('Infinity in scores is rejected', () => {
+    // Security improvement: scores must be finite
+    assertFalse(isValidScores([Infinity, 1]));
+    assertFalse(isValidScores([1, -Infinity]));
   });
 
   await t.step('scores with more than 2 elements rejected', () => {

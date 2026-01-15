@@ -36,6 +36,12 @@ Tests are in `tests/` with mocks in `tests/mocks/` and integration tests in `tes
 
 **Admin Authority Model**: The tournament creator (admin) is authoritative for bracket structure. Match results use last-write-wins (LWW) with admin verification override. Admin status persists across page refreshes via localStorage token.
 
+Security considerations in `sync.js` and `store.js`:
+- Admin-only actions (`t:start`, `t:reset`, participant removal) verify sender's `localUserId` matches `meta.adminId`
+- State merges only trust remote as admin if `remoteAdminId === localAdminId` (after admin is established)
+- Initial sync allows admin establishment when local has no adminId yet
+- `p:join` rejects claims to existing connected user IDs (prevents impersonation)
+
 **Dual ID System**: Participants have two IDs:
 - `peerId` - Transient WebRTC peer ID (changes on reconnect)
 - `localUserId` - Persistent ID stored in localStorage (survives page refresh)

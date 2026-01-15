@@ -402,9 +402,11 @@ Deno.test('Score Validation Edge Cases', async (t) => {
     assert(isValidScores([100, 99]));
   });
 
-  await t.step('negative scores are technically valid (passed to validator)', () => {
-    // Note: The validator only checks structure, not semantic validity
-    assert(isValidScores([-1, 2]));
+  await t.step('negative scores are rejected for security', () => {
+    // Security improvement: scores must be non-negative
+    assertFalse(isValidScores([-1, 2]));
+    assertFalse(isValidScores([2, -1]));
+    assertFalse(isValidScores([-1, -1]));
   });
 
   await t.step('non-array rejected', () => {
@@ -426,16 +428,16 @@ Deno.test('Score Validation Edge Cases', async (t) => {
     assertFalse(isValidScores([null, 1]));
   });
 
-  await t.step('NaN scores pass type check (typeof NaN === number)', () => {
-    // Note: isValidScores only checks structure, not semantic validity
-    // typeof NaN === 'number' is true in JavaScript
-    assert(isValidScores([NaN, 1]));
-    assert(isValidScores([2, NaN]));
+  await t.step('NaN scores are rejected', () => {
+    // Security improvement: scores must be finite numbers
+    assertFalse(isValidScores([NaN, 1]));
+    assertFalse(isValidScores([2, NaN]));
   });
 
-  await t.step('Infinity scores are technically valid numbers', () => {
-    assert(isValidScores([Infinity, 1]));
-    assert(isValidScores([2, -Infinity]));
+  await t.step('Infinity scores are rejected', () => {
+    // Security improvement: scores must be finite numbers
+    assertFalse(isValidScores([Infinity, 1]));
+    assertFalse(isValidScores([2, -Infinity]));
   });
 });
 

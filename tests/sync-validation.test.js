@@ -72,8 +72,20 @@ Deno.test('isValidScores', async (t) => {
     assertEquals(isValidScores([3, 2]), true);
     assertEquals(isValidScores([0, 0]), true);
     assertEquals(isValidScores([100, 50]), true);
-    assertEquals(isValidScores([-1, 1]), true); // negative is technically valid
     assertEquals(isValidScores([1.5, 2.5]), true); // floats are valid
+  });
+
+  await t.step('rejects negative scores', () => {
+    assertEquals(isValidScores([-1, 1]), false);
+    assertEquals(isValidScores([1, -1]), false);
+    assertEquals(isValidScores([-1, -1]), false);
+  });
+
+  await t.step('rejects non-finite numbers', () => {
+    assertEquals(isValidScores([Infinity, 0]), false);
+    assertEquals(isValidScores([0, -Infinity]), false);
+    assertEquals(isValidScores([NaN, 0]), false);
+    assertEquals(isValidScores([0, NaN]), false);
   });
 
   await t.step('rejects non-arrays', () => {

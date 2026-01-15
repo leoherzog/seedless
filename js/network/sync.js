@@ -96,6 +96,29 @@ export function setupStateSync(room) {
 
     // Use persistent userId if provided, fall back to peerId for backwards compatibility
     const localUserId = payload.localUserId || peerId;
+    const adminId = store.get('meta.adminId');
+
+    // Security: Prevent admin impersonation
+    // If someone claims the admin's localUserId, reject unless:
+    // 1. We don't have an admin yet (new room), OR
+    // 2. We ARE the admin (this is our own join message echoed back)
+    if (localUserId === adminId && adminId) {
+      if (store.isAdmin()) {
+        // This is our own join message - ignore it
+        return;
+      }
+      // Someone else is trying to claim admin ID - reject
+      console.warn(`[Sync] Rejected admin impersonation attempt from peer ${peerId}`);
+      return;
+    }
+
+    // Security: Prevent ID hijacking of connected participants
+    // Only allow claiming an existing ID if that participant is disconnected
+    const existingParticipant = store.getParticipant(localUserId);
+    if (existingParticipant && existingParticipant.isConnected && existingParticipant.peerId && existingParticipant.peerId !== peerId) {
+      console.warn(`[Sync] Rejected duplicate localUserId claim from ${peerId} (${localUserId} already connected)`);
+      return;
+    }
 
     // Store the peerId → localUserId mapping for message routing
     peerIdToUserId.set(peerId, localUserId);
@@ -103,8 +126,7 @@ export function setupStateSync(room) {
     console.info(`[Sync] Participant join: ${payload.name} (${localUserId}, peer: ${peerId})`);
 
     // Add or update participant
-    const existing = store.getParticipant(localUserId);
-    if (existing) {
+    if (existingParticipant) {
       store.updateParticipant(localUserId, {
         name: payload.name,
         peerId: peerId,
@@ -181,6 +203,14 @@ export function setupStateSync(room) {
 
     // Check if this is an admin removal (has removedId) or voluntary leave
     if (payload.removedId) {
+      const adminId = store.get('meta.adminId');
+
+      // Only admin can remove other participants
+      if (senderUserId !== adminId) {
+        console.warn(`[Sync] Rejected participant removal from non-admin: ${senderUserId}`);
+        return;
+      }
+
       const myUserId = store.get('local.localUserId');
 
       // Was I removed?

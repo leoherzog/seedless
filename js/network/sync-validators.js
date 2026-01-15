@@ -29,13 +29,15 @@ export function isValidMatchId(matchId) {
 /**
  * Validate a scores array
  * @param {*} scores - Value to validate
- * @returns {boolean} True if valid
+ * @returns {boolean} True if valid (both scores must be finite non-negative numbers)
  */
 export function isValidScores(scores) {
   return Array.isArray(scores) &&
     scores.length === 2 &&
     typeof scores[0] === 'number' &&
-    typeof scores[1] === 'number';
+    typeof scores[1] === 'number' &&
+    Number.isFinite(scores[0]) && scores[0] >= 0 &&
+    Number.isFinite(scores[1]) && scores[1] >= 0;
 }
 
 /**

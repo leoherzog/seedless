@@ -210,7 +210,8 @@ class Store extends EventEmitter {
   updateParticipant(id, updates) {
     const participant = this._state.participants.get(id);
     if (participant) {
-      Object.assign(participant, updates);
+      // Add updatedAt timestamp for LWW conflict resolution during state sync
+      Object.assign(participant, updates, { updatedAt: Date.now() });
       this._state.meta.version++;
       this.emit('participant:update', { id, updates });
       this.emit('change', { path: 'participants' });
@@ -400,11 +401,25 @@ class Store extends EventEmitter {
   // Merge remote state (for conflict resolution)
   merge(remoteState, remoteAdminId) {
     const localState = this._state;
-    const isRemoteAdmin = remoteAdminId === remoteState.meta?.adminId;
+    const localAdminId = localState.meta?.adminId;
+    // Trust remote as admin authority ONLY if:
+    // 1. We know who admin is (localAdminId exists), AND
+    // 2. Remote claims to be that exact admin
+    // For initial sync (no local adminId), we rely on version comparison
+    // The real admin should have higher version from room operations
+    const isRemoteAdmin = localAdminId && remoteAdminId && remoteAdminId === localAdminId;
 
-    // Meta: prefer remote if from admin or newer version
+    // Meta: prefer remote if from admin, newer version, or establishing initial admin
     if (remoteState.meta) {
-      if (isRemoteAdmin || remoteState.meta.version > localState.meta.version) {
+      // Accept remote meta if:
+      // 1. Remote is recognized admin (already established), OR
+      // 2. Remote has higher version (logical clock), OR
+      // 3. We have no admin yet and remote has one (initial admin establishment)
+      const shouldAcceptMeta = isRemoteAdmin ||
+        remoteState.meta.version > localState.meta.version ||
+        (!localAdminId && remoteState.meta.adminId);
+
+      if (shouldAcceptMeta) {
         this._state.meta = { ...remoteState.meta };
       }
     }
@@ -416,9 +431,11 @@ class Store extends EventEmitter {
         if (!localState.participants.has(id)) {
           localState.participants.set(id, participant);
         } else {
-          // LWW for updates
+          // LWW for updates - use updatedAt (falls back to joinedAt for older data)
           const local = localState.participants.get(id);
-          if (participant.joinedAt > local.joinedAt) {
+          const localTimestamp = local.updatedAt || local.joinedAt || 0;
+          const remoteTimestamp = participant.updatedAt || participant.joinedAt || 0;
+          if (remoteTimestamp > localTimestamp) {
             localState.participants.set(id, { ...local, ...participant });
           }
         }
