@@ -4,7 +4,7 @@
  */
 
 import { CONFIG } from '../../config.js';
-import { joinRoom as trysteroJoin, selfId } from 'trystero/torrent';
+import { joinRoom as trysteroJoin, selfId } from 'https://esm.run/trystero/torrent';
 
 // Allow tests to override Trystero adapter via globalThis.__seedlessTrysteroJoin / __seedlessTrysteroSelfId
 const getTrysteroJoin = () => globalThis.__seedlessTrysteroJoin || trysteroJoin;

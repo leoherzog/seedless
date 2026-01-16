@@ -1,2 +1,5 @@
 # Test coverage
 coverage/
+
+# Deno lock file
+deno.lock
