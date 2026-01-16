@@ -150,7 +150,7 @@ export function isValidParticipantUpdatePayload(payload) {
   const hasOwn = Object.prototype.hasOwnProperty;
   if (hasOwn.call(payload, '__proto__') || hasOwn.call(payload, 'constructor') || hasOwn.call(payload, 'prototype')) return false;
 
-  const allowedFields = ['name', 'seed', 'id', 'teamId', 'peerId', 'isConnected', 'localUserId'];
+  const allowedFields = ['name', 'seed', 'id', 'teamId', 'peerId', 'isConnected', 'localUserId', 'isManual', 'claimedBy'];
   for (const key of Object.keys(payload)) {
     if (!allowedFields.includes(key)) return false;
   }
@@ -160,9 +160,11 @@ export function isValidParticipantUpdatePayload(payload) {
   if (payload.seed !== undefined && typeof payload.seed !== 'number') return false;
   if (payload.id !== undefined && typeof payload.id !== 'string') return false;
   if (payload.teamId !== undefined && payload.teamId !== null && typeof payload.teamId !== 'string') return false;
-  if (payload.peerId !== undefined && typeof payload.peerId !== 'string') return false;
+  if (payload.peerId !== undefined && payload.peerId !== null && typeof payload.peerId !== 'string') return false;
   if (payload.isConnected !== undefined && typeof payload.isConnected !== 'boolean') return false;
   if (payload.localUserId !== undefined && typeof payload.localUserId !== 'string') return false;
+  if (payload.isManual !== undefined && typeof payload.isManual !== 'boolean') return false;
+  if (payload.claimedBy !== undefined && payload.claimedBy !== null && typeof payload.claimedBy !== 'string') return false;
 
   return true;
 }

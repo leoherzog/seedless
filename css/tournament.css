@@ -18,6 +18,10 @@
 }
 
 /* Navigation adjustments */
+#home-link {
+  color: inherit;
+}
+
 nav #room-display code {
   font-size: 0.85em;
   padding: 0.1em 0.4em;
@@ -125,6 +129,15 @@ nav #connection-status {
   text-transform: uppercase;
 }
 
+#participant-list .manual-badge {
+  background: var(--pico-muted-color);
+  color: var(--pico-background-color);
+  font-size: 0.65rem;
+  padding: 0.15em 0.4em;
+  border-radius: 0.25rem;
+  text-transform: uppercase;
+}
+
 #participant-list .seed-badge {
   background: var(--pico-muted-color);
   color: var(--pico-muted-border-color);
@@ -133,6 +146,40 @@ nav #connection-status {
   border-radius: 0.2rem;
   min-width: 1.5em;
   text-align: center;
+}
+
+/* Add offline player form (admin only) */
+#add-participant-footer {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--pico-muted-border-color);
+}
+
+#add-participant-footer details summary {
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+
+#add-participant-footer form {
+  margin-top: 0.5rem;
+}
+
+#add-participant-footer form small {
+  color: var(--pico-muted-color);
+  font-size: 0.8rem;
+}
+
+#add-participant-footer [role="group"] {
+  margin-bottom: 0.25rem;
+}
+
+#add-participant-footer [role="group"] input {
+  flex: 1;
+}
+
+#add-participant-footer [role="group"] button {
+  padding: 0.5rem 0.75rem;
 }
 
 /* Draggable participants for manual seeding */

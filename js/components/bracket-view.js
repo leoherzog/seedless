@@ -288,6 +288,7 @@ function renderMarioKartRaces(container, bracket) {
  * Render a game card (Points Race)
  */
 function renderGameCard(game, participants, localUserId, isAdmin) {
+  // Allow reporting if: user is a participant, OR admin
   const canReport = !game.complete && (game.participants.includes(localUserId) || isAdmin);
 
   return `
@@ -346,11 +347,12 @@ function renderMatchCard(match, participants, localUserId) {
   const p1 = participants.get(match.participants[0]);
   const p2 = participants.get(match.participants[1]);
 
-  const canReport = !match.winnerId && !match.isBye &&
-    match.participants.includes(localUserId) &&
-    match.participants[0] && match.participants[1];
-
   const isAdmin = store.isAdmin();
+
+  // Allow reporting if: user is a participant, OR admin
+  const canReport = !match.winnerId && !match.isBye &&
+    match.participants[0] && match.participants[1] &&
+    (match.participants.includes(localUserId) || isAdmin);
   const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
   const canAdminEdit = match.winnerId && isAdmin;
 
@@ -410,19 +412,22 @@ function renderTeamMatchCard(match, localUserId) {
   const bracket = store.get('bracket');
   const teams = bracket?.teams || [];
   const teamMap = new Map(teams.map(t => [t.id, t]));
+  const participants = store.get('participants');
 
   const team1 = teamMap.get(match.participants[0]);
   const team2 = teamMap.get(match.participants[1]);
+
+  const isAdmin = store.isAdmin();
 
   // Check if local user can report (is on one of the teams)
   const localUserTeams = teams
     .filter(t => t.members.some(m => m.id === localUserId))
     .map(t => t.id);
-  const canReport = !match.winnerId && !match.isBye &&
-    match.participants.some(teamId => localUserTeams.includes(teamId)) &&
-    match.participants[0] && match.participants[1];
 
-  const isAdmin = store.isAdmin();
+  // Allow reporting if: user is on a team, OR admin
+  const canReport = !match.winnerId && !match.isBye &&
+    match.participants[0] && match.participants[1] &&
+    (match.participants.some(teamId => localUserTeams.includes(teamId)) || isAdmin);
   const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
   const canAdminEdit = match.winnerId && isAdmin;
 

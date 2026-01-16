@@ -25,7 +25,7 @@
   <!-- Navigation -->
   <nav class="container">
     <ul>
-      <li><a href="/" id="home-link" style="text-decoration: none; color: inherit;"><strong><span class="fa-solid fa-seedling">🌱</span> Seedless</strong></a></li>
+      <li><a href="/" id="home-link"><strong><span class="fa-solid fa-seedling">🌱</span> Seedless</strong></a></li>
     </ul>
     <ul>
       <li id="room-display" hidden>
@@ -273,6 +273,25 @@
           <ul id="participant-list" role="list">
             <!-- Populated by JS -->
           </ul>
+
+          <!-- Add Offline Player (admin only) -->
+          <div id="add-participant-footer" class="admin-only">
+            <details>
+              <summary><span class="fa-solid fa-user-plus">➕</span> Add Offline Player</summary>
+              <form id="add-manual-participant-form">
+                <div role="group">
+                  <input type="text" id="manual-participant-name"
+                         placeholder="Player name"
+                         maxlength="32"
+                         required>
+                  <button type="submit" class="outline">
+                    <span class="fa-solid fa-plus">+</span>
+                  </button>
+                </div>
+                <small>Add players who can't join online.</small>
+              </form>
+            </details>
+          </div>
 
           <footer>
             <details>

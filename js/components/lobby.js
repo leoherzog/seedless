@@ -31,6 +31,7 @@ export function initLobby() {
   setupParticipantList();
   setupShareLink();
   setupTeamAssignmentDelegation(); // Event delegation for team assignment (set up once)
+  setupManualParticipantForm(); // Admin-only: add offline participants
 
   // Listen for state changes and track subscriptions
   lobbySubscriptions.push(store.on('change', updateLobbyUI));
@@ -348,6 +349,58 @@ function setupShareLink() {
 }
 
 /**
+ * Setup manual participant form (admin only)
+ */
+function setupManualParticipantForm() {
+  const { signal } = lobbyDomController;
+  const form = document.getElementById('add-manual-participant-form');
+  if (!form) return;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    // Only admin can add manual participants
+    if (!store.isAdmin()) {
+      showError('Only the admin can add offline players');
+      return;
+    }
+
+    const nameInput = document.getElementById('manual-participant-name');
+    const name = nameInput.value.trim();
+
+    // Validate name
+    if (!name) {
+      showError('Please enter a player name');
+      return;
+    }
+
+    if (name.length > 32) {
+      showError('Name must be 32 characters or less');
+      return;
+    }
+
+    // Add manual participant
+    const participant = store.addManualParticipant(name);
+
+    // Broadcast to peers as a join with the isManual flag
+    const room = window.seedlessRoom;
+    if (room) {
+      room.broadcast('p:join', {
+        name: participant.name,
+        localUserId: participant.id,
+        isManual: true,
+        joinedAt: participant.joinedAt,
+      });
+    }
+
+    // Clear input and show success
+    nameInput.value = '';
+    showSuccess(`${name} added as offline player`);
+    updateLobbyUI();
+  }, { signal });
+}
+
+/**
  * Update lobby UI based on state
  */
 function updateLobbyUI() {
@@ -426,12 +479,17 @@ function renderParticipantList(participants) {
   // Sort by seed
   const sorted = [...participants].sort((a, b) => (a.seed || 999) - (b.seed || 999));
 
-  list.innerHTML = sorted.map(p => `
+  list.innerHTML = sorted.map(p => {
+    // Show "Offline" badge for manual participants that haven't been claimed
+    const isUnclaimedManual = p.isManual && !p.claimedBy;
+
+    return `
     <li data-participant-id="${p.id}" draggable="${isAdmin && seedingMode === 'manual'}">
       <div class="participant-name">
         ${isAdmin && seedingMode === 'manual' ? `<span class="seed-badge">${p.seed || '?'}</span>` : ''}
         <span>${escapeHtml(p.name)}</span>
         ${p.id === adminId ? '<span class="admin-badge">Admin</span>' : ''}
+        ${isUnclaimedManual ? '<span class="manual-badge">Offline</span>' : ''}
         ${p.id === localUserId ? '<small>(you)</small>' : ''}
       </div>
       <div class="participant-actions">
@@ -446,7 +504,8 @@ function renderParticipantList(participants) {
         ` : ''}
       </div>
     </li>
-  `).join('');
+  `;
+  }).join('');
 
   // Add event listeners for remove buttons
   if (isAdmin) {

@@ -5,10 +5,12 @@
 
 /**
  * @typedef {Object} Participant
- * @property {string} id - Peer ID
+ * @property {string} id - Unique ID (user_ for connected, manual_ for manual)
  * @property {string} name - Display name
  * @property {string|null} teamId - Team ID for doubles
- * @property {boolean} isConnected - Connection status
+ * @property {boolean} isConnected - Connection status (always false for manual until claimed)
+ * @property {boolean} isManual - True if manually added by admin
+ * @property {string|null} claimedBy - localUserId of user who claimed this slot
  * @property {number} seed - Seeding position
  * @property {number} joinedAt - Join timestamp
  */
@@ -68,6 +70,18 @@ class EventEmitter {
       }
     }
   }
+}
+
+/**
+ * Generate a unique ID for a manual participant
+ * Uses crypto random values with manual_ prefix
+ * @returns {string} Manual participant ID (e.g., 'manual_a1b2c3d4')
+ */
+function generateManualParticipantId() {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `manual_${hex}`;
 }
 
 // Initial state factory
@@ -243,6 +257,32 @@ class Store extends EventEmitter {
 
   getParticipantList() {
     return Array.from(this._state.participants.values());
+  }
+
+  /**
+   * Add a manual (offline) participant
+   * @param {string} name - Display name for the participant
+   * @returns {Object} The created participant
+   */
+  addManualParticipant(name) {
+    const id = generateManualParticipantId();
+    const participant = {
+      id,
+      name,
+      teamId: null,
+      isConnected: false,
+      isManual: true,
+      claimedBy: null,
+      seed: this._state.participants.size + 1,
+      joinedAt: Date.now(),
+    };
+
+    this._state.participants.set(id, participant);
+    this._state.meta.version++;
+    this.emit('participant:join', participant);
+    this.emit('change', { path: 'participants' });
+
+    return participant;
   }
 
   // --- Team assignment methods ---

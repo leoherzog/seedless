@@ -121,6 +121,27 @@ export function setupStateSync(room) {
     const localUserId = payload.localUserId || peerId;
     const adminId = store.get('meta.adminId');
 
+    // Handle manual participant additions (admin only, no peerId needed)
+    if (payload.isManual) {
+      // Only process if we don't already have this participant
+      const existingManual = store.getParticipant(localUserId);
+      if (!existingManual) {
+        store.addParticipant({
+          id: localUserId,
+          peerId: null,
+          name: payload.name,
+          teamId: null,
+          seed: store.getParticipantList().length + 1,
+          isManual: true,
+          isConnected: false,
+          claimedBy: null,
+          joinedAt: payload.joinedAt || Date.now(),
+        });
+        console.info(`[Sync] Manual participant added: ${payload.name} (${localUserId})`);
+      }
+      return;
+    }
+
     // Security: Prevent admin impersonation
     // If someone claims the admin's localUserId, reject unless:
     // 1. We don't have an admin yet (new room), OR
@@ -140,6 +161,39 @@ export function setupStateSync(room) {
     const existingParticipant = store.getParticipant(localUserId);
     if (existingParticipant && existingParticipant.isConnected && existingParticipant.peerId && existingParticipant.peerId !== peerId) {
       console.warn(`[Sync] Rejected duplicate localUserId claim from ${peerId} (${localUserId} already connected)`);
+      return;
+    }
+
+    // Auto-claim: Check if there's an unclaimed manual participant with the exact same name
+    const participants = store.getParticipantList();
+    const matchingManual = participants.find(p =>
+      p.isManual &&
+      !p.claimedBy &&
+      p.name.toLowerCase() === payload.name.toLowerCase()
+    );
+
+    if (matchingManual) {
+      // Claim the manual participant slot
+      console.info(`[Sync] Auto-claiming manual participant: ${matchingManual.name} (${matchingManual.id}) claimed by ${localUserId}`);
+
+      // Store the peerId → manual participant ID mapping
+      peerIdToUserId.set(peerId, matchingManual.id);
+
+      // Update the manual participant with the claimer's info
+      store.updateParticipant(matchingManual.id, {
+        claimedBy: localUserId,
+        isConnected: true,
+        peerId: peerId,
+      });
+
+      // Broadcast the claim to peers so they also update
+      room.broadcast(ActionTypes.PARTICIPANT_UPDATE, {
+        id: matchingManual.id,
+        claimedBy: localUserId,
+        isConnected: true,
+        peerId: peerId,
+      });
+
       return;
     }
 
