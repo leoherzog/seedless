@@ -228,11 +228,6 @@ nav #connection-status {
   color: var(--pico-muted-color);
 }
 
-/* Match cards - uses PicoCSS <article> styling for background/border/radius */
-.match-card {
-  /* Base card styling provided by PicoCSS <article> */
-}
-
 .match-card header {
   background: var(--pico-card-sectioning-background-color);
   padding: 0.3rem 0.5rem;

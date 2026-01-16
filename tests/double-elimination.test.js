@@ -210,6 +210,30 @@ Deno.test("recordMatchResult - losers bracket", async (t) => {
     // Full flow is tested in grand finals tests
     assert(bracket.losers.rounds.length > 0, "Should have losers rounds");
   });
+
+  await t.step("minor round winner advances to next round slot 0", () => {
+    const bracket = generateDoubleEliminationBracket(participants4);
+    const minorRound = bracket.losers.rounds[0];
+    const minorMatch = minorRound.matches[0];
+
+    minorMatch.participants = ["player-1", "player-2"];
+    recordMatchResult(bracket, minorMatch.id, [2, 0], "player-1", "player-1");
+
+    const nextRound = bracket.losers.rounds[1];
+    const nextMatch = nextRound.matches[0];
+    assertEquals(nextMatch.participants[0], "player-1");
+  });
+
+  await t.step("losers finals winner advances to grand finals slot 1", () => {
+    const bracket = generateDoubleEliminationBracket(participants4);
+    const lastRound = bracket.losers.rounds[bracket.losers.rounds.length - 1];
+    const finalMatch = lastRound.matches[0];
+
+    finalMatch.participants = ["player-1", "player-2"];
+    recordMatchResult(bracket, finalMatch.id, [2, 1], "player-1", "player-1");
+
+    assertEquals(bracket.grandFinals.match.participants[1], "player-1");
+  });
 });
 
 Deno.test("recordMatchResult - grand finals", async (t) => {

@@ -154,13 +154,18 @@ export function setupStateSync(room) {
     const adminId = store.get('meta.adminId');
     let senderUserId = peerIdToUserId.get(peerId);
 
-    // If no mapping exists, try to find participant by peerId
+    // If no mapping exists, try to find participant by peerId or use localUserId from payload
     if (!senderUserId) {
       const participantByPeerId = store.getParticipantByPeerId(peerId);
       if (participantByPeerId) {
         senderUserId = participantByPeerId.id;
         // Cache the mapping for future use
         peerIdToUserId.set(peerId, senderUserId);
+      } else if (payload.localUserId) {
+        // Use localUserId from payload (handles case where PARTICIPANT_JOIN was rejected due to empty name)
+        senderUserId = payload.localUserId;
+        peerIdToUserId.set(peerId, senderUserId);
+        console.info(`[Sync] Established mapping from payload: ${peerId} → ${senderUserId}`);
       } else {
         // Still no mapping - use peerId as fallback
         senderUserId = peerId;
@@ -178,8 +183,8 @@ export function setupStateSync(room) {
       console.info(`[Sync] Participant update from ${targetUserId}:`, payload);
     }
 
-    // Clean payload - remove 'id' field before passing to store (it's used for routing only)
-    const { id, ...cleanPayload } = payload;
+    // Clean payload - remove routing fields before passing to store
+    const { id, localUserId, ...cleanPayload } = payload;
 
     // If participant doesn't exist and we have a name, add them
     const existing = store.getParticipant(targetUserId);
@@ -583,9 +588,12 @@ export function advanceWinner(matchId, winnerId) {
  * @param {string} winnerId - Winner's participant/team ID
  */
 function advanceInDoubleElim(bracket, matchId, winnerId) {
-  const match = bracket.matches instanceof Map
-    ? bracket.matches.get(matchId)
-    : bracket.matches?.[matchId];
+  const match =
+    store.getMatch(matchId) ||
+    (bracket.matches instanceof Map
+      ? bracket.matches.get(matchId)
+      : bracket.matches?.[matchId]) ||
+    findDoubleElimMatch(bracket, matchId);
 
   if (!match) return;
 
@@ -676,6 +684,30 @@ function updateSlot(participants, slot, value) {
 }
 
 /**
+ * Find a match in a double-elimination bracket structure (when matches map is absent)
+ */
+function findDoubleElimMatch(bracket, matchId) {
+  if (!bracket) return null;
+
+  const winnersRounds = bracket.winners?.rounds || [];
+  for (const round of winnersRounds) {
+    const match = round.matches?.find(m => m.id === matchId);
+    if (match) return match;
+  }
+
+  const losersRounds = bracket.losers?.rounds || [];
+  for (const round of losersRounds) {
+    const match = round.matches?.find(m => m.id === matchId);
+    if (match) return match;
+  }
+
+  if (bracket.grandFinals?.match?.id === matchId) return bracket.grandFinals.match;
+  if (bracket.grandFinals?.reset?.id === matchId) return bracket.grandFinals.reset;
+
+  return null;
+}
+
+/**
  * Announce joining a room
  * @param {Object} room - Room connection
  * @param {string} name - Display name
@@ -752,4 +784,3 @@ export function resetSyncState() {
   stateInitialized = false;
   peerIdToUserId.clear();
 }
-

@@ -217,7 +217,7 @@ function setupParticipantPanel() {
         // Announce update to peers
         const room = window.seedlessRoom;
         if (room) {
-          room.broadcast('p:upd', { name: newName });
+          room.broadcast('p:upd', { name: newName, localUserId });
         }
 
         showSuccess('Name updated!');

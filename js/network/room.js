@@ -6,6 +6,10 @@
 import { CONFIG } from '../../config.js';
 import { joinRoom as trysteroJoin, selfId } from 'trystero/torrent';
 
+// Allow tests to override Trystero adapter via globalThis.__seedlessTrysteroJoin / __seedlessTrysteroSelfId
+const getTrysteroJoin = () => globalThis.__seedlessTrysteroJoin || trysteroJoin;
+const getSelfId = () => globalThis.__seedlessTrysteroSelfId || selfId;
+
 /**
  * @typedef {Object} RoomConnection
  * @property {Object} room - Trystero room instance
@@ -38,7 +42,8 @@ export async function joinRoom(roomId, options = {}) {
   };
 
   console.info(`[Seedless] Joining room: ${roomId}`);
-  const room = trysteroJoin(config, roomId);
+  const room = getTrysteroJoin()(config, roomId);
+  const localSelfId = getSelfId();
 
   // Create action channels
   // Note: Trystero has 12-byte limit on action names
@@ -66,7 +71,7 @@ export async function joinRoom(roomId, options = {}) {
   const connection = {
     room,
     roomId,
-    selfId,
+    selfId: localSelfId,
     actions,
 
     /**
@@ -79,7 +84,7 @@ export async function joinRoom(roomId, options = {}) {
       }
       actions[actionType].send({
         payload,
-        senderId: selfId,
+        senderId: localSelfId,
         timestamp: Date.now(),
       });
     },
@@ -95,7 +100,7 @@ export async function joinRoom(roomId, options = {}) {
       const targets = Array.isArray(targetPeers) ? targetPeers : [targetPeers];
       actions[actionType].send({
         payload,
-        senderId: selfId,
+        senderId: localSelfId,
         timestamp: Date.now(),
       }, targets);
     },

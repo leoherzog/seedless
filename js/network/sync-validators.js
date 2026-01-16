@@ -150,7 +150,7 @@ export function isValidParticipantUpdatePayload(payload) {
   const hasOwn = Object.prototype.hasOwnProperty;
   if (hasOwn.call(payload, '__proto__') || hasOwn.call(payload, 'constructor') || hasOwn.call(payload, 'prototype')) return false;
 
-  const allowedFields = ['name', 'seed', 'id', 'teamId', 'peerId', 'isConnected'];
+  const allowedFields = ['name', 'seed', 'id', 'teamId', 'peerId', 'isConnected', 'localUserId'];
   for (const key of Object.keys(payload)) {
     if (!allowedFields.includes(key)) return false;
   }
@@ -162,6 +162,7 @@ export function isValidParticipantUpdatePayload(payload) {
   if (payload.teamId !== undefined && payload.teamId !== null && typeof payload.teamId !== 'string') return false;
   if (payload.peerId !== undefined && typeof payload.peerId !== 'string') return false;
   if (payload.isConnected !== undefined && typeof payload.isConnected !== 'boolean') return false;
+  if (payload.localUserId !== undefined && typeof payload.localUserId !== 'string') return false;
 
   return true;
 }
