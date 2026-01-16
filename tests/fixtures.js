@@ -186,7 +186,7 @@ export function createMockRoom(selfId = 'local-peer-id') {
       peerLeaveHandlers.push(handler);
     },
 
-    getPeers: () => Object.fromEntries(peers),
+    getPeers: () => Array.from(peers.keys()),
     getPeerCount: () => peers.size,
 
     leave: () => {

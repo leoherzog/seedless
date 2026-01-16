@@ -74,6 +74,25 @@ export function setupStateSync(room) {
       // Mark state as initialized (prevents race conditions with early messages)
       stateInitialized = true;
 
+      // Reconcile connection status with actual WebRTC peers
+      // isConnected is local/ephemeral - it reflects our actual peer connections,
+      // not synced state (which may be stale due to LWW timestamps)
+      const currentPeers = room.getPeers();
+      const myUserId = store.get('local.localUserId');
+      for (const participant of store.getParticipantList()) {
+        if (participant.id === myUserId) {
+          // We're always connected from our own perspective
+          if (!participant.isConnected) {
+            store.updateParticipant(participant.id, { isConnected: true });
+          }
+        } else if (participant.peerId) {
+          const isActuallyConnected = currentPeers.includes(participant.peerId);
+          if (participant.isConnected !== isActuallyConnected) {
+            store.updateParticipant(participant.id, { isConnected: isActuallyConnected });
+          }
+        }
+      }
+
       // Re-announce ourselves to the admin if this is from admin
       // This handles the case where our initial p:join was sent before WebRTC connected
       if (isRemoteAdmin && !store.isAdmin()) {
@@ -496,6 +515,14 @@ export function setupStateSync(room) {
   room.onAction(ActionTypes.VERSION_CHECK, (payload, peerId) => {
     const { version } = payload;
     const localVersion = store.get('meta.version') || 0;
+
+    // Heartbeat received = admin is connected
+    // This ensures connection status stays accurate even without version drift
+    const adminId = store.get('meta.adminId');
+    if (adminId) {
+      peerIdToUserId.set(peerId, adminId);
+      store.updateParticipant(adminId, { isConnected: true, peerId: peerId });
+    }
 
     // If we're behind, request full state sync
     if (version > localVersion) {

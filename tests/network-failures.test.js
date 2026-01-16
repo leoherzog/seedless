@@ -374,13 +374,13 @@ Deno.test('MockRoom Event Handling', async (t) => {
     room._simulatePeerJoin('peer-2');
 
     assertEquals(room.getPeerCount(), 2);
-    assert('peer-1' in room.getPeers());
-    assert('peer-2' in room.getPeers());
+    assert(room.getPeers().includes('peer-1'));
+    assert(room.getPeers().includes('peer-2'));
 
     room._simulatePeerLeave('peer-1');
 
     assertEquals(room.getPeerCount(), 1);
-    assertFalse('peer-1' in room.getPeers());
+    assertFalse(room.getPeers().includes('peer-1'));
   });
 });
 
