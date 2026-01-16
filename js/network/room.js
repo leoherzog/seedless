@@ -60,6 +60,7 @@ export async function joinRoom(roomId, options = {}) {
     'm:verify',    // match verify
     's:upd',       // standings update
     'r:result',    // race/game result (Points Race)
+    'v:check',     // version check (admin heartbeat)
   ];
 
   for (const actionType of actionTypes) {
@@ -192,4 +193,5 @@ export const ActionTypes = {
   MATCH_VERIFY: 'm:verify',
   STANDINGS_UPDATE: 's:upd',
   RACE_RESULT: 'r:result',
+  VERSION_CHECK: 'v:check',
 };

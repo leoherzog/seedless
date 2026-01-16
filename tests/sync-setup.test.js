@@ -362,4 +362,7 @@ Deno.test('setupStateSync handlers', async (t) => {
     );
     assertEquals(store.getMatch(gameId).reportedAt, guardedReportedAt);
   });
+
+  // Cleanup heartbeat interval after all steps
+  resetStore();
 });

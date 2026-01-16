@@ -23,6 +23,10 @@ const peerIdToUserId = new Map();
 // Track whether we've received initial state (prevents race conditions)
 let stateInitialized = false;
 
+// Admin heartbeat interval (broadcasts version for drift detection)
+let heartbeatInterval = null;
+const HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
+
 /**
  * Set up state synchronization for a room connection
  * @param {Object} room - Room connection from room.js
@@ -488,6 +492,18 @@ export function setupStateSync(room) {
     }
   });
 
+  // --- Handle version check (admin heartbeat for drift detection) ---
+  room.onAction(ActionTypes.VERSION_CHECK, (payload, peerId) => {
+    const { version } = payload;
+    const localVersion = store.get('meta.version') || 0;
+
+    // If we're behind, request full state sync
+    if (version > localVersion) {
+      console.info(`[Sync] Version drift detected (local: ${localVersion}, admin: ${version}), requesting sync`);
+      room.sendTo(ActionTypes.STATE_REQUEST, {}, peerId);
+    }
+  });
+
   // --- Handle peer join/leave for presence ---
   room.onPeerJoin((peerId) => {
     // Try to find participant by peerId mapping or direct lookup
@@ -498,6 +514,19 @@ export function setupStateSync(room) {
 
     // Request state from new peer (might have fresher data)
     room.sendTo(ActionTypes.STATE_REQUEST, {}, peerId);
+
+    // Re-announce ourselves to the new peer so they can establish the peerId → localUserId
+    // mapping and mark us as connected. This is critical for re-joined participants who
+    // load stale persisted state with everyone marked as disconnected.
+    const myUserId = store.get('local.localUserId');
+    const myName = store.get('local.name');
+    if (myUserId && myName) {
+      room.broadcast(ActionTypes.PARTICIPANT_JOIN, {
+        name: myName,
+        localUserId: myUserId,
+        joinedAt: Date.now(),
+      });
+    }
   });
 
   room.onPeerLeave((peerId) => {
@@ -516,6 +545,20 @@ export function setupStateSync(room) {
   if (peers.length > 0) {
     room.broadcast(ActionTypes.STATE_REQUEST, {});
   }
+
+  // --- Admin heartbeat ---
+  // Periodically broadcast version so peers can detect drift and request sync
+  // Clear any existing interval first (in case of reconnect)
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+  }
+  heartbeatInterval = setInterval(() => {
+    // Only admin broadcasts heartbeat
+    if (store.isAdmin() && room.getPeers().length > 0) {
+      const version = store.get('meta.version') || 0;
+      room.broadcast(ActionTypes.VERSION_CHECK, { version });
+    }
+  }, HEARTBEAT_INTERVAL_MS);
 }
 
 /**
@@ -783,4 +826,8 @@ export function markStateInitialized() {
 export function resetSyncState() {
   stateInitialized = false;
   peerIdToUserId.clear();
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
 }
