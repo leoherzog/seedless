@@ -118,7 +118,7 @@ function generateWinnersBracket(seeded, bracketSize) {
         loserId: null,
         isBye: false,
         feedsFrom: [`w${r}m${m * 2}`, `w${r}m${m * 2 + 1}`],
-        dropsTo: r + 1 < numRounds ? calculateDropTarget(r + 1, m, bracketSize) : null,
+        dropsTo: calculateDropTarget(r + 1, m, bracketSize),
       });
     }
 
@@ -210,10 +210,28 @@ function generateGrandFinals() {
  * Calculate where a loser drops to in losers bracket
  */
 function calculateDropTarget(winnersRound, position, bracketSize) {
-  // Losers bracket round = 2 * (winnersRound - 1)
-  const losersRound = 2 * (winnersRound - 1) + 1;
-  // Position may be inverted to prevent immediate rematches
-  return { round: losersRound, position: position };
+  const numWinnersRounds = Math.log2(bracketSize);
+  const numLosersRounds = 2 * (numWinnersRounds - 1);
+
+  // Winners Finals loser goes to Losers Finals
+  if (winnersRound === numWinnersRounds) {
+    return { round: numLosersRounds, position: 0, slot: 1 };
+  }
+
+  // W1 losers pair up in L1, W2 losers mix in L2, etc.
+  // Formula: losersRound = winnersRound for early rounds
+  // For L1: W1 losers pair up (slot determined by position % 2)
+  // For L2+: losers go to slot 1 to mix with previous losers winners
+  if (winnersRound === 1) {
+    // W1 losers pair up in L1
+    const losersPosition = Math.floor(position / 2);
+    const slot = position % 2;
+    return { round: 1, position: losersPosition, slot };
+  } else {
+    // W2+ losers go to slot 1, mixing with previous round winners
+    // Each winners match maps to a specific losers match
+    return { round: winnersRound, position: position, slot: 1 };
+  }
 }
 
 /**
@@ -330,8 +348,9 @@ function dropToLosers(bracket, match, loserId) {
   if (losersRound) {
     const targetMatch = losersRound.matches[match.dropsTo.position];
     if (targetMatch) {
-      // Dropdown goes to the second slot
-      targetMatch.participants[1] = loserId;
+      // Use the slot from dropsTo (0 or 1)
+      const slot = match.dropsTo.slot !== undefined ? match.dropsTo.slot : 1;
+      targetMatch.participants[slot] = loserId;
     }
   }
 }

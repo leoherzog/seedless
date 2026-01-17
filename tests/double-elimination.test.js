@@ -332,6 +332,82 @@ Deno.test("recordMatchResult - grand finals", async (t) => {
   });
 });
 
+Deno.test("double elimination full bracket completion simulation", async (t) => {
+  function playToCompletion(bracket, winnerSelector) {
+    let progressed = true;
+    let safety = 0;
+
+    while (progressed && safety < 200) {
+      progressed = false;
+
+      for (const match of bracket.matches.values()) {
+        if (match.isBye || match.winnerId) continue;
+        if (match.participants[0] && match.participants[1]) {
+          const winnerId = winnerSelector(match);
+          recordMatchResult(bracket, match.id, [2, 0], winnerId, winnerId);
+          progressed = true;
+        }
+      }
+
+      safety++;
+    }
+
+    return safety;
+  }
+
+  function describeIncomplete(bracket) {
+    const playable = [];
+    const blocked = [];
+
+    for (const match of bracket.matches.values()) {
+      if (match.isBye || match.winnerId) continue;
+      const [p1, p2] = match.participants;
+      if (p1 && p2) {
+        playable.push(match.id);
+      } else if (p1 || p2) {
+        blocked.push(match.id);
+      }
+    }
+
+    const gf1 = bracket.grandFinals.match;
+    const gf2 = bracket.grandFinals.reset;
+    return `playable=${playable.length} blocked=${blocked.length} gf1=[${gf1.participants.join(",")}] gf1Winner=${gf1.winnerId} gf2Requires=${gf2.requiresPlay}`;
+  }
+
+  await t.step("winners champ wins GF1 (no reset)", () => {
+    const participants = createParticipants(8);
+    const participantMap = createParticipantMap(participants);
+    const bracket = generateDoubleEliminationBracket(participants);
+
+    playToCompletion(bracket, (match) => match.participants[0]);
+
+    assert(bracket.isComplete, `Tournament should complete. ${describeIncomplete(bracket)}`);
+    assertEquals(bracket.grandFinals.reset.requiresPlay, false);
+
+    const standings = getStandings(bracket, participantMap);
+    assertEquals(standings.length, participants.length);
+  });
+
+  await t.step("losers champ wins GF1 (reset then completes)", () => {
+    const participants = createParticipants(8);
+    const participantMap = createParticipantMap(participants);
+    const bracket = generateDoubleEliminationBracket(participants);
+
+    playToCompletion(bracket, (match) => {
+      if (match.id === "gf1") {
+        return match.participants[1];
+      }
+      return match.participants[0];
+    });
+
+    assert(bracket.grandFinals.reset.requiresPlay, "Reset should be required after GF1 loss");
+    assert(bracket.isComplete, `Tournament should complete after reset. ${describeIncomplete(bracket)}`);
+
+    const standings = getStandings(bracket, participantMap);
+    assertEquals(standings.length, participants.length);
+  });
+});
+
 Deno.test("getStandings", async (t) => {
   await t.step("returns empty array if not complete", () => {
     const bracket = generateDoubleEliminationBracket(participants4);
