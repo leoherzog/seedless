@@ -493,19 +493,32 @@ async function disconnectFromRoom() {
  */
 async function onNewTournament() {
   if (window.seedlessRoom && store.isAdmin()) {
-    // Reset tournament
-    store.set('meta.status', 'lobby');
-    store.set('bracket', null);
-    store.setMatches(new Map());
+    const status = store.get('meta.status');
 
-    // Broadcast reset
-    window.seedlessRoom.broadcast(ActionTypes.TOURNAMENT_RESET, {});
+    // If tournament is complete, archive it first
+    if (status === 'complete') {
+      const archive = store.archiveTournament();
+      if (archive) {
+        // Broadcast archive to peers
+        const { archiveTournament } = await import('./network/sync.js');
+        archiveTournament(window.seedlessRoom, archive);
+      }
+    }
+
+    // Reset for new tournament (keeps participants and history)
+    store.resetForNewTournament();
+
+    // For peers that didn't receive archive (e.g., tournament wasn't complete),
+    // send regular reset
+    if (status !== 'complete') {
+      window.seedlessRoom.broadcast(ActionTypes.TOURNAMENT_RESET, {});
+    }
 
     // Save
     saveTournament(store.get('meta.id'), store.serialize());
 
     showView(VIEWS.LOBBY);
-    showSuccess('Tournament reset!');
+    showSuccess('Ready for new tournament!');
   } else {
     // Leave current room and go home
     await disconnectFromRoom();

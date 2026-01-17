@@ -1004,4 +1004,105 @@ async function renderFinalStandings() {
       </div>
     `;
   }).join('');
+
+  // Render history section if there are past tournaments
+  renderHistorySection(container);
+}
+
+/**
+ * Get icon for tournament type
+ * @param {string} type - Tournament type
+ * @returns {string} FontAwesome icon class
+ */
+function getTournamentTypeIcon(type) {
+  switch (type) {
+    case 'single': return 'fa-solid fa-sitemap';
+    case 'double': return 'fa-solid fa-layer-group';
+    case 'mariokart': return 'fa-solid fa-flag-checkered';
+    case 'doubles': return 'fa-solid fa-users';
+    default: return 'fa-solid fa-trophy';
+  }
+}
+
+/**
+ * Format tournament type for display
+ * @param {string} type - Tournament type
+ * @returns {string} Human readable type name
+ */
+function formatTournamentType(type) {
+  switch (type) {
+    case 'single': return 'Single Elimination';
+    case 'double': return 'Double Elimination';
+    case 'mariokart': return 'Points Race';
+    case 'doubles': return 'Doubles';
+    default: return type;
+  }
+}
+
+/**
+ * Render tournament history section below standings
+ * @param {HTMLElement} container - Parent container (final-standings)
+ */
+function renderHistorySection(container) {
+  const history = store.getHistory();
+  if (!history || history.length === 0) return;
+
+  // Check if history section already exists
+  let historySection = document.getElementById('tournament-history');
+  if (!historySection) {
+    historySection = document.createElement('section');
+    historySection.id = 'tournament-history';
+    historySection.className = 'tournament-history';
+    container.after(historySection);
+  }
+
+  // Sort by completedAt descending (most recent first)
+  const sortedHistory = [...history].sort((a, b) => b.completedAt - a.completedAt);
+
+  historySection.innerHTML = `
+    <h4><span class="fa-solid fa-clock-rotate-left"></span> Past Tournaments</h4>
+    ${sortedHistory.map(entry => {
+      const date = new Date(entry.completedAt);
+      const dateStr = date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+      // Build winner display
+      let winnerDisplay = 'Unknown';
+      if (entry.winner) {
+        if (entry.winner.team) {
+          const memberNames = entry.winner.team.members?.map(m => escapeHtml(m.name)).join(' & ') || '';
+          winnerDisplay = `${escapeHtml(entry.winner.team.name)} <small>(${memberNames})</small>`;
+        } else {
+          winnerDisplay = escapeHtml(entry.winner.name || 'Unknown');
+        }
+      }
+
+      // Build standings preview (top 3)
+      const standingsPreview = entry.standings?.slice(0, 3).map(s => {
+        const pointsStr = s.points !== undefined ? ` (${s.points} pts)` : '';
+        return `${s.place}. ${escapeHtml(s.name)}${pointsStr}`;
+      }).join(', ') || '';
+
+      return `
+        <details class="history-entry">
+          <summary>
+            <span class="history-icon"><span class="${getTournamentTypeIcon(entry.type)}"></span></span>
+            <span class="history-winner">
+              <span class="fa-solid fa-crown"></span> ${winnerDisplay}
+            </span>
+            <span class="history-meta">${dateStr}</span>
+          </summary>
+          <div class="history-details">
+            <p><strong>Type:</strong> ${formatTournamentType(entry.type)}</p>
+            <p><strong>Participants:</strong> ${entry.participantCount}</p>
+            ${standingsPreview ? `<p><strong>Top 3:</strong> ${standingsPreview}</p>` : ''}
+          </div>
+        </details>
+      `;
+    }).join('')}
+  `;
 }

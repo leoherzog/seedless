@@ -108,6 +108,7 @@ function createInitialState() {
     matches: new Map(),
     standings: new Map(),
     teamAssignments: new Map(), // participantId -> teamId
+    history: [], // Array of archived tournament summaries
     local: {
       peerId: null,
       name: '',
@@ -401,6 +402,230 @@ class Store extends EventEmitter {
     return this;
   }
 
+  // --- History methods ---
+
+  /**
+   * Archive current tournament to history
+   * Creates a summary entry with winner, standings, type, and participant count
+   * @returns {Object|null} The created history entry, or null if tournament not complete
+   */
+  archiveTournament() {
+    const status = this._state.meta.status;
+    if (status !== 'complete') {
+      console.warn('[Store] Cannot archive incomplete tournament');
+      return null;
+    }
+
+    const type = this._state.meta.type;
+    const bracket = this._state.bracket;
+    const participants = this._state.participants;
+    const standings = this._state.standings;
+
+    // Extract winner based on tournament type
+    let winner = null;
+    let standingsSummary = [];
+
+    if (type === 'mariokart') {
+      // Mario Kart: winner is top of standings by points
+      const sorted = Array.from(standings.values())
+        .sort((a, b) => b.points - a.points);
+      if (sorted.length > 0) {
+        const first = sorted[0];
+        winner = { id: first.participantId, name: first.name };
+        standingsSummary = sorted.slice(0, 4).map((s, i) => ({
+          place: i + 1,
+          name: s.name,
+          points: s.points,
+        }));
+      }
+    } else if (type === 'doubles') {
+      // Doubles: winner is from grand finals or finals match
+      const teams = bracket?.teams || [];
+      let winnerId = null;
+
+      if (bracket?.grandFinals) {
+        // Double elimination doubles
+        const gfReset = bracket.grandFinals.reset;
+        const gfMatch = bracket.grandFinals.match;
+        // Only use reset winner if reset was actually played
+        winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+      } else if (bracket?.rounds) {
+        // Single elimination doubles
+        const finalRound = bracket.rounds[bracket.rounds.length - 1];
+        const finalMatch = finalRound?.matches?.[0];
+        winnerId = finalMatch?.winnerId;
+      }
+
+      if (winnerId) {
+        const winningTeam = teams.find(t => t.id === winnerId);
+        if (winningTeam) {
+          winner = {
+            id: winningTeam.id,
+            name: winningTeam.name,
+            team: {
+              id: winningTeam.id,
+              name: winningTeam.name,
+              members: winningTeam.members,
+            },
+          };
+        }
+      }
+      // Build standings from bracket (simplified for doubles)
+      standingsSummary = this._extractBracketStandings(bracket, participants, type);
+    } else if (type === 'double') {
+      // Double elimination
+      const gfReset = bracket?.grandFinals?.reset;
+      const gfMatch = bracket?.grandFinals?.match;
+      // Only use reset winner if reset was actually played
+      const winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+
+      if (winnerId) {
+        const p = participants.get(winnerId);
+        winner = { id: winnerId, name: p?.name || 'Unknown' };
+      }
+      standingsSummary = this._extractBracketStandings(bracket, participants, type);
+    } else {
+      // Single elimination (default)
+      if (bracket?.rounds) {
+        const finalRound = bracket.rounds[bracket.rounds.length - 1];
+        const finalMatch = finalRound?.matches?.[0];
+        const winnerId = finalMatch?.winnerId;
+
+        if (winnerId) {
+          const p = participants.get(winnerId);
+          winner = { id: winnerId, name: p?.name || 'Unknown' };
+        }
+      }
+      standingsSummary = this._extractBracketStandings(bracket, participants, type);
+    }
+
+    const historyEntry = {
+      id: `${Date.now()}-${this._state.history.length}`,
+      name: this._state.meta.name || 'Tournament',
+      type,
+      winner,
+      standings: standingsSummary,
+      participantCount: participants.size,
+      completedAt: Date.now(),
+    };
+
+    this._state.history.push(historyEntry);
+    this._state.meta.version++;
+    this.emit('change', { path: 'history' });
+
+    return historyEntry;
+  }
+
+  /**
+   * Extract top 4 standings from bracket structure
+   * @private
+   */
+  _extractBracketStandings(bracket, participants, type) {
+    const standings = [];
+
+    if (type === 'doubles') {
+      // For doubles, extract team standings
+      const teams = bracket?.teams || [];
+      const teamMap = new Map(teams.map(t => [t.id, t]));
+
+      let winnerId, runnerUpId;
+      if (bracket?.grandFinals) {
+        const gfReset = bracket.grandFinals.reset;
+        const gfMatch = bracket.grandFinals.match;
+        // Only use reset winner if reset was actually played
+        winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+        const gfParticipants = gfMatch?.participants || [];
+        runnerUpId = gfParticipants.find(id => id !== winnerId);
+      } else if (bracket?.rounds) {
+        const finalRound = bracket.rounds[bracket.rounds.length - 1];
+        const finalMatch = finalRound?.matches?.[0];
+        winnerId = finalMatch?.winnerId;
+        runnerUpId = finalMatch?.participants?.find(id => id !== winnerId);
+      }
+
+      if (winnerId) {
+        const winnerTeam = teamMap.get(winnerId);
+        standings.push({ place: 1, name: winnerTeam?.name || 'Unknown' });
+      }
+      if (runnerUpId) {
+        const runnerUpTeam = teamMap.get(runnerUpId);
+        standings.push({ place: 2, name: runnerUpTeam?.name || 'Unknown' });
+      }
+    } else if (type === 'double') {
+      // Double elimination
+      const gfReset = bracket?.grandFinals?.reset;
+      const gfMatch = bracket?.grandFinals?.match;
+      // Only use reset winner if reset was actually played
+      const winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+      const gfParticipants = gfMatch?.participants || [];
+      const runnerUpId = gfParticipants.find(id => id !== winnerId);
+
+      if (winnerId) {
+        const p = participants.get(winnerId);
+        standings.push({ place: 1, name: p?.name || 'Unknown' });
+      }
+      if (runnerUpId) {
+        const p = participants.get(runnerUpId);
+        standings.push({ place: 2, name: p?.name || 'Unknown' });
+      }
+    } else {
+      // Single elimination
+      if (bracket?.rounds) {
+        const finalRound = bracket.rounds[bracket.rounds.length - 1];
+        const finalMatch = finalRound?.matches?.[0];
+        const winnerId = finalMatch?.winnerId;
+        const runnerUpId = finalMatch?.participants?.find(id => id !== winnerId);
+
+        if (winnerId) {
+          const p = participants.get(winnerId);
+          standings.push({ place: 1, name: p?.name || 'Unknown' });
+        }
+        if (runnerUpId) {
+          const p = participants.get(runnerUpId);
+          standings.push({ place: 2, name: p?.name || 'Unknown' });
+        }
+
+        // Try to get 3rd/4th from semi-finals
+        if (bracket.rounds.length >= 2) {
+          const semiFinals = bracket.rounds[bracket.rounds.length - 2];
+          const semiLosers = semiFinals?.matches
+            ?.filter(m => m.winnerId)
+            .map(m => m.participants.find(id => id !== m.winnerId))
+            .filter(Boolean) || [];
+
+          semiLosers.forEach((loserId, idx) => {
+            const p = participants.get(loserId);
+            standings.push({ place: 3 + idx, name: p?.name || 'Unknown' });
+          });
+        }
+      }
+    }
+
+    return standings.slice(0, 4);
+  }
+
+  /**
+   * Get tournament history
+   * @returns {Array} History array
+   */
+  getHistory() {
+    return this._state.history;
+  }
+
+  /**
+   * Reset state for a new tournament while keeping participants and history
+   */
+  resetForNewTournament() {
+    this._state.meta.status = 'lobby';
+    this._state.bracket = null;
+    this._state.matches = new Map();
+    this._state.standings = new Map();
+    this._state.teamAssignments = new Map();
+    this._state.meta.version++;
+    this.emit('change', { path: '*' });
+    return this;
+  }
+
   // --- Serialization for P2P sync ---
 
   serialize() {
@@ -411,6 +636,7 @@ class Store extends EventEmitter {
       matches: Array.from(this._state.matches.entries()),
       standings: Array.from(this._state.standings.entries()),
       teamAssignments: Array.from(this._state.teamAssignments.entries()),
+      history: this._state.history,
     };
   }
 
@@ -432,6 +658,9 @@ class Store extends EventEmitter {
     }
     if (data.teamAssignments) {
       this._state.teamAssignments = new Map(data.teamAssignments);
+    }
+    if (data.history) {
+      this._state.history = data.history;
     }
     this.emit('sync', data);
     this.emit('change', { path: '*' });
@@ -515,6 +744,19 @@ class Store extends EventEmitter {
     // Team assignments: admin-authoritative
     if (remoteState.teamAssignments && isRemoteAdmin) {
       this._state.teamAssignments = new Map(remoteState.teamAssignments);
+    }
+
+    // History: union merge (additions win, dedupe by id)
+    if (remoteState.history && Array.isArray(remoteState.history)) {
+      const existingIds = new Set(localState.history.map(h => h.id));
+      for (const entry of remoteState.history) {
+        if (!existingIds.has(entry.id)) {
+          localState.history.push(entry);
+          existingIds.add(entry.id);
+        }
+      }
+      // Sort by completedAt (most recent last) for consistent ordering
+      localState.history.sort((a, b) => a.completedAt - b.completedAt);
     }
 
     this.emit('merge', remoteState);

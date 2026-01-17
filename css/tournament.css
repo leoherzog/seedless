@@ -969,3 +969,100 @@ body:not(.is-admin) #admin-panel {
     width: 100%;
   }
 }
+
+/* ===== Tournament History Styles ===== */
+
+.tournament-history {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--pico-muted-border-color);
+}
+
+.tournament-history h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  color: var(--pico-muted-color);
+  margin-bottom: 1rem;
+}
+
+.tournament-history h4 .fa-solid {
+  font-size: 0.9rem;
+}
+
+.history-entry {
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  background: var(--pico-card-background-color);
+}
+
+.history-entry summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.history-entry summary::-webkit-details-marker {
+  display: none;
+}
+
+.history-entry summary::before {
+  content: '\f054';
+  font-family: 'Font Awesome 6 Free';
+  font-weight: 900;
+  font-size: 0.7rem;
+  color: var(--pico-muted-color);
+  transition: transform 0.2s;
+}
+
+.history-entry[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.history-entry .history-icon {
+  color: var(--pico-muted-color);
+  font-size: 0.9rem;
+  width: 1.5rem;
+  text-align: center;
+}
+
+.history-entry .history-winner {
+  flex: 1;
+  font-weight: 500;
+}
+
+.history-entry .history-winner .fa-crown {
+  color: var(--seedless-gold);
+  font-size: 0.8rem;
+  margin-right: 0.3rem;
+}
+
+.history-entry .history-winner small {
+  font-weight: 400;
+  color: var(--pico-muted-color);
+}
+
+.history-entry .history-meta {
+  font-size: 0.8rem;
+  color: var(--pico-muted-color);
+}
+
+.history-details {
+  padding: 0.5rem 1rem 1rem 2.5rem;
+  font-size: 0.9rem;
+  border-top: 1px solid var(--pico-muted-border-color);
+  background: var(--pico-card-sectioning-background-color);
+}
+
+.history-details p {
+  margin: 0.25rem 0;
+}
+
+.history-details strong {
+  color: var(--pico-muted-color);
+}

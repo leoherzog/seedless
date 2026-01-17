@@ -56,6 +56,7 @@ export async function joinRoom(roomId, options = {}) {
     'p:leave',     // participant leave
     't:start',     // tournament start
     't:reset',     // tournament reset
+    't:archive',   // tournament archive (history entry)
     'm:result',    // match result
     'm:verify',    // match verify
     's:upd',       // standings update
@@ -189,6 +190,7 @@ export const ActionTypes = {
   PARTICIPANT_LEAVE: 'p:leave',
   TOURNAMENT_START: 't:start',
   TOURNAMENT_RESET: 't:reset',
+  TOURNAMENT_ARCHIVE: 't:archive',
   MATCH_RESULT: 'm:result',
   MATCH_VERIFY: 'm:verify',
   STANDINGS_UPDATE: 's:upd',

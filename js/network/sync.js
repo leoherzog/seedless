@@ -388,6 +388,42 @@ export function setupStateSync(room) {
     }
   });
 
+  // --- Handle tournament archive (admin only, for multi-tournament history) ---
+  room.onAction(ActionTypes.TOURNAMENT_ARCHIVE, async (payload, peerId) => {
+    const adminId = store.get('meta.adminId');
+    const localUserId = peerIdToUserId.get(peerId) || peerId;
+
+    if (localUserId !== adminId) {
+      console.warn(`[Sync] Rejected tournament archive from non-admin: ${localUserId}`);
+      return;
+    }
+
+    console.info('[Sync] Tournament archived:', payload.archive?.id);
+
+    // Add archive entry to local history (merge handles deduplication)
+    if (payload.archive) {
+      const history = store.getHistory();
+      const existingIds = new Set(history.map(h => h.id));
+      if (!existingIds.has(payload.archive.id)) {
+        history.push(payload.archive);
+        store.emit('change', { path: 'history' });
+      }
+    }
+
+    // Reset local state for new tournament (keeps participants and history)
+    store.resetForNewTournament();
+
+    // Navigate non-admins back to lobby view
+    if (!store.isAdmin()) {
+      const { updateUrlState, URL_PARAMS, VIEWS } = await import('../state/url-state.js');
+      updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.LOBBY });
+
+      // Show notification
+      const { showToast } = await import('../components/toast.js');
+      showToast('Ready for new tournament!', 'info');
+    }
+  });
+
   // --- Handle match results ---
   room.onAction(ActionTypes.MATCH_RESULT, (payload, peerId) => {
     // Wait for state initialization before processing match results
@@ -891,6 +927,22 @@ export function reportRaceResult(room, gameId, results) {
     gameId,
     results,
     reportedAt: Date.now(),
+  });
+}
+
+/**
+ * Archive tournament and broadcast to peers (admin only)
+ * @param {Object} room - Room connection
+ * @param {Object} archive - History entry from store.archiveTournament()
+ */
+export function archiveTournament(room, archive) {
+  if (!store.isAdmin()) {
+    console.warn('[Sync] Only admin can archive tournament');
+    return;
+  }
+
+  room.broadcast(ActionTypes.TOURNAMENT_ARCHIVE, {
+    archive,
   });
 }
 
