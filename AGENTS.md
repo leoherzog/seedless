@@ -4,7 +4,7 @@ This file provides guidance to Claude Code, Codex, Gemini, etc when working with
 
 ## Project Overview
 
-Seedless is a serverless P2P tournament bracket application. It runs entirely client-side with no build step, using ES modules directly in the browser. Peer-to-peer communication is handled through Trystero using BitTorrent/WebTorrent trackers for peer discovery.
+Seedless is a serverless P2P tournament bracket application. It runs entirely client-side with no build step, using ES modules directly in the browser. Peer-to-peer communication is handled through Trystero using Nostr relays for peer discovery.
 
 ## Running Locally
 

@@ -6,11 +6,10 @@
  */
 export const CONFIG = {
   // IMPORTANT: Change this for your fork!
-  // This ensures your tournaments are isolated from other Seedless instances
+  // This ensures your tournaments are isolated from other Seedless instances.
+  // Note: Trystero's Nostr strategy also seeds its relay selection from this
+  // value, so every peer on the same appId connects to the same relays.
   appId: 'seedless-tournament-v1',
-
-  // Trystero strategy
-  strategy: 'torrent',
 
   // Default tournament settings
   defaults: {
