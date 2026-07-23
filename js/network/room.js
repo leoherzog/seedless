@@ -4,15 +4,11 @@
  */
 
 import { CONFIG } from '../../config.js';
-// NOTE: The 'trystero' package's '/torrent' subpath (and the deno.json
-// "trystero/torrent" import-map entry that points at it) is a deprecated
-// shim that now throws "Importing from trystero/torrent is deprecated"
-// and no longer provides any named exports (including `selfId`). The
-// project has moved to the '@trystero-p2p/torrent' package, which still
-// exports both `joinRoom` and `selfId`. Importing the full CDN URL here
-// (rather than the bare 'trystero/torrent' specifier) keeps this working
-// in both Deno (no import-map changes needed) and the browser (index.html
-// has no <script type="importmap">, so a bare specifier would fail there).
+// trystero 0.23.0+ API, shipped as the '@trystero-p2p/*' packages (the main
+// 'trystero' package deprecated its '/torrent' subpath, which now throws on
+// import). This module adapts the new object-based API — makeAction() returns
+// { send, onMessage } and onPeerJoin/onPeerLeave are assignable properties —
+// to room.js's stable wrapper contract, so sync.js/main.js need no changes.
 import { joinRoom as trysteroJoin, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/torrent/+esm';
 
 // Allow tests to override Trystero adapter via globalThis.__seedlessTrysteroJoin / __seedlessTrysteroSelfId
@@ -74,8 +70,20 @@ export async function joinRoom(roomId, options = {}) {
   ];
 
   for (const actionType of actionTypes) {
-    const [send, receive] = room.makeAction(actionType);
-    actions[actionType] = { send, receive };
+    // New API: makeAction() returns { send, onMessage, onReceiveProgress }.
+    // Adapt it to the classic { send, receive } shape this wrapper expects so
+    // broadcast()/sendTo()/onAction() below stay unchanged:
+    //  - send(data)          -> broadcast (no target)
+    //  - send(data, targets) -> send({ target }); target accepts a peerId or array
+    //  - receive(cb)         -> assign onMessage; cb gets (payload, peerId) via context.peerId
+    const action = room.makeAction(actionType);
+    actions[actionType] = {
+      send: (data, targets) =>
+        action.send(data, targets == null ? undefined : { target: targets }),
+      receive: (cb) => {
+        action.onMessage = (data, context) => cb(data, context.peerId);
+      },
+    };
   }
 
   // Trystero's room.onPeerJoin/onPeerLeave are replace-only (registering a
@@ -86,17 +94,19 @@ export async function joinRoom(roomId, options = {}) {
   const peerJoinHandlers = [];
   const peerLeaveHandlers = [];
 
-  room.onPeerJoin((peerId) => {
+  // New API: onPeerJoin/onPeerLeave are assignable (replace-only) properties,
+  // not registrar functions. Assign one real callback that fans out to our lists.
+  room.onPeerJoin = (peerId) => {
     for (const handler of peerJoinHandlers) {
       handler(peerId);
     }
-  });
+  };
 
-  room.onPeerLeave((peerId) => {
+  room.onPeerLeave = (peerId) => {
     for (const handler of peerLeaveHandlers) {
       handler(peerId);
     }
-  });
+  };
 
   // Connection state
   const connection = {

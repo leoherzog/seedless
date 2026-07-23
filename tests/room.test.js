@@ -79,51 +79,53 @@ Deno.test('Trystero Mock', async (t) => {
     assertEquals(room.roomId, roomId);
     assertEquals(room.config, config);
     assertExists(room.makeAction);
-    assertExists(room.onPeerJoin);
-    assertExists(room.onPeerLeave);
+    // onPeerJoin/onPeerLeave are assignable properties, initialized to null
+    // (replace-only semantics), so check presence rather than truthiness.
+    assert('onPeerJoin' in room);
+    assert('onPeerLeave' in room);
     assertExists(room.getPeers);
     assertExists(room.leave);
   });
 
-  await t.step('makeAction returns [send, receive] tuple', () => {
+  await t.step('makeAction returns a MessageAction object (not a tuple)', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const result = room.makeAction('test-action');
+    const action = room.makeAction('test-action');
 
-    assert(Array.isArray(result));
-    assertEquals(result.length, 2);
-    assertEquals(typeof result[0], 'function'); // send
-    assertEquals(typeof result[1], 'function'); // receive
+    assert(!Array.isArray(action));
+    assertEquals(typeof action.send, 'function');
+    assertEquals(action.onMessage, null);
+    assertEquals(action.onReceiveProgress, null);
   });
 
   await t.step('send captures messages for inspection', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const [send, receive] = room.makeAction('test-action');
-    receive(() => {}); // Register receiver
+    const action = room.makeAction('test-action');
+    action.onMessage = () => {}; // Register receiver
 
     const testData = { payload: 'test', timestamp: 123 };
-    send(testData);
-    send(testData, ['peer-1']);
-    send(testData, ['peer-1', 'peer-2']);
+    action.send(testData);
+    action.send(testData, { target: 'peer-1' });
+    action.send(testData, { target: ['peer-1', 'peer-2'] });
 
     const sent = room._getSentMessages('test-action');
     assertEquals(sent.length, 3);
     assertEquals(sent[0].data, testData);
     assertEquals(sent[0].targets, undefined);
-    assertEquals(sent[1].targets, ['peer-1']);
+    assertEquals(sent[1].targets, 'peer-1');
     assertEquals(sent[2].targets, ['peer-1', 'peer-2']);
   });
 
-  await t.step('receive callback is invoked by _simulateMessage', () => {
+  await t.step('onMessage callback is invoked by _simulateMessage', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const [send, receive] = room.makeAction('test-action');
+    const action = room.makeAction('test-action');
 
     let receivedData = null;
     let receivedPeerId = null;
 
-    receive((data, peerId) => {
+    action.onMessage = (data, context) => {
       receivedData = data;
-      receivedPeerId = peerId;
-    });
+      receivedPeerId = context.peerId;
+    };
 
     const testData = { payload: 'hello' };
     room._simulateMessage('test-action', testData, 'peer-123');
@@ -132,13 +134,13 @@ Deno.test('Trystero Mock', async (t) => {
     assertEquals(receivedPeerId, 'peer-123');
   });
 
-  await t.step('peer join callbacks are invoked', () => {
+  await t.step('peer join callback is invoked', () => {
     const room = createMockTrysteroRoom({}, 'test');
     const joinedPeers = [];
 
-    room.onPeerJoin((peerId) => {
+    room.onPeerJoin = (peerId) => {
       joinedPeers.push(peerId);
-    });
+    };
 
     room._simulatePeerJoin('peer-1');
     room._simulatePeerJoin('peer-2');
@@ -147,13 +149,13 @@ Deno.test('Trystero Mock', async (t) => {
     assertEquals(Object.keys(room.getPeers()).length, 2);
   });
 
-  await t.step('peer leave callbacks are invoked', () => {
+  await t.step('peer leave callback is invoked', () => {
     const room = createMockTrysteroRoom({}, 'test');
     const leftPeers = [];
 
-    room.onPeerLeave((peerId) => {
+    room.onPeerLeave = (peerId) => {
       leftPeers.push(peerId);
-    });
+    };
 
     room._simulatePeerJoin('peer-1');
     room._simulatePeerJoin('peer-2');
@@ -195,13 +197,13 @@ Deno.test('Trystero Mock', async (t) => {
 
   await t.step('_clearSentMessages clears specific action', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const [send1, receive1] = room.makeAction('action-1');
-    const [send2, receive2] = room.makeAction('action-2');
-    receive1(() => {});
-    receive2(() => {});
+    const action1 = room.makeAction('action-1');
+    const action2 = room.makeAction('action-2');
+    action1.onMessage = () => {};
+    action2.onMessage = () => {};
 
-    send1({ data: 1 });
-    send2({ data: 2 });
+    action1.send({ data: 1 });
+    action2.send({ data: 2 });
 
     assertEquals(room._getSentMessages('action-1').length, 1);
     assertEquals(room._getSentMessages('action-2').length, 1);
@@ -214,13 +216,13 @@ Deno.test('Trystero Mock', async (t) => {
 
   await t.step('_clearSentMessages without arg clears all', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const [send1, receive1] = room.makeAction('action-1');
-    const [send2, receive2] = room.makeAction('action-2');
-    receive1(() => {});
-    receive2(() => {});
+    const action1 = room.makeAction('action-1');
+    const action2 = room.makeAction('action-2');
+    action1.onMessage = () => {};
+    action2.onMessage = () => {};
 
-    send1({ data: 1 });
-    send2({ data: 2 });
+    action1.send({ data: 1 });
+    action2.send({ data: 2 });
 
     room._clearSentMessages();
 
@@ -242,21 +244,25 @@ Deno.test('Trystero Mock', async (t) => {
     assert(types.includes('action-3'));
   });
 
-  await t.step('multiple peer join/leave handlers supported', () => {
+  await t.step('peer join/leave handlers are replace-only (last assignment wins)', () => {
     const room = createMockTrysteroRoom({}, 'test');
     const handler1Calls = [];
     const handler2Calls = [];
 
-    room.onPeerJoin((id) => handler1Calls.push(`join:${id}`));
-    room.onPeerJoin((id) => handler2Calls.push(`join:${id}`));
-    room.onPeerLeave((id) => handler1Calls.push(`leave:${id}`));
-    room.onPeerLeave((id) => handler2Calls.push(`leave:${id}`));
+    room.onPeerJoin = (id) => handler1Calls.push(`join:${id}`);
+    room.onPeerLeave = (id) => handler1Calls.push(`leave:${id}`);
+
+    // Reassigning replaces the previous handler entirely.
+    room.onPeerJoin = (id) => handler2Calls.push(`join:${id}`);
+    room.onPeerLeave = (id) => handler2Calls.push(`leave:${id}`);
 
     room._simulatePeerJoin('peer-1');
     room._simulatePeerLeave('peer-1');
 
-    assertEquals(handler1Calls, ['join:peer-1', 'leave:peer-1']);
+    assertEquals(handler1Calls, []);
     assertEquals(handler2Calls, ['join:peer-1', 'leave:peer-1']);
+    assertEquals(room._getPeerJoinCallbackCount(), 1);
+    assertEquals(room._getPeerLeaveCallbackCount(), 1);
   });
 });
 
@@ -272,11 +278,14 @@ Deno.test('Room Connection Interface', async (t) => {
     const room = createMockTrysteroRoom({}, 'test');
     const actions = {};
 
-    // Create action channels like room.js does
+    // Create action channels like room.js's adapter does
     const actionTypes = ['st:req', 'st:res', 'm:result'];
     for (const actionType of actionTypes) {
-      const [send, receive] = room.makeAction(actionType);
-      actions[actionType] = { send, receive };
+      const action = room.makeAction(actionType);
+      actions[actionType] = {
+        send: (data, targets) => action.send(data, targets == null ? undefined : { target: targets }),
+        receive: (cb) => { action.onMessage = (data, context) => cb(data, context.peerId); },
+      };
     }
 
     // Simulate broadcast behavior
@@ -300,17 +309,17 @@ Deno.test('Room Connection Interface', async (t) => {
 
   await t.step('connection should support sendTo specific peers', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const [send, receive] = room.makeAction('st:res');
-    receive(() => {});
+    const action = room.makeAction('st:res');
+    action.onMessage = () => {};
 
     // Simulate sendTo behavior
     const sendTo = (payload, targetPeers) => {
       const targets = Array.isArray(targetPeers) ? targetPeers : [targetPeers];
-      send({
+      action.send({
         payload,
         senderId: 'self-id',
         timestamp: Date.now(),
-      }, targets);
+      }, { target: targets });
     };
 
     sendTo({ state: 'data' }, 'peer-1');
@@ -324,18 +333,18 @@ Deno.test('Room Connection Interface', async (t) => {
 
   await t.step('connection should handle action message callbacks', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const [send, receive] = room.makeAction('m:result');
+    const action = room.makeAction('m:result');
 
     const receivedMessages = [];
 
     // Simulate onAction behavior
-    receive((data, peerId) => {
+    action.onMessage = (data, context) => {
       receivedMessages.push({
         payload: data.payload,
-        peerId,
+        peerId: context.peerId,
         timestamp: data.timestamp,
       });
-    });
+    };
 
     // Simulate incoming messages
     room._simulateMessage('m:result', {
@@ -376,9 +385,9 @@ Deno.test('Action Channel Creation', async (t) => {
     const actionTypes = Object.values(ActionTypes);
 
     for (const actionType of actionTypes) {
-      const result = room.makeAction(actionType);
-      assert(Array.isArray(result));
-      assertEquals(result.length, 2);
+      const action = room.makeAction(actionType);
+      assert(!Array.isArray(action));
+      assertEquals(typeof action.send, 'function');
     }
 
     assertEquals(room._getActionTypes().length, actionTypes.length);
@@ -387,14 +396,14 @@ Deno.test('Action Channel Creation', async (t) => {
   await t.step('each action channel is independent', () => {
     const room = createMockTrysteroRoom({}, 'test');
 
-    const [sendReq, receiveReq] = room.makeAction('st:req');
-    const [sendRes, receiveRes] = room.makeAction('st:res');
+    const reqAction = room.makeAction('st:req');
+    const resAction = room.makeAction('st:res');
 
     const reqMessages = [];
     const resMessages = [];
 
-    receiveReq((data) => reqMessages.push(data));
-    receiveRes((data) => resMessages.push(data));
+    reqAction.onMessage = (data) => reqMessages.push(data);
+    resAction.onMessage = (data) => resMessages.push(data);
 
     room._simulateMessage('st:req', { type: 'request' }, 'peer-1');
     room._simulateMessage('st:res', { type: 'response' }, 'peer-1');
@@ -422,7 +431,7 @@ Deno.test('Room Edge Cases', async (t) => {
     const room = createMockTrysteroRoom({}, 'test');
     const joins = [];
 
-    room.onPeerJoin((id) => joins.push(id));
+    room.onPeerJoin = (id) => joins.push(id);
 
     room._simulatePeerJoin('peer-1');
     room._simulatePeerJoin('peer-1'); // Duplicate
@@ -437,7 +446,7 @@ Deno.test('Room Edge Cases', async (t) => {
     const room = createMockTrysteroRoom({}, 'test');
     const leaves = [];
 
-    room.onPeerLeave((id) => leaves.push(id));
+    room.onPeerLeave = (id) => leaves.push(id);
 
     // Should not throw
     room._simulatePeerLeave('nonexistent-peer');
@@ -447,10 +456,10 @@ Deno.test('Room Edge Cases', async (t) => {
 
   await t.step('handles empty payload', () => {
     const room = createMockTrysteroRoom({}, 'test');
-    const [send, receive] = room.makeAction('test');
+    const action = room.makeAction('test');
 
     const received = [];
-    receive((data, peerId) => received.push({ data, peerId }));
+    action.onMessage = (data, context) => received.push({ data, peerId: context.peerId });
 
     room._simulateMessage('test', null, 'peer-1');
     room._simulateMessage('test', undefined, 'peer-2');

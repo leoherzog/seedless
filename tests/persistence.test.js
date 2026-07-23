@@ -361,18 +361,21 @@ Deno.test('persistence', async (t) => {
   });
 
   // Boundary condition tests
-  await t.step('loadTournament keeps data at exactly 30 days', () => {
+  await t.step('loadTournament keeps data at the 30 day boundary', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
-    // Exactly 30 days ago
-    const exactlyAtBoundary = {
+    // Just inside the 30-day window. A 1s buffer keeps this deterministic:
+    // loadTournament recomputes `Date.now() - 30d` a few ms after we capture
+    // daysAgo(30), and the expiry check is strict (savedAt < cutoff), so a
+    // record saved *exactly* 30 days ago would flake as "just expired".
+    const atBoundary = {
       meta: { id: roomId },
-      savedAt: daysAgo(30)
+      savedAt: daysAgo(30) + 1000
     };
-    localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(exactlyAtBoundary));
+    localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(atBoundary));
 
     const loaded = loadTournament(roomId);
-    assertExists(loaded, 'Data at exactly 30 days should be kept');
+    assertExists(loaded, 'Data within the 30 day window should be kept');
   });
 
   await t.step('loadTournament removes data at 30 days + 1 ms', () => {
