@@ -689,7 +689,6 @@ Deno.test('Store Merge Conflict Resolution', async (t) => {
 Deno.test('Config Module Code Paths', () => {
   // Verify CONFIG structure
   assertExists(CONFIG.appId);
-  assertExists(CONFIG.strategy);
   assertExists(CONFIG.defaults);
   assertExists(CONFIG.pointsTables);
   assertExists(CONFIG.storage);

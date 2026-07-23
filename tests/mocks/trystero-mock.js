@@ -217,7 +217,7 @@ export function _resetSelfId(newId) {
 }
 
 /**
- * Mock joinRoom function (matches new @trystero-p2p/torrent API)
+ * Mock joinRoom function (matches new @trystero-p2p/* API)
  * @param {Object} config - Room configuration
  * @param {string} roomId - Room identifier
  * @returns {Object} Mock room instance

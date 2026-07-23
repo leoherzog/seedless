@@ -6,7 +6,7 @@ A fully client-side tournament bracket system using peer-to-peer communication. 
 
 ## Features
 
-- **P2P Communication**: Uses [Trystero](https://github.com/dmotz/trystero) with BitTorrent trackers for peer discovery
+- **P2P Communication**: Uses [Trystero](https://github.com/dmotz/trystero) with Nostr relays for peer discovery
 - **Multiple Tournament Types**:
   - Single Elimination
   - Double Elimination
@@ -71,14 +71,14 @@ To create your own Seedless instance:
 ## How It Works
 
 1. **Room Creation**: Admin creates a room with a custom slug (e.g., `friday-smash`)
-2. **Peer Discovery**: Trystero uses BitTorrent trackers to discover peers in the same room
+2. **Peer Discovery**: Trystero uses Nostr relays to discover peers in the same room
 3. **State Sync**: Admin is authoritative for bracket structure; match results use last-write-wins
 4. **Match Reporting**: Only participants in a match can report its result
 5. **Persistence**: State is saved to localStorage and synced when peers reconnect
 
 ## Technology Stack
 
-- **[Trystero](https://github.com/dmotz/trystero)** - P2P WebRTC connections via BitTorrent
+- **[Trystero](https://github.com/dmotz/trystero)** - P2P WebRTC connections via Nostr
 - **[PicoCSS](https://picocss.com/)** - Minimal CSS framework for semantic HTML
 - **[Font Awesome](https://fontawesome.com/)** - Icons
 - **Vanilla JavaScript** - ES modules, no build step
