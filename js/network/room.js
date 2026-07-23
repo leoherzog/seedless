@@ -30,6 +30,33 @@ const getSelfId = () => globalThis.__seedlessTrysteroSelfId || selfId;
 let activeRoom = null;
 
 /**
+ * Fetch short-lived TURN credentials from the credential Worker (see
+ * turn-worker/). Returns an RTCIceServer array, or null when unconfigured or
+ * unreachable — the app then falls back to Trystero's default STUN servers,
+ * which is enough for same-network / friendly-NAT peers but fails across
+ * carrier-grade NAT (e.g. phones on cellular).
+ */
+async function fetchTurnServers() {
+  const url = CONFIG.network?.turnCredentialsUrl;
+  if (!url) return null;
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const { iceServers } = await response.json();
+    if (!Array.isArray(iceServers) || iceServers.length === 0) {
+      throw new Error('response has no iceServers');
+    }
+    return iceServers;
+  } catch (error) {
+    console.warn(`[Seedless] TURN credentials unavailable, using STUN only: ${error?.message || error}`);
+    return null;
+  }
+}
+
+/**
  * Join or create a tournament room
  * @param {string} roomId - Room identifier (slug)
  * @param {Object} options - Join options
@@ -41,9 +68,13 @@ export async function joinRoom(roomId, options = {}) {
     await leaveRoom();
   }
 
+  // turnConfig entries are merged with Trystero's default STUN servers
+  const iceServers = await fetchTurnServers();
+
   const config = {
     appId: CONFIG.appId,
     password: options.password || undefined,
+    ...(iceServers ? { turnConfig: iceServers } : {}),
   };
 
   console.info(`[Seedless] Joining room: ${roomId}`);

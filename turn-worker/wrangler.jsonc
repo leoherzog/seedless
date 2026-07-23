@@ -1,0 +1,26 @@
+{
+  "name": "seedless-turn-mint",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "placement": {
+    "mode": "smart"
+  },
+  "routes": [
+    { "pattern": "seedless-turn-mint.thehopegang.com", "custom_domain": true }
+  ],
+  "vars": {
+    // Comma-separated list of origins allowed to fetch credentials.
+    "ALLOWED_ORIGINS": "https://tournament.thehopegang.com,http://localhost:8000",
+    // Your Cloudflare Realtime TURN key ID (dash > Realtime > TURN).
+    // Not a secret on its own — the API token is the secret, set separately:
+    //   npx wrangler secret put TURN_KEY_API_TOKEN
+    "TURN_KEY_ID": "63c2ea6b66c02715cc5856554a07caea",
+    // Credential lifetime in seconds. 21600 = 6 hours, enough for a
+    // tournament night; expired credentials disconnect shortly after.
+    "TURN_TTL_SECONDS": "21600"
+  }
+}
