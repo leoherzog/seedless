@@ -251,43 +251,33 @@ Deno.test('Store State Management for Connection', async (t) => {
 // Admin Token Verification Tests (connectToRoom logic)
 // ============================================
 
+// Inline implementation matching hasMatchingAdminToken in main.js
+function hasMatchingAdminToken(storedAdminToken, existingAdminToken) {
+  return Boolean(storedAdminToken && existingAdminToken &&
+    storedAdminToken === existingAdminToken);
+}
+
 Deno.test('Admin Token Verification Logic', async (t) => {
   await t.step('matching tokens grant admin status', () => {
-    const storedAdminToken = 'token-abc123';
-    const existingAdminToken = 'token-abc123';
-
-    const hasMatchingToken = storedAdminToken && existingAdminToken &&
-      storedAdminToken === existingAdminToken;
+    const hasMatchingToken = hasMatchingAdminToken('token-abc123', 'token-abc123');
 
     assert(hasMatchingToken);
   });
 
   await t.step('non-matching tokens deny admin status', () => {
-    const storedAdminToken = 'token-abc123';
-    const existingAdminToken = 'token-different';
-
-    const hasMatchingToken = storedAdminToken && existingAdminToken &&
-      storedAdminToken === existingAdminToken;
+    const hasMatchingToken = hasMatchingAdminToken('token-abc123', 'token-different');
 
     assert(!hasMatchingToken);
   });
 
   await t.step('missing stored token denies admin status', () => {
-    const storedAdminToken = null;
-    const existingAdminToken = 'token-abc123';
-
-    const hasMatchingToken = storedAdminToken && existingAdminToken &&
-      storedAdminToken === existingAdminToken;
+    const hasMatchingToken = hasMatchingAdminToken(null, 'token-abc123');
 
     assert(!hasMatchingToken);
   });
 
   await t.step('missing existing token denies admin status', () => {
-    const storedAdminToken = 'token-abc123';
-    const existingAdminToken = null;
-
-    const hasMatchingToken = storedAdminToken && existingAdminToken &&
-      storedAdminToken === existingAdminToken;
+    const hasMatchingToken = hasMatchingAdminToken('token-abc123', null);
 
     assert(!hasMatchingToken);
   });

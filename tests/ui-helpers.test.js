@@ -7,8 +7,6 @@ import {
   getOrdinalSuffix,
   formatOrdinal,
   determineMatchStatus,
-  canReportMatchResult,
-  getTeamMemberCount,
   sortStandings
 } from '../js/utils/tournament-helpers.js';
 
@@ -110,93 +108,6 @@ Deno.test('determineMatchStatus', async (t) => {
       participants: ['', '']
     };
     assertEquals(determineMatchStatus(match), 'pending');
-  });
-});
-
-Deno.test('canReportMatchResult', async (t) => {
-  await t.step('returns true when user is participant and match is ready', () => {
-    const match = {
-      winnerId: null,
-      isBye: false,
-      participants: ['user1', 'user2']
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), true);
-    assertEquals(canReportMatchResult(match, 'user2'), true);
-  });
-
-  await t.step('returns false when winner already determined', () => {
-    const match = {
-      winnerId: 'user1',
-      isBye: false,
-      participants: ['user1', 'user2']
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), false);
-  });
-
-  await t.step('returns false for bye matches', () => {
-    const match = {
-      winnerId: null,
-      isBye: true,
-      participants: ['user1', null]
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), false);
-  });
-
-  await t.step('returns false when user is not a participant', () => {
-    const match = {
-      winnerId: null,
-      isBye: false,
-      participants: ['user1', 'user2']
-    };
-    assertEquals(canReportMatchResult(match, 'user3'), false);
-  });
-
-  await t.step('returns false when match is incomplete', () => {
-    const match = {
-      winnerId: null,
-      isBye: false,
-      participants: ['user1', null]
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), false);
-  });
-});
-
-Deno.test('getTeamMemberCount', async (t) => {
-  await t.step('counts team members from Map', () => {
-    const assignments = new Map([
-      ['p1', 'team-1'],
-      ['p2', 'team-1'],
-      ['p3', 'team-2']
-    ]);
-    assertEquals(getTeamMemberCount(assignments, 'team-1'), 2);
-    assertEquals(getTeamMemberCount(assignments, 'team-2'), 1);
-    assertEquals(getTeamMemberCount(assignments, 'team-3'), 0);
-  });
-
-  await t.step('counts team members from Array', () => {
-    const assignments = [
-      ['p1', 'team-1'],
-      ['p2', 'team-1'],
-      ['p3', 'team-2']
-    ];
-    assertEquals(getTeamMemberCount(assignments, 'team-1'), 2);
-    assertEquals(getTeamMemberCount(assignments, 'team-2'), 1);
-  });
-
-  await t.step('excludes specified participant', () => {
-    const assignments = new Map([
-      ['p1', 'team-1'],
-      ['p2', 'team-1'],
-      ['p3', 'team-1']
-    ]);
-    assertEquals(getTeamMemberCount(assignments, 'team-1', 'p1'), 2);
-    assertEquals(getTeamMemberCount(assignments, 'team-1', 'p2'), 2);
-    assertEquals(getTeamMemberCount(assignments, 'team-1', null), 3);
-  });
-
-  await t.step('returns 0 for empty assignments', () => {
-    assertEquals(getTeamMemberCount(new Map(), 'team-1'), 0);
-    assertEquals(getTeamMemberCount([], 'team-1'), 0);
   });
 });
 

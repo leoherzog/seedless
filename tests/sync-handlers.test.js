@@ -293,12 +293,19 @@ Deno.test('PARTICIPANT_JOIN handler', testOpts, async (t) => {
     assertEquals(store.getParticipantList().length, initialCount);
   });
 
-  await t.step('handles manual participant additions', () => {
+  await t.step('handles manual participant additions from admin', () => {
     resetSyncState();
-    setupAsAdmin('admin-123');
+    const adminId = 'admin-123';
+    setupAsParticipant('user-1', adminId);
 
     const mockRoom = createMockRoom();
     setupStateSync(mockRoom);
+
+    // Establish the admin's peer mapping via a STATE_RESPONSE from the admin
+    mockRoom.simulateAction(ActionTypes.STATE_RESPONSE, {
+      state: { meta: { adminId } },
+      isAdmin: true,
+    }, 'admin-peer');
 
     mockRoom.simulateAction(ActionTypes.PARTICIPANT_JOIN, {
       name: 'ManualPlayer',
@@ -312,6 +319,28 @@ Deno.test('PARTICIPANT_JOIN handler', testOpts, async (t) => {
     assertEquals(participant.name, 'ManualPlayer');
     assertEquals(participant.isManual, true);
     assertEquals(participant.peerId, null);
+  });
+
+  await t.step('rejects manual participant injection from non-admin', () => {
+    resetSyncState();
+    const adminId = 'admin-123';
+    setupAsParticipant('user-1', adminId);
+
+    const mockRoom = createMockRoom();
+    setupStateSync(mockRoom);
+
+    const initialCount = store.getParticipantList().length;
+
+    // A non-admin peer attempts to inject a manual participant
+    mockRoom.simulateAction(ActionTypes.PARTICIPANT_JOIN, {
+      name: 'InjectedPlayer',
+      localUserId: 'injected-id',
+      isManual: true,
+      joinedAt: Date.now(),
+    }, 'malicious-peer');
+
+    assertEquals(store.getParticipant('injected-id'), undefined);
+    assertEquals(store.getParticipantList().length, initialCount);
   });
 
   await t.step('rejects admin impersonation attempt', () => {
@@ -1265,6 +1294,8 @@ Deno.test('reportMatchResult', testOpts, async (t) => {
   await t.step('broadcasts match result', () => {
     resetSyncState();
     setupAsAdmin('admin-123');
+    // A global meta.version that must NOT be used as the broadcast version:
+    // match results now carry a per-match logical version so peers converge.
     store.set('meta.version', 5);
 
     const mockRoom = createMockRoom();
@@ -1276,7 +1307,8 @@ Deno.test('reportMatchResult', testOpts, async (t) => {
     assertEquals(mockRoom._broadcasts[0].actionType, ActionTypes.MATCH_RESULT);
     assertEquals(mockRoom._broadcasts[0].payload.matchId, 'match-1');
     assertEquals(mockRoom._broadcasts[0].payload.winnerId, 'player-1');
-    assertEquals(mockRoom._broadcasts[0].payload.version, 5);
+    // First result for an unseen match -> per-match version 1 (not meta.version 5).
+    assertEquals(mockRoom._broadcasts[0].payload.version, 1);
   });
 });
 

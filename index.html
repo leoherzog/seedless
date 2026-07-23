@@ -60,9 +60,10 @@
               Room Name
               <input type="text" id="room-slug" name="room-slug"
                      placeholder="friday-smash-tourney"
-                     pattern="[a-z0-9\-]+"
+                     autocapitalize="none" autocomplete="off"
+                     autocorrect="off" spellcheck="false"
                      required>
-              <small>Lowercase letters, numbers, and hyphens only</small>
+              <small>Type anything — spaces and capitals are formatted automatically</small>
             </label>
             <label for="display-name">
               Your Name
@@ -83,8 +84,10 @@
             <label for="join-slug">
               Room Name
               <input type="text" id="join-slug" name="join-slug"
-                     placeholder="friday-smash-tourney" required>
-              <small>Lowercase letters, numbers, and hyphens only</small>
+                     placeholder="friday-smash-tourney"
+                     autocapitalize="none" autocomplete="off"
+                     autocorrect="off" spellcheck="false" required>
+              <small>Type anything — spaces and capitals are formatted automatically</small>
             </label>
             <label for="join-name">
               Your Name

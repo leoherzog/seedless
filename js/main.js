@@ -7,15 +7,11 @@ import { CONFIG } from '../config.js';
 import { store } from './state/store.js';
 import {
   parseUrlState,
-  updateUrlState,
   navigateToRoom,
   navigateToHome,
-  navigateToBracket,
-  getRoomLink,
-  isValidRoomSlug,
   sanitizeRoomSlug,
+  formatRoomSlugInput,
   VIEWS,
-  URL_PARAMS,
 } from './state/url-state.js';
 import {
   saveTournament,
@@ -36,6 +32,39 @@ import { debounce } from './utils/debounce.js';
 
 // Make room globally accessible for components
 window.seedlessRoom = null;
+
+/**
+ * Check whether a stored admin token matches the existing room's admin token.
+ * Both tokens must be present and equal.
+ * @param {string|null|undefined} storedAdminToken - Token from localStorage
+ * @param {string|null|undefined} existingAdminToken - Token from existing tournament data
+ * @returns {boolean}
+ */
+function hasMatchingAdminToken(storedAdminToken, existingAdminToken) {
+  return Boolean(storedAdminToken && existingAdminToken &&
+    storedAdminToken === existingAdminToken);
+}
+
+/**
+ * Connect to a room and navigate to it, surfacing a friendly error on failure.
+ * @param {string} slug - Room slug
+ * @param {string} name - User's display name
+ * @param {{ isAdmin?: boolean }} [options]
+ */
+async function joinAndNavigate(slug, name, { isAdmin = false } = {}) {
+  // Save name for next time
+  saveDisplayName(name);
+  store.set('local.name', name);
+
+  const verb = isAdmin ? 'create' : 'join';
+  try {
+    await connectToRoom(slug, { isAdmin, name });
+    navigateToRoom(slug);
+  } catch (err) {
+    console.error(`Failed to ${verb} room:`, err);
+    showError(`Failed to ${verb} room. Please try again.`);
+  }
+}
 
 // Flag to prevent concurrent connection attempts
 let isConnecting = false;
@@ -105,11 +134,36 @@ function setupFormHandlers() {
   const joinForm = document.getElementById('join-room-form');
   joinForm.addEventListener('submit', onJoinRoom);
 
+  // Auto-format room name inputs as the user types, so the value is always a
+  // valid slug (lowercase, spaces -> hyphens, special characters stripped)
+  // instead of forcing the user to enter one that meets the criteria.
+  attachSlugFormatter(document.getElementById('room-slug'));
+  attachSlugFormatter(document.getElementById('join-slug'));
+
   // New tournament button
   const newTournamentBtn = document.getElementById('new-tournament-btn');
   if (newTournamentBtn) {
     newTournamentBtn.addEventListener('click', onNewTournament);
   }
+}
+
+/**
+ * Live-format a room-slug text input on every keystroke while keeping the
+ * caret in a sensible place (formatting the text before the caret tells us
+ * where it should land in the new value).
+ * @param {HTMLInputElement|null} input
+ */
+function attachSlugFormatter(input) {
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const caret = input.selectionStart ?? input.value.length;
+    const before = input.value.slice(0, caret);
+    const formatted = formatRoomSlugInput(input.value);
+    if (formatted === input.value) return;
+    const newCaret = formatRoomSlugInput(before).length;
+    input.value = formatted;
+    input.setSelectionRange(newCaret, newCaret);
+  });
 }
 
 /**
@@ -134,7 +188,10 @@ function setupNavigationHandlers() {
  * Handle URL state changes
  */
 async function handleUrlChange(urlState) {
-  const { roomId, view } = urlState;
+  const { view } = urlState;
+  // Normalize any room id arriving via the URL (shared links, hand-typed) to
+  // the same canonical slug the create/join forms produce.
+  const roomId = urlState.roomId ? sanitizeRoomSlug(urlState.roomId) : urlState.roomId;
 
   // Update view visibility
   showView(view || VIEWS.HOME);
@@ -188,10 +245,14 @@ async function onCreateRoom(e) {
   const slug = sanitizeRoomSlug(slugInput.value);
   const name = nameInput.value.trim();
 
-  if (!isValidRoomSlug(slug)) {
-    showError('Invalid room name. Use lowercase letters, numbers, and hyphens.');
+  // Auto-formatted: only reject when there's nothing usable left (e.g. the
+  // input was empty or made up entirely of unsupported characters).
+  if (!slug) {
+    showError('Please enter a room name');
     return;
   }
+  // Reflect the canonical slug back so the user sees what they're creating.
+  slugInput.value = slug;
 
   if (!name) {
     showError('Please enter your name');
@@ -202,8 +263,7 @@ async function onCreateRoom(e) {
   const existingData = loadTournament(slug);
   const storedAdminToken = loadAdminToken(slug);
   const existingAdminToken = existingData?.meta?.adminToken;
-  const hasMatchingToken = storedAdminToken && existingAdminToken &&
-    storedAdminToken === existingAdminToken;
+  const hasMatchingToken = hasMatchingAdminToken(storedAdminToken, existingAdminToken);
 
   // Show confirmation modal if room exists but user is not the admin
   if (existingData && !hasMatchingToken) {
@@ -211,17 +271,7 @@ async function onCreateRoom(e) {
     return;
   }
 
-  // Save name for next time
-  saveDisplayName(name);
-  store.set('local.name', name);
-
-  try {
-    await connectToRoom(slug, { isAdmin: true, name });
-    navigateToRoom(slug);
-  } catch (err) {
-    console.error('Failed to create room:', err);
-    showError('Failed to create room. Please try again.');
-  }
+  await joinAndNavigate(slug, name, { isAdmin: true });
 }
 
 /**
@@ -240,23 +290,14 @@ async function onJoinRoom(e) {
     showError('Please enter a room name');
     return;
   }
+  slugInput.value = slug;
 
   if (!name) {
     showError('Please enter your name');
     return;
   }
 
-  // Save name for next time
-  saveDisplayName(name);
-  store.set('local.name', name);
-
-  try {
-    await connectToRoom(slug, { isAdmin: false, name });
-    navigateToRoom(slug);
-  } catch (err) {
-    console.error('Failed to join room:', err);
-    showError('Failed to join room. Please try again.');
-  }
+  await joinAndNavigate(slug, name, { isAdmin: false });
 }
 
 /**
@@ -277,17 +318,7 @@ function showRoomExistsModal(slug, name) {
     modal.close();
     joinBtn.removeEventListener('click', handleJoin);
 
-    // Save name for next time
-    saveDisplayName(name);
-    store.set('local.name', name);
-
-    try {
-      await connectToRoom(slug, { isAdmin: false, name });
-      navigateToRoom(slug);
-    } catch (err) {
-      console.error('Failed to join room:', err);
-      showError('Failed to join room. Please try again.');
-    }
+    await joinAndNavigate(slug, name, { isAdmin: false });
   };
 
   joinBtn.addEventListener('click', handleJoin);
@@ -359,8 +390,7 @@ async function connectToRoom(roomId, options = {}) {
     // 1. Creating a new room (isAdmin flag from Create form)
     // 2. Has matching admin token from localStorage (survives page refresh)
     const existingAdminToken = existingData?.meta?.adminToken;
-    const hasMatchingToken = storedAdminToken && existingAdminToken &&
-      storedAdminToken === existingAdminToken;
+    const hasMatchingToken = hasMatchingAdminToken(storedAdminToken, existingAdminToken);
     const isActualAdmin = isAdmin || hasMatchingToken;
 
     store.setAdmin(isActualAdmin);
@@ -423,7 +453,7 @@ async function connectToRoom(roomId, options = {}) {
       if (store.isAdmin()) {
         setTimeout(() => {
           room.sendTo(ActionTypes.STATE_RESPONSE, {
-            state: store.serialize(),
+            state: store.serializeForNetwork(),
             isAdmin: true,
           }, peerId);
         }, CONFIG.network.stateResponseDelay);

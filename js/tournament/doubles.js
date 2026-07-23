@@ -3,8 +3,8 @@
  * Wraps other bracket types to work with teams
  */
 
-import { generateSingleEliminationBracket, recordMatchResult as recordSingleElim } from './single-elimination.js';
-import { generateDoubleEliminationBracket, recordMatchResult as recordDoubleElim } from './double-elimination.js';
+import { generateSingleEliminationBracket, recordMatchResult as recordSingleElim, getStandings as getSingleStandings } from './single-elimination.js';
+import { generateDoubleEliminationBracket, recordMatchResult as recordDoubleElim, getStandings as getDoubleStandings } from './double-elimination.js';
 
 /**
  * Form teams from participants
@@ -152,23 +152,16 @@ export function autoAssignTeams(participants, teamSize = 2) {
 /**
  * Get standings for doubles (wraps underlying bracket type)
  */
-export async function getStandings(tournament, participants) {
+export function getStandings(tournament, participants) {
   const teamMap = new Map(tournament.teams.map(t => [t.id, t]));
 
-  // Dynamic import based on bracket type
-  if (tournament.bracketType === 'double') {
-    const { getStandings: getDoubleStandings } = await import('./double-elimination.js');
-    const teamStandings = getDoubleStandings(tournament, teamMap);
-    return teamStandings.map(s => ({
-      ...s,
-      team: tournament.teams.find(t => t.id === s.participantId),
-    }));
-  } else {
-    const { getStandings: getSingleStandings } = await import('./single-elimination.js');
-    const teamStandings = getSingleStandings(tournament, teamMap);
-    return teamStandings.map(s => ({
-      ...s,
-      team: tournament.teams.find(t => t.id === s.participantId),
-    }));
-  }
+  const getUnderlyingStandings = tournament.bracketType === 'double'
+    ? getDoubleStandings
+    : getSingleStandings;
+  const teamStandings = getUnderlyingStandings(tournament, teamMap);
+
+  return teamStandings.map(s => ({
+    ...s,
+    team: tournament.teams.find(t => t.id === s.participantId),
+  }));
 }

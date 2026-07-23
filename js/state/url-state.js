@@ -133,7 +133,9 @@ export function isValidRoomSlug(slug) {
 }
 
 /**
- * Sanitize room slug
+ * Sanitize room slug — the final, canonical form used when a room is created
+ * or joined. Trims leading/trailing hyphens so the result satisfies
+ * isValidRoomSlug wherever possible.
  * @param {string} input - User input
  * @returns {string} Sanitized slug
  */
@@ -144,6 +146,26 @@ export function sanitizeRoomSlug(input) {
     .replace(/[^a-z0-9-]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
+    .slice(0, 50)
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Format a room slug for LIVE input as the user types. Lowercases, turns spaces
+ * and other unsupported characters into hyphens, and collapses runs of hyphens —
+ * but intentionally keeps a single trailing hyphen so a user can still type the
+ * next word (e.g. "friday-" then "smash"). Leading hyphens are stripped since a
+ * slug can't start with one. The stricter trailing-hyphen trim is applied later
+ * by sanitizeRoomSlug on submit.
+ * @param {string} input - Raw input value
+ * @returns {string} Formatted (in-progress) slug
+ */
+export function formatRoomSlugInput(input) {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-/, '')
     .slice(0, 50);
 }
 

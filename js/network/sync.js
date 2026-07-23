@@ -32,14 +32,12 @@ const HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
  * @param {Object} room - Room connection from room.js
  */
 export function setupStateSync(room) {
-  const { selfId } = room;
-
   // --- Handle incoming state requests ---
   room.onAction(ActionTypes.STATE_REQUEST, (payload, peerId) => {
     console.info(`[Sync] State request from ${peerId}`);
 
-    // Send our current state
-    const state = store.serialize();
+    // Send our current state (network snapshot: strips the admin reclaim secret)
+    const state = store.serializeForNetwork();
     room.sendTo(ActionTypes.STATE_RESPONSE, {
       state,
       isAdmin: store.isAdmin(),
@@ -63,13 +61,30 @@ export function setupStateSync(room) {
     if (remoteState) {
       const adminId = remoteState.meta?.adminId;
 
-      // If this is from the admin, register their peerId → localUserId mapping
+      // Security: do NOT trust a self-declared isAdmin flag that merely echoes the
+      // known adminId. Only establish (or refresh) the peerId → adminId mapping when
+      // the sender is provably the admin: either no peer is currently acting as admin
+      // (trust-on-first-use during initial sync) or this peer is already that admin.
+      // Otherwise a malicious peer could seize admin authority by echoing adminId.
+      let trustedAdminId = null;
       if (isRemoteAdmin && adminId) {
-        peerIdToUserId.set(peerId, adminId);
+        const currentPeers = room.getPeers();
+        const activeAdminPeer = [...peerIdToUserId.entries()]
+          .find(([pid, uid]) => uid === adminId && currentPeers.includes(pid))?.[0];
+        if (!activeAdminPeer || activeAdminPeer === peerId) {
+          peerIdToUserId.set(peerId, adminId);
+          trustedAdminId = adminId;
+        } else {
+          console.warn(`[Sync] Rejected admin mapping claim from ${peerId}: admin already active as ${activeAdminPeer}`);
+        }
       }
 
-      // Merge state (admin state is given priority in store.merge)
-      store.merge(remoteState, adminId);
+      // Merge state. store.merge's second argument is `senderIsAdmin` (boolean): only
+      // grant admin authority when the sender passed the trust check above, so store.merge
+      // never treats an arbitrary peer's payload as admin-authoritative (bracket/matches
+      // overrides, etc.). A fresh joiner with no local adminId still bootstraps content via
+      // store.merge's own `!localAdminId && remoteAdminId` clause.
+      store.merge(remoteState, trustedAdminId !== null);
 
       // Mark state as initialized (prevents race conditions with early messages)
       stateInitialized = true;
@@ -123,6 +138,11 @@ export function setupStateSync(room) {
 
     // Handle manual participant additions (admin only, no peerId needed)
     if (payload.isManual) {
+      const senderUserId = peerIdToUserId.get(peerId) || peerId;
+      if (!adminId || senderUserId !== adminId) {
+        console.warn(`[Sync] Rejected manual participant injection from non-admin: ${senderUserId}`);
+        return;
+      }
       // Only process if we don't already have this participant
       const existingManual = store.getParticipant(localUserId);
       if (!existingManual) {
@@ -186,13 +206,19 @@ export function setupStateSync(room) {
         peerId: peerId,
       });
 
-      // Broadcast the claim to peers so they also update
-      room.broadcast(ActionTypes.PARTICIPANT_UPDATE, {
-        id: matchingManual.id,
-        claimedBy: localUserId,
-        isConnected: true,
-        peerId: peerId,
-      });
+      // Broadcast the claim to peers so they also update. Only the admin relays
+      // this: a non-admin's broadcast is misattributed by receivers (mapped to the
+      // relayer, not payload.id) and would corrupt the relayer's own record. Every
+      // peer already runs this auto-claim locally from the PARTICIPANT_JOIN broadcast,
+      // so gating the relay to admin keeps claims consistent without corruption.
+      if (store.isAdmin()) {
+        room.broadcast(ActionTypes.PARTICIPANT_UPDATE, {
+          id: matchingManual.id,
+          claimedBy: localUserId,
+          isConnected: true,
+          peerId: peerId,
+        });
+      }
 
       return;
     }
@@ -239,6 +265,13 @@ export function setupStateSync(room) {
         // Cache the mapping for future use
         peerIdToUserId.set(peerId, senderUserId);
       } else if (payload.localUserId) {
+        // Anti-impersonation: never accept (or cache) a self-declared identity claim
+        // of the admin's id from a peer with no established mapping. Otherwise a peer
+        // could set payload.localUserId = adminId and wield persistent admin authority.
+        if (adminId && payload.localUserId === adminId) {
+          console.warn(`[Sync] Rejected admin identity claim in participant update from ${peerId}`);
+          return;
+        }
         // Use localUserId from payload (handles case where PARTICIPANT_JOIN was rejected due to empty name)
         senderUserId = payload.localUserId;
         peerIdToUserId.set(peerId, senderUserId);
@@ -281,6 +314,11 @@ export function setupStateSync(room) {
 
   // --- Handle participant leave ---
   room.onAction(ActionTypes.PARTICIPANT_LEAVE, async (payload, peerId) => {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(`[Sync] Invalid participant leave payload from ${peerId}`);
+      return;
+    }
+
     const senderUserId = peerIdToUserId.get(peerId) || peerId;
 
     // Check if this is an admin removal (has removedId) or voluntary leave
@@ -327,6 +365,11 @@ export function setupStateSync(room) {
 
   // --- Handle tournament start (admin only) ---
   room.onAction(ActionTypes.TOURNAMENT_START, async (payload, peerId) => {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(`[Sync] Invalid tournament start payload from ${peerId}`);
+      return;
+    }
+
     const adminId = store.get('meta.adminId');
     const localUserId = peerIdToUserId.get(peerId) || peerId;
 
@@ -504,6 +547,11 @@ export function setupStateSync(room) {
 
   // --- Handle match verification (admin only) ---
   room.onAction(ActionTypes.MATCH_VERIFY, (payload, peerId) => {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(`[Sync] Invalid match verify payload from ${peerId}`);
+      return;
+    }
+
     const adminId = store.get('meta.adminId');
     const localUserId = peerIdToUserId.get(peerId) || peerId;
 
@@ -513,6 +561,12 @@ export function setupStateSync(room) {
     }
 
     const { matchId, scores, winnerId } = payload;
+
+    // Basic shape validation before applying
+    if (!isValidMatchId(matchId) || !isValidScores(scores) || typeof winnerId !== 'string') {
+      console.warn(`[Sync] Invalid match verify shape from ${peerId}`);
+      return;
+    }
 
     store.updateMatch(matchId, {
       scores,
@@ -526,6 +580,11 @@ export function setupStateSync(room) {
 
   // --- Handle standings updates (Mario Kart mode) ---
   room.onAction(ActionTypes.STANDINGS_UPDATE, (payload, peerId) => {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(`[Sync] Invalid standings update payload from ${peerId}`);
+      return;
+    }
+
     const adminId = store.get('meta.adminId');
     const localUserId = peerIdToUserId.get(peerId) || peerId;
 
@@ -539,7 +598,12 @@ export function setupStateSync(room) {
 
   // --- Handle race/game results (Points Race mode) ---
   room.onAction(ActionTypes.RACE_RESULT, async (payload, peerId) => {
-    const { gameId, results, reportedAt } = payload;
+    if (!payload || typeof payload !== 'object') {
+      console.warn(`[Sync] Invalid race result payload from ${peerId}`);
+      return;
+    }
+
+    const { gameId, results, reportedAt, version } = payload;
     const localUserId = peerIdToUserId.get(peerId) || peerId;
 
     console.info(`[Sync] Race result from ${localUserId}:`, payload);
@@ -560,9 +624,19 @@ export function setupStateSync(room) {
       return;
     }
 
-    // LWW - only apply if newer
-    const existingReportedAt = game.reportedAt || 0;
-    if (reportedAt <= existingReportedAt && !isAdmin) {
+    const incomingVersion = version || 0;
+
+    // Idempotency guard: an already-complete game must not be re-applied by a normal
+    // duplicate (which would double-count standings). Only a strictly newer version
+    // (a genuine correction) or an admin override may re-apply.
+    if (game.complete && !isAdmin && incomingVersion <= (game.version || 0)) {
+      console.info(`[Sync] Ignoring duplicate result for completed game ${gameId}`);
+      return;
+    }
+
+    // LWW - only apply if newer (shared logical-clock comparison)
+    const incoming = { version: incomingVersion, reportedAt };
+    if (!shouldUpdateMatch(incoming, game, isAdmin)) {
       console.info(`[Sync] Ignoring stale race result`);
       return;
     }
@@ -582,6 +656,16 @@ export function setupStateSync(room) {
       };
 
       recordRaceResult(tournament, gameId, results, localUserId);
+
+      // Persist the reporter's logical clock and timestamp on the game so LWW
+      // comparisons stay consistent across peers. Do NOT keep a receiver-local
+      // Date.now() stamp (recordRaceResult sets one) - that would make every peer
+      // disagree on the same result's reportedAt.
+      const appliedGame = tournament.matches.get(gameId);
+      if (appliedGame) {
+        appliedGame.reportedAt = reportedAt;
+        appliedGame.version = incomingVersion;
+      }
 
       // Update store
       store.set('bracket', {
@@ -603,14 +687,20 @@ export function setupStateSync(room) {
 
   // --- Handle version check (admin heartbeat for drift detection) ---
   room.onAction(ActionTypes.VERSION_CHECK, (payload, peerId) => {
+    if (!payload || typeof payload !== 'object') {
+      console.warn(`[Sync] Invalid version check payload from ${peerId}`);
+      return;
+    }
+
     const { version } = payload;
     const localVersion = store.get('meta.version') || 0;
 
     // Heartbeat received = admin is connected
-    // This ensures connection status stays accurate even without version drift
+    // This ensures connection status stays accurate even without version drift.
+    // Only refresh the mapping when the sender is ALREADY the trusted admin,
+    // otherwise a malicious peer could impersonate the admin via heartbeat.
     const adminId = store.get('meta.adminId');
-    if (adminId) {
-      peerIdToUserId.set(peerId, adminId);
+    if (adminId && peerIdToUserId.get(peerId) === adminId) {
       store.updateParticipant(adminId, { isConnected: true, peerId: peerId });
     }
 
@@ -787,8 +877,9 @@ function advanceInDoubleElim(bracket, matchId, winnerId) {
       if (losersRound) {
         const targetMatch = losersRound.matches[match.dropsTo.position];
         if (targetMatch) {
+          const dropSlot = match.dropsTo.slot !== undefined ? match.dropsTo.slot : 1;
           store.updateMatch(targetMatch.id, {
-            participants: updateSlot(targetMatch.participants, 1, loserId),
+            participants: updateSlot(targetMatch.participants, dropSlot, loserId),
           });
         }
       }
@@ -889,12 +980,29 @@ export function announceJoin(room, name, localUserId) {
  * @param {string} winnerId - Winner's participant ID
  */
 export function reportMatchResult(room, matchId, scores, winnerId) {
+  // Use a per-match logical clock (monotonic per match, consistent across peers),
+  // NOT the global meta.version counter. meta.version differs per peer, so comparing
+  // it in shouldUpdateMatch drops legitimate corrections and makes reporter/receivers
+  // disagree on the same result's version.
+  const match = store.getMatch(matchId);
+  const version = (match?.version || 0) + 1;
+  const reportedAt = Date.now();
+
+  // Store the same version/timestamp we broadcast so the reporter and receivers agree.
+  store.updateMatch(matchId, {
+    scores,
+    winnerId,
+    reportedBy: store.get('local.localUserId'),
+    reportedAt,
+    version,
+  });
+
   room.broadcast(ActionTypes.MATCH_RESULT, {
     matchId,
     scores,
     winnerId,
-    reportedAt: Date.now(),
-    version: store.get('meta.version') || 0,  // Logical clock for conflict resolution
+    reportedAt,
+    version,
   });
 }
 
@@ -923,10 +1031,24 @@ export function startTournament(room, bracket, matches) {
  * @param {Object[]} results - Array of { participantId, position }
  */
 export function reportRaceResult(room, gameId, results) {
+  // Per-game logical clock (monotonic per game, consistent across peers) so the
+  // RACE_RESULT handler's shouldUpdateMatch comparison works and duplicates are
+  // detected. recordRaceResult (called by the reporter before this) stamps
+  // game.reportedAt; reuse it so reporter and receivers agree on the same value.
+  const game = store.getMatch(gameId);
+  const version = (game?.version || 0) + 1;
+  const reportedAt = game?.reportedAt || Date.now();
+
+  // Persist the version on our own game so future comparisons agree with what we broadcast.
+  if (game) {
+    store.updateMatch(gameId, { version });
+  }
+
   room.broadcast(ActionTypes.RACE_RESULT, {
     gameId,
     results,
-    reportedAt: Date.now(),
+    reportedAt,
+    version,
   });
 }
 

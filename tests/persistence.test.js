@@ -134,10 +134,11 @@ Deno.test('persistence', async (t) => {
     const noTimestamp = { meta: { id: roomId } };
     localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(noTimestamp));
 
-    // loadTournament checks: if (data.savedAt && data.savedAt < cutoff)
-    // When savedAt is missing/falsy, this evaluates to false, so data is kept
+    // loadTournament checks: if (!data.savedAt || data.savedAt < cutoff)
+    // When savedAt is missing/falsy, this evaluates to true, so data is treated as expired
     const loaded = loadTournament(roomId);
-    assertExists(loaded, 'Data without savedAt should be kept by loadTournament');
+    assertEquals(loaded, null, 'Data without savedAt should be treated as expired by loadTournament');
+    assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete data without savedAt');
   });
 
   // cleanupOldTournaments tests

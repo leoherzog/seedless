@@ -27,7 +27,6 @@ import {
 } from './fixtures.js';
 import {
   determineMatchStatus,
-  canReportMatchResult,
   getOrdinalSuffix,
 } from '../js/utils/tournament-helpers.js';
 
@@ -66,58 +65,6 @@ Deno.test('Match Status Determination', async (t) => {
       participants: [null, null],
     };
     assertEquals(determineMatchStatus(match), 'pending');
-  });
-});
-
-// ============================================
-// Can Report Match Result Tests
-// ============================================
-
-Deno.test('Can Report Match Result', async (t) => {
-  await t.step('true when user is participant and match is ready', () => {
-    const match = {
-      winnerId: null,
-      isBye: false,
-      participants: ['user1', 'user2'],
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), true);
-    assertEquals(canReportMatchResult(match, 'user2'), true);
-  });
-
-  await t.step('false when winner already determined', () => {
-    const match = {
-      winnerId: 'user1',
-      isBye: false,
-      participants: ['user1', 'user2'],
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), false);
-  });
-
-  await t.step('false for bye matches', () => {
-    const match = {
-      winnerId: null,
-      isBye: true,
-      participants: ['user1', null],
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), false);
-  });
-
-  await t.step('false when not a participant', () => {
-    const match = {
-      winnerId: null,
-      isBye: false,
-      participants: ['user1', 'user2'],
-    };
-    assertEquals(canReportMatchResult(match, 'user3'), false);
-  });
-
-  await t.step('false when match incomplete', () => {
-    const match = {
-      winnerId: null,
-      isBye: false,
-      participants: ['user1', null],
-    };
-    assertEquals(canReportMatchResult(match, 'user1'), false);
   });
 });
 

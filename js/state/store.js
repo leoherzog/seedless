@@ -445,10 +445,7 @@ class Store extends EventEmitter {
 
       if (bracket?.grandFinals) {
         // Double elimination doubles
-        const gfReset = bracket.grandFinals.reset;
-        const gfMatch = bracket.grandFinals.match;
-        // Only use reset winner if reset was actually played
-        winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+        winnerId = this._resolveGrandFinalsWinner(bracket);
       } else if (bracket?.rounds) {
         // Single elimination doubles
         const finalRound = bracket.rounds[bracket.rounds.length - 1];
@@ -474,10 +471,7 @@ class Store extends EventEmitter {
       standingsSummary = this._extractBracketStandings(bracket, participants, type);
     } else if (type === 'double') {
       // Double elimination
-      const gfReset = bracket?.grandFinals?.reset;
-      const gfMatch = bracket?.grandFinals?.match;
-      // Only use reset winner if reset was actually played
-      const winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+      const winnerId = this._resolveGrandFinalsWinner(bracket);
 
       if (winnerId) {
         const p = participants.get(winnerId);
@@ -517,6 +511,16 @@ class Store extends EventEmitter {
   }
 
   /**
+   * Resolve the grand-finals winner, preferring the reset match winner only
+   * when the reset was actually played.
+   * @private
+   */
+  _resolveGrandFinalsWinner(bracket) {
+    const gf = bracket?.grandFinals;
+    return (gf?.reset?.requiresPlay && gf?.reset?.winnerId) || gf?.match?.winnerId;
+  }
+
+  /**
    * Extract top 4 standings from bracket structure
    * @private
    */
@@ -530,10 +534,8 @@ class Store extends EventEmitter {
 
       let winnerId, runnerUpId;
       if (bracket?.grandFinals) {
-        const gfReset = bracket.grandFinals.reset;
         const gfMatch = bracket.grandFinals.match;
-        // Only use reset winner if reset was actually played
-        winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+        winnerId = this._resolveGrandFinalsWinner(bracket);
         const gfParticipants = gfMatch?.participants || [];
         runnerUpId = gfParticipants.find(id => id !== winnerId);
       } else if (bracket?.rounds) {
@@ -553,10 +555,8 @@ class Store extends EventEmitter {
       }
     } else if (type === 'double') {
       // Double elimination
-      const gfReset = bracket?.grandFinals?.reset;
       const gfMatch = bracket?.grandFinals?.match;
-      // Only use reset winner if reset was actually played
-      const winnerId = (gfReset?.requiresPlay && gfReset?.winnerId) || gfMatch?.winnerId;
+      const winnerId = this._resolveGrandFinalsWinner(bracket);
       const gfParticipants = gfMatch?.participants || [];
       const runnerUpId = gfParticipants.find(id => id !== winnerId);
 
@@ -629,8 +629,11 @@ class Store extends EventEmitter {
   // --- Serialization for P2P sync ---
 
   serialize() {
+    // Full snapshot including meta.adminToken. Safe for LOCAL persistence
+    // (the admin's own localStorage). For anything sent to peers use
+    // serializeForNetwork(), which strips the reclaim secret.
     return {
-      meta: this._state.meta,
+      meta: { ...this._state.meta },
       participants: Array.from(this._state.participants.entries()),
       bracket: this._state.bracket,
       matches: Array.from(this._state.matches.entries()),
@@ -638,6 +641,18 @@ class Store extends EventEmitter {
       teamAssignments: Array.from(this._state.teamAssignments.entries()),
       history: this._state.history,
     };
+  }
+
+  // Snapshot for broadcasting to peers. Strips admin-only secrets:
+  // meta.adminToken is the room-reclaim secret; leaking it to peers (or into
+  // their localStorage) would let anyone hijack the room. The admin keeps its
+  // own copy locally in this._state.meta AND in a separate localStorage slot
+  // (see saveAdminToken in persistence.js), so omitting it from network state
+  // does not affect the admin's own ability to reclaim.
+  serializeForNetwork() {
+    const snapshot = this.serialize();
+    delete snapshot.meta.adminToken;
+    return snapshot;
   }
 
   deserialize(data) {
@@ -667,29 +682,56 @@ class Store extends EventEmitter {
     return this;
   }
 
-  // Merge remote state (for conflict resolution)
-  merge(remoteState, remoteAdminId) {
+  /**
+   * Merge remote state (for conflict resolution).
+   *
+   * CONTRACT CHANGE (security): the second argument is now `senderIsAdmin`,
+   * a boolean the CALLER must set to true only when it has verified that the
+   * peer that SENT this state is the room's trusted admin (e.g. via the
+   * STATE_RESPONSE `isAdmin` flag cross-checked against the sending peer's id).
+   *
+   * Previously this argument was the remote state's `meta.adminId` and authority
+   * was granted whenever it equalled our known admin id. That was unsafe: EVERY
+   * peer's serialized state carries `meta.adminId` (it records "who the admin
+   * is"), so any peer — including a stale rejoiner echoing the known adminId —
+   * was accepted as admin-authoritative and could clobber meta/bracket/standings
+   * with no guard. Authority must key off whether the SENDER is the admin, not
+   * off the state merely echoing the known admin id.
+   *
+   * @param {Object} remoteState - Serialized remote state
+   * @param {boolean} [senderIsAdmin=false] - True iff the sending peer is the verified admin
+   */
+  merge(remoteState, senderIsAdmin = false) {
     const localState = this._state;
     const localAdminId = localState.meta?.adminId;
-    // Trust remote as admin authority ONLY if:
-    // 1. We know who admin is (localAdminId exists), AND
-    // 2. Remote claims to be that exact admin
-    // For initial sync (no local adminId), we rely on version comparison
-    // The real admin should have higher version from room operations
-    const isRemoteAdmin = localAdminId && remoteAdminId && remoteAdminId === localAdminId;
+    const remoteAdminId = remoteState.meta?.adminId;
 
-    // Meta: prefer remote if from admin, newer version, or establishing initial admin
+    // Grant remote admin authority when EITHER:
+    //  1. the caller verified the sending peer is the admin, OR
+    //  2. we are a fresh joiner with no known admin yet and the remote state
+    //     names an admin — this is our initial authoritative snapshot and we
+    //     have nothing of our own to protect, so we bootstrap fully from it.
+    // We deliberately do NOT grant authority merely because remoteAdminId
+    // echoes our known adminId (every honest peer carries that field), which
+    // is what let any peer clobber admin-controlled data before.
+    const isRemoteAdmin = senderIsAdmin === true || (!localAdminId && !!remoteAdminId);
+
+    // Meta: accept when admin-authoritative, or (monotonic guard) when the
+    // remote carries a strictly higher version. The version guard keeps a
+    // stale, non-admin peer from regressing meta.
     if (remoteState.meta) {
-      // Accept remote meta if:
-      // 1. Remote is recognized admin (already established), OR
-      // 2. Remote has higher version (logical clock), OR
-      // 3. We have no admin yet and remote has one (initial admin establishment)
       const shouldAcceptMeta = isRemoteAdmin ||
-        remoteState.meta.version > localState.meta.version ||
-        (!localAdminId && remoteState.meta.adminId);
+        ((remoteState.meta.version || 0) > (localState.meta.version || 0));
 
       if (shouldAcceptMeta) {
+        // Preserve our own adminToken (a local-only secret intentionally
+        // stripped from serialized/shared state) across meta replacement, so
+        // the admin never loses its ability to reclaim admin after a sync.
+        const localAdminToken = this._state.meta?.adminToken;
         this._state.meta = { ...remoteState.meta };
+        if (localAdminToken && !this._state.meta.adminToken) {
+          this._state.meta.adminToken = localAdminToken;
+        }
       }
     }
 
@@ -736,8 +778,8 @@ class Store extends EventEmitter {
       }
     }
 
-    // Standings: recalculate from matches (derived state)
-    if (remoteState.standings) {
+    // Standings: admin-authoritative
+    if (remoteState.standings && isRemoteAdmin) {
       this._state.standings = new Map(remoteState.standings);
     }
 

@@ -22,13 +22,12 @@ export function generateSingleEliminationBracket(participants, config = {}) {
   // Calculate bracket size (next power of 2)
   const bracketSize = nextPowerOf2(seeded.length);
   const numRounds = Math.log2(bracketSize);
-  const numByes = bracketSize - seeded.length;
 
   const rounds = [];
   const matches = new Map();
 
   // Generate Round 1 with proper seeding
-  const round1 = generateRound1(seeded, bracketSize, numByes);
+  const round1 = generateRound1(seeded, bracketSize);
   rounds.push(round1);
 
   // Add round 1 matches to map
@@ -58,10 +57,6 @@ export function generateSingleEliminationBracket(participants, config = {}) {
         reportedAt: null,
         verifiedBy: null,
         isBye: false,
-        feedsFrom: [
-          `r${r}m${m * 2}`,
-          `r${r}m${m * 2 + 1}`,
-        ],
       };
       round.matches.push(match);
       matches.set(match.id, match);
@@ -86,7 +81,7 @@ export function generateSingleEliminationBracket(participants, config = {}) {
 /**
  * Generate Round 1 with proper seeding positions
  */
-function generateRound1(seeded, bracketSize, numByes) {
+function generateRound1(seeded, bracketSize) {
   const positions = getSeedPositions(bracketSize);
 
   // Place participants in seeded positions
@@ -206,7 +201,7 @@ function advanceWinner(bracket, match) {
  */
 function checkTournamentComplete(bracket) {
   const finals = bracket.rounds[bracket.rounds.length - 1]?.matches[0];
-  bracket.isComplete = finals?.winnerId !== null;
+  bracket.isComplete = !!(finals && finals.winnerId);
   return bracket.isComplete;
 }
 

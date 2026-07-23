@@ -158,8 +158,8 @@ Deno.test('Store.merge - Meta Scenarios', async (t) => {
       meta: { version: 5, adminId: 'admin-1', status: 'complete' },
     };
 
-    // Remote is from admin
-    store.merge(remoteState, 'admin-1');
+    // Remote is from the verified admin
+    store.merge(remoteState, true);
 
     // Admin state should be accepted
     assertEquals(store.get('meta.status'), 'complete');

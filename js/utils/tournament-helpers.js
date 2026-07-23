@@ -41,44 +41,17 @@ export function determineMatchStatus(match) {
 }
 
 /**
- * Check if a user can report a match result
- * @param {Object} match - Match object
- * @param {string} [match.winnerId] - Winner's ID if determined
- * @param {boolean} [match.isBye] - Whether this is a bye match
- * @param {Array} match.participants - Array of participant IDs
- * @param {string} localUserId - Current user's ID
- * @returns {boolean} True if user can report
+ * Get points for a position based on points table configuration
+ * @param {Array|string} pointsTable - Points table array or 'sequential'
+ * @param {number} position - 0-indexed position in results
+ * @param {number} totalPlayers - Total number of players (for sequential scoring)
+ * @returns {number} Points for this position
  */
-export function canReportMatchResult(match, localUserId) {
-  return !match.winnerId &&
-    !match.isBye &&
-    match.participants.includes(localUserId) &&
-    Boolean(match.participants[0]) &&
-    Boolean(match.participants[1]);
-}
-
-/**
- * Count members in a team, optionally excluding one participant
- * @param {Map|Array} teamAssignments - Map of participantId → teamId, or array of [participantId, teamId] entries
- * @param {string} teamId - Team ID to count
- * @param {string} [excludeParticipantId] - Participant ID to exclude from count
- * @returns {number} Number of team members
- */
-export function getTeamMemberCount(teamAssignments, teamId, excludeParticipantId = null) {
-  let count = 0;
-
-  // Handle both Map and Array
-  const entries = teamAssignments instanceof Map
-    ? teamAssignments.entries()
-    : teamAssignments;
-
-  for (const [participantId, assignedTeamId] of entries) {
-    if (assignedTeamId === teamId && participantId !== excludeParticipantId) {
-      count++;
-    }
+export function getPointsForPosition(pointsTable, position, totalPlayers) {
+  if (pointsTable === 'sequential') {
+    return totalPlayers - position;
   }
-
-  return count;
+  return Array.isArray(pointsTable) ? (pointsTable[position] || 0) : 0;
 }
 
 /**

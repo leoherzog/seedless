@@ -281,7 +281,7 @@ Deno.test('Message Timing Edge Cases', async (t) => {
       meta: { version: 1, adminId: 'admin-user', status: 'active' },
     };
 
-    store.merge(adminState, 'admin-user');
+    store.merge(adminState, true);
 
     // Admin's meta update should be accepted
     assertEquals(store.get('meta.status'), 'active');

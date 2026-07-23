@@ -18,7 +18,7 @@ function getContainer() {
 /**
  * Show a toast notification
  * @param {string} message - Message to display
- * @param {string} type - 'success' | 'error' | 'info'
+ * @param {string} type - 'success' | 'error' | 'warning' | 'info'
  * @param {number} duration - Duration in ms (0 = permanent)
  */
 export function showToast(message, type = 'info', duration = CONFIG.ui.toastDuration) {
@@ -33,6 +33,7 @@ export function showToast(message, type = 'info', duration = CONFIG.ui.toastDura
 
   const icon = type === 'success' ? 'fa-check-circle'
     : type === 'error' ? 'fa-exclamation-circle'
+    : type === 'warning' ? 'fa-exclamation-triangle'
     : 'fa-info-circle';
 
   toast.innerHTML = `

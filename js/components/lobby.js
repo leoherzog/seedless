@@ -585,6 +585,9 @@ async function onStartTournament() {
       const j = Math.floor(Math.random() * (i + 1));
       [seededParticipants[i], seededParticipants[j]] = [seededParticipants[j], seededParticipants[i]];
     }
+  } else if (seedingMode === 'manual') {
+    // Preserve the admin's drag-drop order (existing seed values), matching the displayed order
+    seededParticipants.sort((a, b) => (a.seed || 999) - (b.seed || 999));
   }
 
   // Assign seeds

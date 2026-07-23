@@ -51,6 +51,10 @@ export function generateDoubleEliminationBracket(participants, config = {}) {
   // Process winners bracket byes
   processWinnersByes(winners, losers, matches);
 
+  // Mark losers-bracket slots that can never be filled because their feeding
+  // winners match was a bye (a bye produces no loser to drop down).
+  markDeadLosersSlots(winners, losers);
+
   return {
     type: 'double',
     winners,
@@ -117,7 +121,6 @@ function generateWinnersBracket(seeded, bracketSize) {
         winnerId: null,
         loserId: null,
         isBye: false,
-        feedsFrom: [`w${r}m${m * 2}`, `w${r}m${m * 2 + 1}`],
         dropsTo: calculateDropTarget(r + 1, m, bracketSize),
       });
     }
@@ -163,7 +166,6 @@ function generateLosersBracket(bracketSize, winnersRounds) {
         winnerId: null,
         isBye: false,
         isMinorRound,
-        receivesFrom: isMinorRound ? getDropdownSource(roundNum, m, bracketSize) : null,
       });
     }
 
@@ -228,18 +230,13 @@ function calculateDropTarget(winnersRound, position, bracketSize) {
     const slot = position % 2;
     return { round: 1, position: losersPosition, slot };
   } else {
-    // W2+ losers go to slot 1, mixing with previous round winners
-    // Each winners match maps to a specific losers match
-    return { round: winnersRound, position: position, slot: 1 };
+    // W2+ losers go to slot 1, mixing with previous round winners.
+    // Standard double-elimination routing drops a winners-round-r loser into
+    // the major losers round 2*(r-1). (For r === 2 this equals 2, matching the
+    // old formula; for r >= 3 the old `round: winnersRound` dropped into an
+    // already-filled minor round and corrupted the bracket.)
+    return { round: 2 * (winnersRound - 1), position: position, slot: 1 };
   }
-}
-
-/**
- * Get source of dropdown into losers bracket
- */
-function getDropdownSource(losersRound, position, bracketSize) {
-  const winnersRound = Math.floor((losersRound + 1) / 2);
-  return { bracket: 'winners', round: winnersRound, position: position };
 }
 
 /**
@@ -265,6 +262,77 @@ function processWinnersByes(winners, losers, matches) {
           }
 
           // No loser drops (bye match)
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Mark losers-bracket slots that will never receive a participant.
+ *
+ * Only round-1 winners matches can be byes (with participantCount > bracketSize/2
+ * every later winners round is full), so dead losers slots originate from R1 bye
+ * drop targets and then cascade: a losers match with both slots dead produces no
+ * winner, so the slot it would have advanced into is dead too.
+ */
+function markDeadLosersSlots(winners, losers) {
+  const round1 = winners.rounds[0];
+  if (!round1) return;
+
+  for (const match of round1.matches) {
+    if (match.isBye && match.dropsTo) {
+      const losersRound = losers.rounds[match.dropsTo.round - 1];
+      const targetMatch = losersRound?.matches[match.dropsTo.position];
+      if (targetMatch) {
+        addDeadSlot(targetMatch, match.dropsTo.slot);
+      }
+    }
+  }
+
+  // Cascade fully-dead matches downstream (rounds processed in order).
+  for (let r = 0; r < losers.rounds.length; r++) {
+    for (const match of losers.rounds[r].matches) {
+      if ((match.deadSlots?.length || 0) < 2) continue;
+
+      // Fully dead: nobody advances, so mark the slot it would have fed.
+      const nextRound = losers.rounds[r + 1];
+      if (!nextRound) continue;
+      const nextMatchIdx = match.isMinorRound ? match.position : Math.floor(match.position / 2);
+      const nextMatch = nextRound.matches[nextMatchIdx];
+      if (nextMatch) {
+        const slot = match.isMinorRound ? 0 : match.position % 2;
+        addDeadSlot(nextMatch, slot);
+      }
+    }
+  }
+}
+
+function addDeadSlot(match, slot) {
+  if (!match.deadSlots) match.deadSlots = [];
+  if (!match.deadSlots.includes(slot)) match.deadSlots.push(slot);
+}
+
+/**
+ * Resolve losers-bracket byes: any unresolved losers match that has exactly one
+ * real participant and a permanently-dead slot auto-advances its lone participant.
+ * Runs to a fixed point so cascading walkovers keep the bracket progressing.
+ */
+function resolveLosersByes(bracket) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const round of bracket.losers.rounds) {
+      for (const match of round.matches) {
+        if (match.winnerId) continue;
+        if (!match.deadSlots || match.deadSlots.length === 0) continue;
+
+        const realIds = match.participants.filter(p => p !== null);
+        if (realIds.length === 1) {
+          match.winnerId = realIds[0];
+          match.loserId = null;
+          advanceInLosers(bracket, match);
+          changed = true;
         }
       }
     }
@@ -314,6 +382,10 @@ export function recordMatchResult(bracket, matchId, scores, winnerId, reportedBy
     handleGrandFinals(bracket, match, winnerId);
   }
 
+  // Auto-advance any losers matches whose opponent slot is permanently empty
+  // (byes from non-power-of-2 fields) so the losers bracket keeps progressing.
+  resolveLosersByes(bracket);
+
   checkTournamentComplete(bracket);
   return bracket;
 }
@@ -343,6 +415,15 @@ function advanceInWinners(bracket, match) {
  */
 function dropToLosers(bracket, match, loserId) {
   if (!match.dropsTo) return;
+
+  // Degenerate case (e.g. 2-player: losersRounds === 0): there is no losers
+  // bracket, so the winners-final loser is the de-facto losers champion and
+  // drops straight into grand finals slot 1. Without this, grandFinals never
+  // fills and the tournament can never complete.
+  if (match.dropsTo.round < 1 || bracket.losers.rounds.length === 0) {
+    bracket.grandFinals.match.participants[1] = loserId;
+    return;
+  }
 
   const losersRound = bracket.losers.rounds[match.dropsTo.round - 1];
   if (losersRound) {

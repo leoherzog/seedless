@@ -4,7 +4,16 @@
  */
 
 import { CONFIG } from '../../config.js';
-import { joinRoom as trysteroJoin, selfId } from 'https://esm.run/trystero/torrent';
+// NOTE: The 'trystero' package's '/torrent' subpath (and the deno.json
+// "trystero/torrent" import-map entry that points at it) is a deprecated
+// shim that now throws "Importing from trystero/torrent is deprecated"
+// and no longer provides any named exports (including `selfId`). The
+// project has moved to the '@trystero-p2p/torrent' package, which still
+// exports both `joinRoom` and `selfId`. Importing the full CDN URL here
+// (rather than the bare 'trystero/torrent' specifier) keeps this working
+// in both Deno (no import-map changes needed) and the browser (index.html
+// has no <script type="importmap">, so a bare specifier would fail there).
+import { joinRoom as trysteroJoin, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/torrent/+esm';
 
 // Allow tests to override Trystero adapter via globalThis.__seedlessTrysteroJoin / __seedlessTrysteroSelfId
 const getTrysteroJoin = () => globalThis.__seedlessTrysteroJoin || trysteroJoin;
@@ -69,6 +78,26 @@ export async function joinRoom(roomId, options = {}) {
     actions[actionType] = { send, receive };
   }
 
+  // Trystero's room.onPeerJoin/onPeerLeave are replace-only (registering a
+  // new callback discards the previous one), but multiple parts of the app
+  // (this module's logging, the sync layer, and the UI) all need to react
+  // to peer join/leave events. Maintain our own handler lists and register
+  // a single real callback with Trystero that fans out to all of them.
+  const peerJoinHandlers = [];
+  const peerLeaveHandlers = [];
+
+  room.onPeerJoin((peerId) => {
+    for (const handler of peerJoinHandlers) {
+      handler(peerId);
+    }
+  });
+
+  room.onPeerLeave((peerId) => {
+    for (const handler of peerLeaveHandlers) {
+      handler(peerId);
+    }
+  });
+
   // Connection state
   const connection = {
     room,
@@ -111,12 +140,12 @@ export async function joinRoom(roomId, options = {}) {
      * Register handler for peer events
      */
     onPeerJoin(callback) {
-      room.onPeerJoin(callback);
+      peerJoinHandlers.push(callback);
       return connection;
     },
 
     onPeerLeave(callback) {
-      room.onPeerLeave(callback);
+      peerLeaveHandlers.push(callback);
       return connection;
     },
 
@@ -159,11 +188,11 @@ export async function joinRoom(roomId, options = {}) {
   };
 
   // Log peer connections
-  room.onPeerJoin((peerId) => {
+  peerJoinHandlers.push((peerId) => {
     console.info(`[Seedless] Peer joined: ${peerId}`);
   });
 
-  room.onPeerLeave((peerId) => {
+  peerLeaveHandlers.push((peerId) => {
     console.info(`[Seedless] Peer left: ${peerId}`);
   });
 

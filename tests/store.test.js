@@ -243,7 +243,7 @@ Deno.test("Store.merge - meta resolution", async (t) => {
     };
 
     // Remote claims same adminId as our known admin - trusted
-    store.merge(remoteState, "known-admin");
+    store.merge(remoteState, true);
 
     // Admin state should win despite lower version
     assertEquals(store.get("meta.status"), "active");
@@ -279,6 +279,50 @@ Deno.test("Store.merge - meta resolution", async (t) => {
 
     assertEquals(store.get("meta.status"), "lobby");
     assertEquals(store.get("meta.version"), 10);
+  });
+});
+
+Deno.test("Store.merge - standings admin authority", async (t) => {
+  await t.step("does NOT overwrite local standings when remote is not admin", () => {
+    const store = new Store();
+    store.set("meta.adminId", "local-admin");
+    store._state.standings = new Map([
+      ["p1", { participantId: "p1", name: "Alice", points: 50 }],
+    ]);
+
+    const remoteState = {
+      standings: [
+        ["p2", { participantId: "p2", name: "Bob", points: 99 }],
+      ],
+    };
+
+    // Remote is not the known admin -> standings must be preserved
+    store.merge(remoteState, "remote-admin");
+
+    const standings = store.get("standings");
+    assert(standings.has("p1"), "local standings should be preserved");
+    assert(!standings.has("p2"), "non-admin remote standings should be rejected");
+  });
+
+  await t.step("overwrites local standings when remote is admin", () => {
+    const store = new Store();
+    store.set("meta.adminId", "known-admin");
+    store._state.standings = new Map([
+      ["p1", { participantId: "p1", name: "Alice", points: 50 }],
+    ]);
+
+    const remoteState = {
+      standings: [
+        ["p2", { participantId: "p2", name: "Bob", points: 99 }],
+      ],
+    };
+
+    // Remote matches known admin -> standings replaced
+    store.merge(remoteState, true);
+
+    const standings = store.get("standings");
+    assert(standings.has("p2"), "admin remote standings should be applied");
+    assert(!standings.has("p1"), "old local standings should be replaced");
   });
 });
 

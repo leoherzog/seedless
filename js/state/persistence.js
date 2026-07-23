@@ -54,7 +54,7 @@ export function loadTournament(roomId) {
 
     // Check if data is too old
     const cutoff = Date.now() - (RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    if (data.savedAt && data.savedAt < cutoff) {
+    if (!data.savedAt || data.savedAt < cutoff) {
       localStorage.removeItem(key);
       return null;
     }

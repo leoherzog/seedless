@@ -4,6 +4,7 @@
  */
 
 import { CONFIG } from '../../config.js';
+import { sortStandings, getPointsForPosition } from '../utils/tournament-helpers.js';
 
 /**
  * Generate a Points Race tournament
@@ -179,13 +180,18 @@ function selectPlayersMinimizingRepeats(available, count, opponentCounts) {
 
 /**
  * Record game result
+ * Idempotent per gameId: if this game already had a result applied, its prior
+ * contribution to standings (points/gamesCompleted/wins/history) is reversed
+ * before the new result is applied, so re-recording (or correcting) a game's
+ * result never double-counts.
  * @param {Object} tournament - Tournament structure
  * @param {string} gameId - Game ID
  * @param {Object[]} results - Array of { participantId, position }
  * @param {string} reportedBy - Reporter ID
+ * @param {number} [reportedAt] - Timestamp to persist for this result; defaults to now
  * @returns {Object} Updated tournament
  */
-export function recordRaceResult(tournament, gameId, results, reportedBy) {
+export function recordRaceResult(tournament, gameId, results, reportedBy, reportedAt = Date.now()) {
   const game = tournament.matches.get(gameId);
   if (!game) {
     throw new Error(`Game not found: ${gameId}`);
@@ -199,24 +205,34 @@ export function recordRaceResult(tournament, gameId, results, reportedBy) {
     }
   }
 
-  // Calculate points based on position
-  // Sequential mode: N players = N, N-1, ..., 1 points (dynamic per-game)
-  const getPoints = (position, totalPlayers) => {
-    if (tournament.pointsTable === 'sequential') {
-      return totalPlayers - position + 1;
+  // If this game already had a result applied, reverse its prior contribution
+  // to standings before applying the new one, so re-recording never double-counts.
+  const previousResults = game.results;
+  if (previousResults) {
+    for (const prev of previousResults) {
+      const standing = tournament.standings.get(prev.participantId);
+      if (standing) {
+        standing.points -= prev.points;
+        standing.gamesCompleted--;
+        if (prev.position === 1) {
+          standing.wins--;
+        }
+        standing.history = standing.history.filter(h => h.gameId !== gameId);
+      }
     }
-    return tournament.pointsTable[position - 1] || 0;
-  };
+  }
 
+  // Calculate points based on position (0-based idx)
+  // Sequential mode: N players = N, N-1, ..., 1 points (dynamic per-game)
   game.results = results.map((r, idx) => ({
     participantId: r.participantId,
     position: idx + 1,
-    points: getPoints(idx + 1, results.length),
+    points: getPointsForPosition(tournament.pointsTable, idx, results.length),
   }));
 
   game.winnerId = results[0]?.participantId;
   game.reportedBy = reportedBy;
-  game.reportedAt = Date.now();
+  game.reportedAt = reportedAt;
   game.complete = true;
 
   // Update standings
@@ -253,14 +269,8 @@ export function recordRaceResult(tournament, gameId, results, reportedBy) {
  * Get sorted standings
  */
 export function getStandings(tournament) {
-  const standings = Array.from(tournament.standings.values());
-
   // Sort by points, then wins, then games completed
-  standings.sort((a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    if (b.wins !== a.wins) return b.wins - a.wins;
-    return b.gamesCompleted - a.gamesCompleted;
-  });
+  const standings = sortStandings(Array.from(tournament.standings.values()));
 
   return standings.map((s, i) => ({
     place: i + 1,

@@ -478,6 +478,10 @@ nav #connection-status {
   border-left: 3px solid var(--seedless-loser);
 }
 
+.toast.warning {
+  border-left: 3px solid var(--seedless-warning);
+}
+
 .toast.info {
   border-left: 3px solid var(--pico-primary);
 }

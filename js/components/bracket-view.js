@@ -7,24 +7,10 @@ import { store } from '../state/store.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
-import { getOrdinalSuffix } from '../utils/tournament-helpers.js';
+import { formatOrdinal, determineMatchStatus, sortStandings, getPointsForPosition } from '../utils/tournament-helpers.js';
 
 // Track subscriptions for cleanup
 let bracketSubscriptions = [];
-
-/**
- * Get points for a position based on points table configuration
- * @param {Array|string} pointsTable - Points table array or 'sequential'
- * @param {number} position - 0-indexed position in results
- * @param {number} totalPlayers - Total number of players (for sequential scoring)
- * @returns {number} Points for this position
- */
-function getPointsForPosition(pointsTable, position, totalPlayers) {
-  if (pointsTable === 'sequential') {
-    return totalPlayers - position;
-  }
-  return Array.isArray(pointsTable) ? (pointsTable[position] || 0) : 0;
-}
 
 // AbortController for DOM event listeners
 let bracketDomController = null;
@@ -197,21 +183,27 @@ function renderBracket(bracketFilter = null) {
 }
 
 /**
- * Render single elimination bracket
+ * Render a list of bracket rounds into a container
  */
-function renderSingleEliminationBracket(container, bracket) {
-  const participants = store.get('participants');
-  const localUserId = store.get('local.localUserId');
-
-  container.innerHTML = bracket.rounds.map(round => `
+function renderRounds(container, rounds, participants, localUserId) {
+  container.innerHTML = rounds.map(round => `
     <div class="bracket-round" data-round="${round.number}">
       <h4>${round.name}</h4>
       ${round.matches.map(match => renderMatchCard(match, participants, localUserId)).join('')}
     </div>
   `).join('');
 
-  // Add click handlers
   addMatchCardHandlers(container);
+}
+
+/**
+ * Render single elimination bracket
+ */
+function renderSingleEliminationBracket(container, bracket) {
+  const participants = store.get('participants');
+  const localUserId = store.get('local.localUserId');
+
+  renderRounds(container, bracket.rounds, participants, localUserId);
 }
 
 /**
@@ -237,14 +229,7 @@ function renderDoubleEliminationBracket(container, bracket, filter) {
     }];
   }
 
-  container.innerHTML = rounds.map(round => `
-    <div class="bracket-round" data-round="${round.number}">
-      <h4>${round.name}</h4>
-      ${round.matches.map(match => renderMatchCard(match, participants, localUserId)).join('')}
-    </div>
-  `).join('');
-
-  addMatchCardHandlers(container);
+  renderRounds(container, rounds, participants, localUserId);
 }
 
 /**
@@ -307,7 +292,7 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
               const positionClass = idx === 0 ? 'first' : idx === 1 ? 'second' : idx === 2 ? 'third' : '';
               return `
                 <div class="game-participant">
-                  <span class="position ${positionClass}">${result.position}${getOrdinalSuffix(result.position)}</span>
+                  <span class="position ${positionClass}">${formatOrdinal(result.position)}</span>
                   <span class="name">${escapeHtml(p?.name || 'Unknown')}</span>
                   <span class="points">+${result.points}</span>
                 </div>
@@ -336,6 +321,43 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
 }
 
 /**
+ * Compute the report/verify/edit permissions and status for a match.
+ * @param {Object} match - Match object
+ * @param {Function} canReportPredicate - () => boolean, whether the local user may report
+ * @param {boolean} isAdmin - Whether the local user is an admin
+ * @returns {{canReport: boolean, needsVerify: boolean, canAdminEdit: boolean, status: string}}
+ */
+function computeMatchActions(match, canReportPredicate, isAdmin) {
+  const canReport = !match.winnerId && !match.isBye &&
+    match.participants[0] && match.participants[1] &&
+    (canReportPredicate() || isAdmin);
+  const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
+  const canAdminEdit = match.winnerId && isAdmin;
+  const status = determineMatchStatus(match);
+
+  return { canReport, needsVerify, canAdminEdit, status };
+}
+
+/**
+ * Render the footer (report/verify/edit buttons) for a match card.
+ * @param {Object} match - Match object
+ * @param {{canReport: boolean, needsVerify: boolean, canAdminEdit: boolean}} actions
+ * @returns {string} Footer HTML (empty string if no actions)
+ */
+function renderMatchFooter(match, actions) {
+  const { canReport, needsVerify, canAdminEdit } = actions;
+  if (!canReport && !needsVerify && !canAdminEdit) return '';
+
+  return `
+        <footer>
+          ${canReport ? `<button class="report-btn" data-match="${match.id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
+          ${needsVerify ? `<button class="verify-btn outline" data-match="${match.id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
+          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${match.id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
+        </footer>
+      `;
+}
+
+/**
  * Render a match card
  */
 function renderMatchCard(match, participants, localUserId) {
@@ -350,18 +372,12 @@ function renderMatchCard(match, participants, localUserId) {
   const isAdmin = store.isAdmin();
 
   // Allow reporting if: user is a participant, OR admin
-  const canReport = !match.winnerId && !match.isBye &&
-    match.participants[0] && match.participants[1] &&
-    (match.participants.includes(localUserId) || isAdmin);
-  const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
-  const canAdminEdit = match.winnerId && isAdmin;
-
-  let status = 'pending';
-  if (match.winnerId) {
-    status = 'complete';
-  } else if (match.participants[0] && match.participants[1]) {
-    status = 'live';
-  }
+  const actions = computeMatchActions(
+    match,
+    () => match.participants.includes(localUserId),
+    isAdmin
+  );
+  const { status } = actions;
 
   return `
     <article class="match-card ${match.isBye ? 'bye' : ''}" data-match-id="${match.id}">
@@ -372,35 +388,17 @@ function renderMatchCard(match, participants, localUserId) {
 
       <div class="participants">
         <div class="participant ${match.winnerId === match.participants[0] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="name ${!p1 ? 'tbd' : ''}">${p1?.name || 'TBD'}</span>
+          <span class="name ${!p1 ? 'tbd' : ''}">${escapeHtml(p1?.name || 'TBD')}</span>
           <span class="score">${match.scores[0]}</span>
         </div>
         <div class="vs">vs</div>
         <div class="participant ${match.winnerId === match.participants[1] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="name ${!p2 ? 'tbd' : ''}">${p2?.name || 'TBD'}</span>
+          <span class="name ${!p2 ? 'tbd' : ''}">${escapeHtml(p2?.name || 'TBD')}</span>
           <span class="score">${match.scores[1]}</span>
         </div>
       </div>
 
-      ${canReport || needsVerify || canAdminEdit ? `
-        <footer>
-          ${canReport ? `
-            <button class="report-btn" data-match="${match.id}">
-              <span class="fa-solid fa-edit"></span> Report
-            </button>
-          ` : ''}
-          ${needsVerify ? `
-            <button class="verify-btn outline" data-match="${match.id}">
-              <span class="fa-solid fa-check"></span> Verify
-            </button>
-          ` : ''}
-          ${canAdminEdit ? `
-            <button class="edit-btn outline" data-match="${match.id}">
-              <span class="fa-solid fa-pen"></span> Edit
-            </button>
-          ` : ''}
-        </footer>
-      ` : ''}
+      ${renderMatchFooter(match, actions)}
     </article>
   `;
 }
@@ -425,18 +423,12 @@ function renderTeamMatchCard(match, localUserId) {
     .map(t => t.id);
 
   // Allow reporting if: user is on a team, OR admin
-  const canReport = !match.winnerId && !match.isBye &&
-    match.participants[0] && match.participants[1] &&
-    (match.participants.some(teamId => localUserTeams.includes(teamId)) || isAdmin);
-  const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
-  const canAdminEdit = match.winnerId && isAdmin;
-
-  let status = 'pending';
-  if (match.winnerId) {
-    status = 'complete';
-  } else if (match.participants[0] && match.participants[1]) {
-    status = 'live';
-  }
+  const actions = computeMatchActions(
+    match,
+    () => match.participants.some(teamId => localUserTeams.includes(teamId)),
+    isAdmin
+  );
+  const { status } = actions;
 
   return `
     <article class="match-card team-match ${match.isBye ? 'bye' : ''}" data-match-id="${match.id}">
@@ -447,25 +439,19 @@ function renderTeamMatchCard(match, localUserId) {
 
       <div class="participants">
         <div class="participant team ${match.winnerId === match.participants[0] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="team-name ${!team1 ? 'tbd' : ''}">${team1?.name || 'TBD'}</span>
+          <span class="team-name ${!team1 ? 'tbd' : ''}">${escapeHtml(team1?.name || 'TBD')}</span>
           ${team1 ? `<span class="team-members">${team1.members.map(m => escapeHtml(m.name)).join(' & ')}</span>` : ''}
           <span class="score">${match.scores[0]}</span>
         </div>
         <div class="vs">vs</div>
         <div class="participant team ${match.winnerId === match.participants[1] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="team-name ${!team2 ? 'tbd' : ''}">${team2?.name || 'TBD'}</span>
+          <span class="team-name ${!team2 ? 'tbd' : ''}">${escapeHtml(team2?.name || 'TBD')}</span>
           ${team2 ? `<span class="team-members">${team2.members.map(m => escapeHtml(m.name)).join(' & ')}</span>` : ''}
           <span class="score">${match.scores[1]}</span>
         </div>
       </div>
 
-      ${canReport || needsVerify || canAdminEdit ? `
-        <footer>
-          ${canReport ? `<button class="report-btn" data-match="${match.id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
-          ${needsVerify ? `<button class="verify-btn outline" data-match="${match.id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
-          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${match.id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
-        </footer>
-      ` : ''}
+      ${renderMatchFooter(match, actions)}
     </article>
   `;
 }
@@ -871,7 +857,7 @@ async function onSubmitRaceResult() {
 /**
  * Handle match update event
  */
-function onMatchUpdate({ id, match }) {
+function onMatchUpdate() {
   updateBracketUI();
 }
 
@@ -898,12 +884,7 @@ function renderStandings() {
   `;
 
   // Sort by points, then wins, then games completed
-  const sorted = Array.from(standings.values())
-    .sort((a, b) => {
-      if (b.points !== a.points) return b.points - a.points;
-      if (b.wins !== a.wins) return b.wins - a.wins;
-      return b.gamesCompleted - a.gamesCompleted;
-    });
+  const sorted = sortStandings(Array.from(standings.values()));
 
   tbody.innerHTML = sorted.map((s, i) => `
     <tr class="${i === 0 ? 'leader' : ''}">
@@ -999,7 +980,7 @@ async function renderFinalStandings() {
 
     return `
       <div class="place ${placeClass}">
-        <span class="position">${icon} ${s.place}${getOrdinalSuffix(s.place)}</span>
+        <span class="position">${icon} ${formatOrdinal(s.place)}</span>
         <span class="name">${nameDisplay}${pointsDisplay}</span>
       </div>
     `;

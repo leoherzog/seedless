@@ -13,7 +13,7 @@ globalThis.window = globalThis.window || {
   dispatchEvent: () => {},
 };
 
-const { isValidRoomSlug, sanitizeRoomSlug } = await import("../js/state/url-state.js");
+const { isValidRoomSlug, sanitizeRoomSlug, formatRoomSlugInput } = await import("../js/state/url-state.js");
 
 Deno.test("isValidRoomSlug", async (t) => {
   // Valid slugs
@@ -157,6 +157,38 @@ Deno.test("sanitizeRoomSlug", async (t) => {
     // All invalid chars become hyphens, then get collapsed/trimmed
     assertEquals(sanitizeRoomSlug("___"), "");
     assertEquals(sanitizeRoomSlug("@#$"), "");
+  });
+});
+
+Deno.test("formatRoomSlugInput (live typing)", async (t) => {
+  await t.step("lowercases and turns spaces into hyphens", () => {
+    assertEquals(formatRoomSlugInput("Friday Smash"), "friday-smash");
+    assertEquals(formatRoomSlugInput("My Cool Room"), "my-cool-room");
+  });
+
+  await t.step("strips unsupported characters", () => {
+    assertEquals(formatRoomSlugInput("room!@#name"), "room-name");
+    assertEquals(formatRoomSlugInput("café_night"), "caf-night");
+  });
+
+  await t.step("keeps a single trailing hyphen so typing can continue", () => {
+    // User typed "friday " and is about to type the next word
+    assertEquals(formatRoomSlugInput("friday "), "friday-");
+    assertEquals(formatRoomSlugInput("friday-"), "friday-");
+  });
+
+  await t.step("collapses repeated hyphens and strips a leading hyphen", () => {
+    assertEquals(formatRoomSlugInput("  hello"), "hello");
+    assertEquals(formatRoomSlugInput("a---b"), "a-b");
+  });
+
+  await t.step("caps length at 50 characters", () => {
+    assertEquals(formatRoomSlugInput("a".repeat(100)).length, 50);
+  });
+
+  await t.step("finishing the slug matches sanitizeRoomSlug", () => {
+    // Whatever the live value is, submitting runs sanitizeRoomSlug on it
+    assertEquals(sanitizeRoomSlug(formatRoomSlugInput("Friday Smash ")), "friday-smash");
   });
 });
 
