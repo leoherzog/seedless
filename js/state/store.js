@@ -724,13 +724,17 @@ class Store extends EventEmitter {
         ((remoteState.meta.version || 0) > (localState.meta.version || 0));
 
       if (shouldAcceptMeta) {
-        // Preserve our own adminToken (a local-only secret intentionally
-        // stripped from serialized/shared state) across meta replacement, so
-        // the admin never loses its ability to reclaim admin after a sync.
+        // adminToken is a LOCAL-ONLY secret (stripped from network state by
+        // serializeForNetwork). Never adopt a remote-supplied one: an attacker
+        // could otherwise get meta accepted via the version guard and overwrite
+        // the real admin's local reclaim token. Always keep our own verbatim,
+        // and drop any remote token entirely if we have none.
         const localAdminToken = this._state.meta?.adminToken;
         this._state.meta = { ...remoteState.meta };
-        if (localAdminToken && !this._state.meta.adminToken) {
+        if (localAdminToken) {
           this._state.meta.adminToken = localAdminToken;
+        } else {
+          delete this._state.meta.adminToken;
         }
       }
     }
