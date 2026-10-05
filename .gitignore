@@ -3,3 +3,6 @@ coverage/
 
 # Deno lock file
 deno.lock
+
+# Wrangler local cache
+.wrangler/
