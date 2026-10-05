@@ -146,6 +146,16 @@ function updateBracketUI() {
   // Render bracket
   renderBracket();
 
+  // The results card sits above the bracket and must appear as soon as the last result lands.
+  const resultsView = document.getElementById('results-view');
+  if (resultsView) {
+    const justCompleted = resultsView.hidden && status === 'complete';
+    resultsView.hidden = status !== 'complete';
+    if (justCompleted) {
+      resultsView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
   // Render final standings when tournament is complete
   if (status === 'complete') {
     renderFinalStandings();
@@ -275,6 +285,8 @@ function renderMarioKartRaces(container, bracket) {
 function renderGameCard(game, participants, localUserId, isAdmin) {
   // Allow reporting if: user is a participant, OR admin
   const canReport = !game.complete && (game.participants.includes(localUserId) || isAdmin);
+  const standIns = game.standIns || [];
+  const standInTag = '<small class="stand-in" data-tooltip="Races for fun; scores nothing">stand-in</small>';
 
   return `
     <article class="game-card ${game.complete ? 'complete' : ''}" data-game-id="${game.id}">
@@ -294,7 +306,7 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
                 <div class="game-participant">
                   <span class="position ${positionClass}">${formatOrdinal(result.position)}</span>
                   <span class="name">${escapeHtml(p?.name || 'Unknown')}</span>
-                  <span class="points">+${result.points}</span>
+                  ${result.standIn ? standInTag : `<span class="points">+${result.points}</span>`}
                 </div>
               `;
             }).join('')
@@ -303,6 +315,7 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
               return `
                 <div class="game-participant">
                   <span class="name">${escapeHtml(p?.name || 'Unknown')}</span>
+                  ${standIns.includes(pid) ? standInTag : ''}
                 </div>
               `;
             }).join('')
@@ -668,6 +681,7 @@ function openRaceResultModal(gameId) {
   const bracket = store.get('bracket');
   const pointsTable = bracket?.pointsTable || [15, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
   const totalPlayers = game.participants.length;
+  const standIns = game.standIns || [];
 
   // Update modal header
   document.getElementById('race-info').textContent = `Game ${game.gameNumber}`;
@@ -677,12 +691,12 @@ function openRaceResultModal(gameId) {
   const list = document.getElementById('race-ranking-list');
   list.innerHTML = game.participants.map((pid, idx) => {
     const p = participants.get(pid);
-    const points = getPointsForPosition(pointsTable, idx, totalPlayers);
+    const isStandIn = standIns.includes(pid);
     return `
-      <li data-participant-id="${pid}" draggable="true">
+      <li data-participant-id="${pid}" draggable="true"${isStandIn ? ' data-stand-in' : ''}>
         <span class="fa-solid fa-grip-vertical drag-handle"></span>
         <span class="participant-name">${escapeHtml(p?.name || 'Unknown')}</span>
-        <span class="points-preview">+${points} pts</span>
+        <span class="points-preview">${pointsPreviewText(isStandIn, pointsTable, idx, totalPlayers)}</span>
       </li>
     `;
   }).join('');
@@ -775,10 +789,16 @@ function updatePointsPreviews(list, pointsTable, totalPlayers) {
   items.forEach((item, idx) => {
     const pointsEl = item.querySelector('.points-preview');
     if (pointsEl) {
-      const points = getPointsForPosition(pointsTable, idx, totalPlayers);
-      pointsEl.textContent = `+${points} pts`;
+      pointsEl.textContent = pointsPreviewText('standIn' in item.dataset, pointsTable, idx, totalPlayers);
     }
   });
+}
+
+/**
+ * Label for a ranking row; stand-ins take a position but score nothing
+ */
+function pointsPreviewText(isStandIn, pointsTable, idx, totalPlayers) {
+  return isStandIn ? 'stand-in' : `+${getPointsForPosition(pointsTable, idx, totalPlayers)} pts`;
 }
 
 /**

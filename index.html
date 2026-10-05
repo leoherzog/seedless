@@ -161,6 +161,14 @@
                     <small>How many games each person plays</small>
                   </label>
                 </div>
+                <label for="leftover-seats">
+                  Uneven Split
+                  <select id="leftover-seats" name="leftover-seats">
+                    <option value="smaller">Smaller games</option>
+                    <option value="standins">Stand-ins</option>
+                  </select>
+                  <small id="game-plan-summary"></small>
+                </label>
                 <label for="points-table">
                   Scoring System
                   <select id="points-table" name="points-table">
@@ -309,6 +317,23 @@
       </div>
     </section>
 
+    <!-- Results View -->
+    <section id="results-view" data-view="results" hidden>
+      <article>
+        <header>
+          <span class="fa-solid fa-crown">👑</span> Tournament Complete!
+        </header>
+        <div id="final-standings">
+          <!-- Populated by JS -->
+        </div>
+        <footer>
+          <button id="new-tournament-btn">
+            <span class="fa-solid fa-rotate">↻</span> New Tournament
+          </button>
+        </footer>
+      </article>
+    </section>
+
     <!-- Bracket View -->
     <section id="bracket-view" data-view="bracket" hidden>
       <header class="bracket-header">
@@ -327,10 +352,6 @@
         </nav>
       </header>
 
-      <div id="bracket-container">
-        <!-- Bracket rounds populated by JS -->
-      </div>
-
       <!-- Standings for Mario Kart mode -->
       <aside id="standings-panel" hidden>
         <h3><span class="fa-solid fa-ranking-star">⭐</span> Standings</h3>
@@ -347,23 +368,10 @@
           </tbody>
         </table>
       </aside>
-    </section>
 
-    <!-- Results View -->
-    <section id="results-view" data-view="results" hidden>
-      <article>
-        <header>
-          <span class="fa-solid fa-crown">👑</span> Tournament Complete!
-        </header>
-        <div id="final-standings">
-          <!-- Populated by JS -->
-        </div>
-        <footer>
-          <button id="new-tournament-btn">
-            <span class="fa-solid fa-rotate">↻</span> New Tournament
-          </button>
-        </footer>
-      </article>
+      <div id="bracket-container">
+        <!-- Bracket rounds populated by JS -->
+      </div>
     </section>
   </main>
 

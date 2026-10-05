@@ -261,6 +261,11 @@ nav #connection-status {
   padding: 1rem 0;
 }
 
+/* Points Race stacks its header above a full-width games grid */
+#bracket-container:has(> .games-grid) {
+  flex-direction: column;
+}
+
 .bracket-round {
   display: flex;
   flex-direction: column;
@@ -373,9 +378,22 @@ nav #connection-status {
   position: relative;
 }
 
+/* Button that reads as an inline link, e.g. even-split suggestions */
+button.inline-link {
+  all: unset;
+  color: var(--pico-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+button.inline-link:focus-visible {
+  outline: 2px solid var(--pico-primary-focus);
+  outline-offset: 2px;
+}
+
 /* Standings panel */
 #standings-panel {
-  margin-top: 2rem;
+  margin-top: 1rem;
 }
 
 #standings-table {
@@ -709,6 +727,11 @@ body:not(.is-admin) #admin-panel {
 .game-card .game-participant .points {
   font-weight: 500;
   color: var(--seedless-accent);
+}
+
+.game-card .game-participant .stand-in {
+  color: var(--pico-muted-color);
+  font-style: italic;
 }
 
 .game-card.complete {

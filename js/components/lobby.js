@@ -9,6 +9,10 @@ import { showSuccess, showError, showInfo, showToast } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
 import { CONFIG } from '../../config.js';
+import { planGames, suggestEvenGamesPerPlayer } from '../tournament/mario-kart.js';
+
+// Upper bound of the games-per-player input
+const MAX_GAMES_PER_PLAYER = 20;
 
 // Track subscriptions for cleanup
 let lobbySubscriptions = [];
@@ -111,7 +115,27 @@ function setupAdminPanel() {
   if (gamesPerPlayerInput) {
     gamesPerPlayerInput.addEventListener('input', (e) => {
       const value = parseInt(e.target.value) || 5;
-      store.set('meta.config.gamesPerPlayer', Math.min(20, Math.max(1, value)));
+      store.set('meta.config.gamesPerPlayer', Math.min(MAX_GAMES_PER_PLAYER, Math.max(1, value)));
+    }, { signal });
+  }
+
+  // Even-split suggestions apply their games-per-player count
+  const gamePlanSummary = document.getElementById('game-plan-summary');
+  if (gamePlanSummary && gamesPerPlayerInput) {
+    gamePlanSummary.addEventListener('click', (e) => {
+      const suggestion = e.target.closest('[data-games-per-player]');
+      if (!suggestion) return;
+      const value = Number(suggestion.dataset.gamesPerPlayer);
+      gamesPerPlayerInput.value = value;
+      store.set('meta.config.gamesPerPlayer', value);
+    }, { signal });
+  }
+
+  // Uneven split handling (for Points Race)
+  const leftoverSeatsSelect = document.getElementById('leftover-seats');
+  if (leftoverSeatsSelect) {
+    leftoverSeatsSelect.addEventListener('change', (e) => {
+      store.set('meta.config.leftoverSeats', e.target.value);
     }, { signal });
   }
 
@@ -462,8 +486,58 @@ function updateLobbyUI() {
     tournamentNameDisplay.value = tournamentName || roomId || 'Tournament';
   }
 
+  updateGamePlanSummary(participants.length);
+
   // Render participant list
   renderParticipantList(participants);
+}
+
+/**
+ * Describe the Points Race schedule the current settings produce
+ * @param {number} playerCount - Number of participants
+ */
+function updateGamePlanSummary(playerCount) {
+  const summary = document.getElementById('game-plan-summary');
+  if (!summary) return;
+
+  const config = store.get('meta.config') || {};
+  const plan = planGames(playerCount, config);
+  if (plan.length === 0) {
+    summary.textContent = '';
+    return;
+  }
+
+  const sizes = plan.map(game => game.scored + game.standIns);
+  const largest = sizes[0];
+  const smallest = sizes[sizes.length - 1];
+  const standIns = plan.reduce((sum, game) => sum + game.standIns, 0);
+  const games = (n) => `${n} game${n === 1 ? '' : 's'}`;
+
+  let text = largest === smallest
+    ? `${games(plan.length)} of ${largest} players`
+    : `${games(plan.length)}: ${sizes.filter(n => n === largest).length} of ${largest} players, `
+      + `${sizes.filter(n => n === smallest).length} of ${smallest} players`;
+  if (standIns > 0) {
+    text += standIns === 1
+      ? ', 1 seat filled by an unscored stand-in'
+      : `, ${standIns} seats filled by unscored stand-ins`;
+  }
+  summary.textContent = `${text}.`;
+
+  const suggestions = suggestEvenGamesPerPlayer(playerCount, config, MAX_GAMES_PER_PLAYER);
+  if (suggestions.length === 0) return;
+
+  summary.append(' For an even split, use ');
+  suggestions.forEach((count, idx) => {
+    if (idx > 0) summary.append(' or ');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'inline-link';
+    button.dataset.gamesPerPlayer = count;
+    button.textContent = count;
+    summary.append(button);
+  });
+  summary.append(' games per player.');
 }
 
 /**
