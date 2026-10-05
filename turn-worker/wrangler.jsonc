@@ -10,7 +10,7 @@
     "mode": "smart"
   },
   "routes": [
-    { "pattern": "seedless-turn-mint.thehopegang.com", "custom_domain": true }
+    { "pattern": "turn.tournament.thehopegang.com", "custom_domain": true }
   ],
   "vars": {
     // Comma-separated list of origins allowed to fetch credentials.

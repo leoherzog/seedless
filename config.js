@@ -47,7 +47,7 @@ export const CONFIG = {
     // TURN credential endpoint (see turn-worker/). Set to your deployed
     // Worker URL to enable TURN relay for peers behind strict NATs (e.g.
     // phones on cellular). Empty string disables TURN (STUN only).
-    turnCredentialsUrl: 'https://seedless-turn-mint.thehopegang.com',
+    turnCredentialsUrl: 'https://turn.tournament.thehopegang.com',
   },
 
   // Validation limits

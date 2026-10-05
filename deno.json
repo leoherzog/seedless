@@ -1,6 +1,6 @@
 {
   "imports": {
-    "trystero/nostr": "https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr/+esm"
+    "trystero/nostr": "https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.26/+esm"
   },
   "tasks": {
     "test": "deno test --allow-read",

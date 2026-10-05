@@ -9,7 +9,7 @@ import { CONFIG } from '../../config.js';
 // import). This module adapts the new object-based API — makeAction() returns
 // { send, onMessage } and onPeerJoin/onPeerLeave are assignable properties —
 // to room.js's stable wrapper contract, so sync.js/main.js need no changes.
-import { joinRoom as trysteroJoin, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr/+esm';
+import { joinRoom as trysteroJoin, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.26/+esm';
 
 // Allow tests to override Trystero adapter via globalThis.__seedlessTrysteroJoin / __seedlessTrysteroSelfId
 const getTrysteroJoin = () => globalThis.__seedlessTrysteroJoin || trysteroJoin;

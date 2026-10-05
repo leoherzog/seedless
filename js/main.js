@@ -29,6 +29,7 @@ import { showSuccess, showError, showToast } from './components/toast.js';
 import { initLobby, cleanupLobby } from './components/lobby.js';
 import { initBracketView, cleanupBracketView } from './components/bracket-view.js';
 import { debounce } from './utils/debounce.js';
+import { HOST_NAME, generateRoomSlug, generatePlayerName } from './utils/random-names.js';
 
 // Make room globally accessible for components
 window.seedlessRoom = null;
@@ -52,8 +53,10 @@ function hasMatchingAdminToken(storedAdminToken, existingAdminToken) {
  * @param {{ isAdmin?: boolean }} [options]
  */
 async function joinAndNavigate(slug, name, { isAdmin = false } = {}) {
-  // Save name for next time
-  saveDisplayName(name);
+  // HOST_NAME is a role label, so remembering it would make it the default join name
+  if (name && name !== HOST_NAME) {
+    saveDisplayName(name);
+  }
   store.set('local.name', name);
 
   const verb = isAdmin ? 'create' : 'join';
@@ -220,6 +223,10 @@ function showView(viewName) {
     view.hidden = view.dataset.view !== viewName;
   });
 
+  if (viewName === VIEWS.HOME) {
+    fillHomeDefaults();
+  }
+
   // Special handling for bracket view with complete tournament
   if (viewName === VIEWS.BRACKET && store.get('meta.status') === 'complete') {
     document.getElementById('results-view').hidden = false;
@@ -230,6 +237,24 @@ function showView(viewName) {
   if (viewName === VIEWS.BRACKET) {
     // Dispatch a change event to trigger bracket re-render
     store.emit('change', { path: 'view' });
+  }
+}
+
+/**
+ * Fill the home forms with a fresh room slug and default names. The slug is
+ * always replaced because reusing a previous one would reopen that room.
+ */
+function fillHomeDefaults() {
+  document.getElementById('room-slug').value = generateRoomSlug();
+
+  const hostNameInput = document.getElementById('display-name');
+  if (!hostNameInput.value) {
+    hostNameInput.value = HOST_NAME;
+  }
+
+  const joinNameInput = document.getElementById('join-name');
+  if (!joinNameInput.value) {
+    joinNameInput.value = getLastDisplayName() || generatePlayerName();
   }
 }
 
@@ -318,7 +343,8 @@ function showRoomExistsModal(slug, name) {
     modal.close();
     joinBtn.removeEventListener('click', handleJoin);
 
-    await joinAndNavigate(slug, name, { isAdmin: false });
+    // Joining as a regular player, so drop the host label and let connectToRoom resolve a name
+    await joinAndNavigate(slug, name === HOST_NAME ? '' : name, { isAdmin: false });
   };
 
   joinBtn.addEventListener('click', handleJoin);
@@ -361,19 +387,22 @@ async function connectToRoom(roomId, options = {}) {
     // Get persistent local user ID (survives page refresh)
     const localUserId = getLocalUserId();
 
-    // Resolve display name from multiple sources (for page refresh/rejoin):
+    // Resolve display name, first match wins:
     // 1. Provided name (from form submission)
-    // 2. Last saved display name (from localStorage preferences)
-    // 3. Existing participant data in this tournament (if rejoining)
+    // 2. Existing participant data in this tournament (page refresh/rejoin)
+    // 3. Last saved display name (from localStorage preferences)
+    // 4. Random adjective + animal, saved so later joins reuse it
     let resolvedName = name;
+    if (!resolvedName && existingData?.participants) {
+      const existingParticipant = existingData.participants.find(([id]) => id === localUserId);
+      resolvedName = existingParticipant?.[1]?.name || '';
+    }
     if (!resolvedName) {
       resolvedName = getLastDisplayName();
     }
-    if (!resolvedName && existingData?.participants) {
-      const existingParticipant = existingData.participants.find(([id]) => id === localUserId);
-      if (existingParticipant) {
-        resolvedName = existingParticipant[1]?.name || '';
-      }
+    if (!resolvedName) {
+      resolvedName = generatePlayerName();
+      saveDisplayName(resolvedName);
     }
 
     // Store local peer info
@@ -603,20 +632,13 @@ function resetAllParticipantsOffline() {
 }
 
 /**
- * Prefill name inputs with last used name
+ * Prefill the in-room name input with the last used name
  */
 function prefillNameInputs(name) {
-  const inputs = [
-    document.getElementById('display-name'),
-    document.getElementById('join-name'),
-    document.getElementById('my-name'),
-  ];
-
-  inputs.forEach(input => {
-    if (input && !input.value) {
-      input.value = name;
-    }
-  });
+  const input = document.getElementById('my-name');
+  if (input && !input.value) {
+    input.value = name;
+  }
 }
 
 // Initialize on DOM ready

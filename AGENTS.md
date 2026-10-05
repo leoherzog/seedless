@@ -75,6 +75,7 @@ js/
     ├── html.js          # HTML escaping
     ├── debounce.js      # Debounce utility
     ├── drag-drop.js     # Drag-and-drop helpers
+    ├── random-names.js  # Default room slugs and player names
     └── tournament-helpers.js # Match status, ordinals, team helpers
 ```
 
