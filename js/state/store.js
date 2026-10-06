@@ -1,6 +1,6 @@
 /**
- * Central State Store
- * Event-emitting store for tournament state management
+ * Single source of truth for tournament state. An EventTarget that emits 'change' on every
+ * mutation and merges serialized snapshots from peers.
  */
 
 import { getFinalStandings } from '../tournament/standings.js';
@@ -26,7 +26,8 @@ import { getFinalStandings } from '../tournament/standings.js';
  * @property {[string|null, string|null]} participants - Participant IDs
  * @property {[number, number]} scores - Match scores
  * @property {string|null} winnerId - Winner's participant ID
- * @property {string|null} reportedBy - Who reported the result
+ * @property {string|null} reportedBy - Reporter's persistent user ID
+ * @property {number} [version] - Per-match logical clock for result LWW
  * @property {number|null} reportedAt - Report timestamp
  * @property {string|null} verifiedBy - Admin who verified
  * @property {boolean} isBye - Is this a bye match
@@ -121,7 +122,6 @@ class Store extends EventTarget {
   addParticipant(participant) {
     const existing = this._state.participants.get(participant.id);
     if (existing) {
-      // Update existing participant (preserve seed and other data)
       this._state.participants.set(participant.id, {
         ...existing,
         ...participant,
@@ -144,7 +144,7 @@ class Store extends EventTarget {
   updateParticipant(id, updates) {
     const participant = this._state.participants.get(id);
     if (participant) {
-      // Add updatedAt timestamp for LWW conflict resolution during state sync
+      // updatedAt is the LWW key in merge().
       Object.assign(participant, updates, { updatedAt: Date.now() });
       this.emit('change', { path: 'participants' });
     }
@@ -177,7 +177,7 @@ class Store extends EventTarget {
   }
 
   /**
-   * Add a manual (offline) participant
+   * Add a manual (offline) participant.
    * @param {string} name - Display name for the participant
    * @returns {Object} The created participant
    */
@@ -252,8 +252,7 @@ class Store extends EventTarget {
   }
 
   /**
-   * Archive current tournament to history
-   * Creates a summary entry with winner, top 4 standings, type, and participant count
+   * Append a summary of the current tournament to history.
    * @returns {Object} The created history entry
    */
   archiveTournament() {
@@ -290,9 +289,7 @@ class Store extends EventTarget {
     return this._state.history;
   }
 
-  /**
-   * Reset state for a new tournament while keeping participants and history
-   */
+  /** Return to the lobby, clearing bracket, matches, standings and teams; participants and history stay. */
   resetForNewTournament() {
     this._state.meta.status = 'lobby';
     this._state.bracket = null;
@@ -353,12 +350,10 @@ class Store extends EventTarget {
     const localAdminId = localState.meta?.adminId;
     const remoteAdminId = remoteState.meta?.adminId;
 
-    // Remote is authoritative when the caller verified the sender is admin, or when we are a
-    // fresh joiner with no adminId and the remote names one; that is our bootstrap snapshot.
-    // A remote adminId that matches ours grants nothing, because every peer carries it.
+    // Trust remote as admin if the caller verified the sender, or as our bootstrap snapshot when we have
+    // no adminId and the remote names one; a matching adminId proves nothing, since every peer carries it.
     const isRemoteAdmin = senderIsAdmin === true || (!localAdminId && !!remoteAdminId);
 
-    // Meta: admin-authoritative
     if (remoteState.meta && isRemoteAdmin) {
       this._state.meta = { ...remoteState.meta };
       // A trusted snapshot may correct a non-admin's adminId, but nothing changes the admin's own.
@@ -367,7 +362,7 @@ class Store extends EventTarget {
       }
     }
 
-    // Participants: OR-Set merge (additions win)
+    // Additions win: merge never removes a participant.
     if (remoteState.participants) {
       const remoteParticipants = new Map(remoteState.participants);
       for (const [id, participant] of remoteParticipants) {
@@ -389,12 +384,10 @@ class Store extends EventTarget {
     // tournament (bracket.startedAt); the admin's new tournament replaces them all.
     const sameTournament = remoteState.bracket?.startedAt === localState.bracket?.startedAt;
 
-    // Bracket: admin-authoritative
     if (remoteState.bracket && isRemoteAdmin) {
       this._state.bracket = remoteState.bracket;
     }
 
-    // Matches: LWW with admin verification override
     if (remoteState.matches && remoteState.bracket && isRemoteAdmin && !sameTournament) {
       localState.matches = new Map(remoteState.matches);
     } else if (remoteState.matches && sameTournament) {
@@ -419,17 +412,14 @@ class Store extends EventTarget {
       }
     }
 
-    // Standings: admin-authoritative
     if (remoteState.standings && isRemoteAdmin) {
       this._state.standings = new Map(remoteState.standings);
     }
 
-    // Team assignments: admin-authoritative
     if (remoteState.teamAssignments && isRemoteAdmin) {
       this._state.teamAssignments = new Map(remoteState.teamAssignments);
     }
 
-    // History: union merge (additions win, dedupe by id)
     if (Array.isArray(remoteState.history)) {
       const existingIds = new Set(localState.history.map(h => h.id));
       for (const entry of remoteState.history) {
@@ -447,5 +437,5 @@ class Store extends EventTarget {
 
 export const store = new Store();
 
-// Export for testing
+// Exported for tests; the app uses the store singleton.
 export { Store };

@@ -31,9 +31,7 @@ Deno.test("Store.merge - fresh joiner bootstrap", async (t) => {
       ],
     };
 
-    // Note: senderIsAdmin is false here (identity unverified on first contact) -
-    // authority must still be granted because we are a fresh joiner bootstrapping
-    // from the first state we've ever seen.
+    // senderIsAdmin is false on first contact, yet a joiner with no adminId trusts its first snapshot.
     store.merge(remoteState, false);
 
     assertEquals(store.get("meta.adminId"), "admin-1");

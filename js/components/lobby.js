@@ -1,6 +1,6 @@
 /**
- * Lobby View Component
- * Handles waiting room UI and tournament setup
+ * Lobby view: the participant list, the admin's tournament settings and doubles
+ * team assignment, and the start action that generates the bracket.
  */
 
 import { store } from '../state/store.js';
@@ -17,7 +17,7 @@ import { generateDoubleEliminationBracket } from '../tournament/double-eliminati
 import { validateTeamAssignments, generateDoublesTournament, autoAssignTeams } from '../tournament/doubles.js';
 import { bySeed, seedParticipants } from '../utils/tournament-helpers.js';
 
-// Upper bound of the games-per-player input
+// Matches the max attribute of #games-per-player in index.html.
 const MAX_GAMES_PER_PLAYER = 20;
 
 // meta.config keys of the #tournament-config number inputs, by input name.
@@ -78,7 +78,7 @@ function setupAdminPanel() {
     }
   });
 
-  // Even-split suggestions apply their games-per-player count
+  // Even-split suggestions apply their games-per-player count.
   document.getElementById('game-plan-summary').addEventListener('click', (e) => {
     const suggestion = e.target.closest('[data-games-per-player]');
     if (!suggestion) return;
@@ -165,7 +165,7 @@ function setupShareLink() {
       await navigator.clipboard.writeText(shareInput.value);
       showSuccess('Link copied!');
     } catch (e) {
-      // Clipboard API not available - select text for manual copy
+      // Clipboard access is missing outside secure contexts or when denied.
       shareInput.select();
       showInfo('Press Ctrl+C to copy');
     }
@@ -183,7 +183,7 @@ function setupShareLink() {
           url: link,
         });
       } catch (e) {
-        // User cancelled or error
+        // Cancelling the share sheet also rejects, so failures stay silent.
       }
     } else {
       try {
@@ -215,7 +215,6 @@ function setupManualParticipantForm() {
 
     const participant = store.addManualParticipant(name);
 
-    // Broadcast to peers as a join with the isManual flag
     getRoom()?.broadcast('p:join', {
       name: participant.name,
       localUserId: participant.id,
@@ -261,7 +260,7 @@ function updateLobbyUI() {
 }
 
 /**
- * Describe the Points Race schedule the current settings produce
+ * Describe the Points Race schedule the current settings produce.
  * @param {number} playerCount - Number of participants
  */
 function updateGamePlanSummary(playerCount) {

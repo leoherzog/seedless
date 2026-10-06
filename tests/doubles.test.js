@@ -18,14 +18,13 @@ Deno.test("formTeams", async (t) => {
 
     const teams = formTeams(participants, assignments, 2);
 
-    // Team name should be "Member1 & Member2"
     assert(teams[0].name.includes(" & "), "Team name should contain ' & '");
     assert(teams[0].name.includes("Player"), "Team name should include player names");
   });
 
   await t.step("calculates seed as average of member seeds", () => {
     const participants = createParticipants(4);
-    // Manually create assignments: team-1 gets seeds 1,4 (avg 2.5), team-2 gets seeds 2,3 (avg 2.5)
+    // Seeds 1+4 and 2+3 both average 2.5.
     const assignments = new Map([
       ["player-1", "team-1"],
       ["player-4", "team-1"],
@@ -35,14 +34,12 @@ Deno.test("formTeams", async (t) => {
 
     const teams = formTeams(participants, assignments, 2);
 
-    // Both teams have same average seed
     assertEquals(teams[0].seed, 2.5);
     assertEquals(teams[1].seed, 2.5);
   });
 
   await t.step("sorts teams by seed", () => {
     const participants = createParticipants(4);
-    // team-1 gets seeds 1,2 (avg 1.5), team-2 gets seeds 3,4 (avg 3.5)
     const assignments = new Map([
       ["player-1", "team-1"],
       ["player-2", "team-1"],
@@ -58,7 +55,6 @@ Deno.test("formTeams", async (t) => {
 
   await t.step("skips participants without team assignment", () => {
     const participants = createParticipants(4);
-    // Only assign first 2 participants
     const assignments = new Map([
       ["player-1", "team-1"],
       ["player-2", "team-1"],
@@ -89,7 +85,6 @@ Deno.test("validateTeamAssignments", async (t) => {
     const assignments = new Map([
       ["player-1", "team-1"],
       ["player-2", "team-1"],
-      // player-3 and player-4 not assigned
     ]);
 
     const result = validateTeamAssignments(participants, assignments, 2);
@@ -104,7 +99,7 @@ Deno.test("validateTeamAssignments", async (t) => {
     const assignments = new Map([
       ["player-1", "team-1"],
       ["player-2", "team-1"],
-      ["player-3", "team-2"], // Only 1 member, needs 2
+      ["player-3", "team-2"],
     ]);
 
     const result = validateTeamAssignments(participants, assignments, 2);
@@ -138,7 +133,6 @@ Deno.test("autoAssignTeams", async (t) => {
 
     const assignments = autoAssignTeams(participants, 2);
 
-    // All participants should be assigned
     assertEquals(assignments.size, 4);
     for (const p of participants) {
       assert(assignments.has(p.id), `${p.id} should have assignment`);
@@ -150,13 +144,11 @@ Deno.test("autoAssignTeams", async (t) => {
 
     const assignments = autoAssignTeams(participants, 2);
 
-    // Count members per team
     const teamCounts = new Map();
     for (const teamId of assignments.values()) {
       teamCounts.set(teamId, (teamCounts.get(teamId) || 0) + 1);
     }
 
-    // Each team should have 2 members
     for (const [teamId, count] of teamCounts) {
       assertEquals(count, 2, `${teamId} should have 2 members`);
     }
@@ -178,7 +170,6 @@ Deno.test("autoAssignTeams", async (t) => {
 
     const assignments = autoAssignTeams(participants, 2);
 
-    // All 5 should be assigned (one team will be incomplete)
     assertEquals(assignments.size, 5);
   });
 
@@ -205,7 +196,7 @@ Deno.test("generateDoublesTournament", async (t) => {
     const participants = createParticipants(2);
     const assignments = new Map([
       ["player-1", "team-1"],
-      ["player-2", "team-1"], // Only 1 team
+      ["player-2", "team-1"],
     ]);
 
     assertThrows(

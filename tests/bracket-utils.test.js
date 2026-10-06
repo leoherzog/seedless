@@ -42,7 +42,6 @@ Deno.test("nextPowerOf2", async (t) => {
     assertEquals(nextPowerOf2(17), 32);
   });
 
-  // Edge cases
   await t.step("returns 2 for 0", () => {
     assertEquals(nextPowerOf2(0), 2);
   });

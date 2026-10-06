@@ -1,5 +1,5 @@
 /**
- * Tests for Points Race seat planning when players × games doesn't divide by game size
+ * Tests for Points Race seat planning when players × games doesn't divide by game size.
  */
 
 import { assert, assertEquals } from "jsr:@std/assert";
@@ -11,9 +11,7 @@ import {
 } from "../js/tournament/mario-kart.js";
 import { createParticipants } from "./fixtures.js";
 
-/**
- * Assert every structural rule a generated schedule must satisfy
- */
+/** Assert every structural rule a generated schedule must satisfy. */
 function assertValidSchedule(tournament, { players, playersPerGame, gamesPerPlayer, leftoverSeats }) {
   const seatCap = Math.min(playersPerGame, players);
   const scoredRaces = new Map();

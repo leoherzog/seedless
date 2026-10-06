@@ -1,6 +1,6 @@
 /**
- * Doubles (Team-Based) Tournament Adapter
- * Wraps other bracket types to work with teams
+ * Team tournaments: forms teams from lobby assignments and runs them through a single- or
+ * double-elimination bracket with each team as one participant.
  */
 
 import { shuffle } from '../utils/tournament-helpers.js';
@@ -28,10 +28,10 @@ export function formTeams(participants, teamAssignments, teamSize) {
 }
 
 /**
- * Generate a doubles tournament
+ * Generate a team bracket from the complete teams. Throws with fewer than 2.
  * @param {Object[]} participants - All participants
  * @param {Map} teamAssignments - Map of participantId -> teamId
- * @param {Object} config - Tournament configuration
+ * @param {{teamSize?: number, bracketType?: 'single'|'double'}} config - Tournament configuration
  * @returns {{bracket: Object, matches: Map}} Team bracket of round match ids, and the matches by id
  */
 export function generateDoublesTournament(participants, teamAssignments, config = {}) {

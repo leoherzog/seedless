@@ -1,6 +1,6 @@
 /**
- * URL State Management
- * Parse and update URL parameters for shareable links
+ * Reads and writes the ?room= query parameter that makes room links shareable.
+ * Every programmatic change dispatches 'urlstatechange' on window.
  */
 
 export const URL_PARAMS = {
@@ -18,7 +18,7 @@ export function parseUrlState() {
 const notifyUrlChange = () => window.dispatchEvent(new Event('urlstatechange'));
 
 /**
- * Update URL state
+ * Set query parameters, deleting any whose value is null, undefined or ''.
  * @param {Object} updates - Key-value pairs to update
  * @param {boolean} replace - Replace history instead of push
  */
@@ -43,22 +43,20 @@ export function updateUrlState(updates, replace = false) {
 }
 
 /**
- * Navigate to a room
+ * Navigate to a room with a new history entry.
  * @param {string} roomId - Room ID/slug
  */
 export function navigateToRoom(roomId) {
   updateUrlState({ [URL_PARAMS.ROOM]: roomId });
 }
 
-/**
- * Navigate to home (clear room)
- */
+/** Navigate home by clearing the room, replacing the current history entry. */
 export function navigateToHome() {
   updateUrlState({ [URL_PARAMS.ROOM]: null }, true);
 }
 
 /**
- * Generate shareable room link
+ * Build the shareable link for a room.
  * @param {string} roomId - Room ID/slug
  * @returns {string} Full URL
  */

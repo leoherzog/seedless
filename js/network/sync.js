@@ -1,6 +1,7 @@
 /**
- * State Synchronization
- * Handles P2P state sync and conflict resolution
+ * Binds room actions to the store: state sync with new peers, participant
+ * lifecycle, admin-only tournament actions and match reporting. Senders are
+ * trusted only through the peerId to localUserId map.
  */
 
 import { store } from '../state/store.js';
@@ -20,8 +21,7 @@ import { advance as advanceDouble } from '../tournament/double-elimination.js';
 import { recordRaceResult } from '../tournament/mario-kart.js';
 import { isInMatch } from '../utils/tournament-helpers.js';
 
-// Map peerId (transient) to localUserId (persistent)
-// This allows us to identify participants across page refreshes
+// Transient WebRTC peerId to persistent localUserId, which survives page refreshes.
 const peerIdToUserId = new Map();
 
 // Non-admins ignore match results until their first state response.
@@ -55,13 +55,11 @@ function announceSelf(room) {
 }
 
 /**
- * Set up state synchronization for a room connection
+ * Register every action and peer handler on a room connection.
  * @param {Object} room - Room connection from room.js
  */
 export function setupStateSync(room) {
   room.onAction(ActionTypes.STATE_REQUEST, (payload, peerId) => {
-    console.info(`[Sync] State request from ${peerId}`);
-
     room.sendTo(ActionTypes.STATE_RESPONSE, {
       state: store.serialize(),
       isAdmin: store.isAdmin(),
@@ -69,8 +67,6 @@ export function setupStateSync(room) {
   });
 
   room.onAction(ActionTypes.STATE_RESPONSE, (payload, peerId) => {
-    console.info(`[Sync] State response from ${peerId}`);
-
     const { state: remoteState, isAdmin: isRemoteAdmin } = payload;
     if (!isValidState(remoteState)) {
       console.warn(`[Sync] Invalid state structure from ${peerId}`);
@@ -136,7 +132,6 @@ export function setupStateSync(room) {
       }
       if (!store.getParticipant(localUserId)) {
         store.addParticipant({ id: localUserId, name, isManual: true, isConnected: false, joinedAt: payload.joinedAt });
-        console.info(`[Sync] Manual participant added: ${name} (${localUserId})`);
       }
       return;
     }
@@ -162,8 +157,6 @@ export function setupStateSync(room) {
     );
 
     if (matchingManual) {
-      console.info(`[Sync] Auto-claiming manual participant: ${matchingManual.name} (${matchingManual.id}) claimed by ${localUserId}`);
-
       peerIdToUserId.set(peerId, matchingManual.id);
       const claim = { claimedBy: localUserId, isConnected: true, peerId };
       store.updateParticipant(matchingManual.id, claim);
@@ -177,8 +170,6 @@ export function setupStateSync(room) {
     }
 
     peerIdToUserId.set(peerId, localUserId);
-
-    console.info(`[Sync] Participant join: ${name} (${localUserId}, peer: ${peerId})`);
 
     if (existingParticipant) {
       store.updateParticipant(localUserId, { name, peerId, isConnected: true });
@@ -196,7 +187,6 @@ export function setupStateSync(room) {
     // The admin may update anyone by id; everyone else updates only themselves.
     const { id, ...updates } = payload;
     const targetUserId = id && isFromAdmin(peerId) ? id : senderOf(peerId);
-    console.info(`[Sync] Participant update for ${targetUserId}:`, updates);
     store.updateParticipant(targetUserId, updates);
   });
 
@@ -210,13 +200,11 @@ export function setupStateSync(room) {
     }
 
     if (payload.removedId === store.get('local.localUserId')) {
-      console.info('[Sync] You have been removed from the tournament');
       showToast('You have been removed from the tournament', 'warning');
       navigateToHome();
       return;
     }
 
-    console.info(`[Sync] Participant removed by admin: ${payload.removedId}`);
     store.removeParticipant(payload.removedId);
   });
 
@@ -225,8 +213,6 @@ export function setupStateSync(room) {
       console.warn(`[Sync] Rejected tournament start from non-admin: ${senderOf(peerId)}`);
       return;
     }
-
-    console.info('[Sync] Tournament starting');
 
     store.deserialize({ matches: payload.matches, standings: payload.standings, bracket: payload.bracket });
     if (payload.bracket?.type) {
@@ -241,8 +227,6 @@ export function setupStateSync(room) {
       return;
     }
 
-    console.info('[Sync] Tournament reset:', payload.archive?.id);
-
     // merge skips an archive whose id is already in history.
     if (payload.archive) store.merge({ history: [payload.archive] });
     store.resetForNewTournament();
@@ -253,10 +237,7 @@ export function setupStateSync(room) {
   });
 
   room.onAction(ActionTypes.MATCH_RESULT, (payload, peerId) => {
-    if (!stateInitialized && !store.isAdmin()) {
-      console.info(`[Sync] Ignoring match result - state not yet initialized`);
-      return;
-    }
+    if (!stateInitialized && !store.isAdmin()) return;
 
     if (!isValidMatchResultPayload(payload)) {
       console.warn(`[Sync] Invalid match result payload from ${peerId}`);
@@ -264,9 +245,6 @@ export function setupStateSync(room) {
     }
 
     const senderId = senderOf(peerId);
-
-    console.info(`[Sync] Match result from ${senderId}:`, payload);
-
     const { matchId, scores, winnerId, reportedAt, version = 0 } = payload;
     const match = store.getMatch(matchId);
 
@@ -319,8 +297,6 @@ export function setupStateSync(room) {
     const { gameId, results, reportedAt, version } = payload;
     const senderId = senderOf(peerId);
 
-    console.info(`[Sync] Race result from ${senderId}:`, payload);
-
     const game = store.getMatch(gameId);
     if (!game) {
       console.warn(`[Sync] Unknown game: ${gameId}`);
@@ -335,10 +311,7 @@ export function setupStateSync(room) {
     }
 
     const incomingVersion = version || 0;
-    if (!shouldUpdateMatch({ version: incomingVersion, reportedAt }, game, isAdmin)) {
-      console.info(`[Sync] Ignoring stale race result`);
-      return;
-    }
+    if (!shouldUpdateMatch({ version: incomingVersion, reportedAt }, game, isAdmin)) return;
 
     try {
       applyRaceResult(gameId, results, senderId, reportedAt, incomingVersion);
@@ -407,19 +380,18 @@ function applyRaceResult(gameId, results, reportedBy, reportedAt, version) {
 }
 
 /**
- * Record a local match result, advance the bracket and broadcast the result
+ * Record a local match result, advance the bracket and broadcast the result.
  * @param {Object|null} room - Room connection; null records locally only
  * @param {string} matchId - Match ID
  * @param {number[]} scores - Match scores
  * @param {string} winnerId - Winner's participant ID
  */
 export function reportMatchResult(room, matchId, scores, winnerId) {
-  // Per-match logical clock so reporter and receivers agree on the version.
+  // Store the same per-match version and timestamp we broadcast, so reporter and receivers agree.
   const match = store.getMatch(matchId);
   const version = (match?.version || 0) + 1;
   const reportedAt = Date.now();
 
-  // Store the same version/timestamp we broadcast so the reporter and receivers agree.
   store.updateMatch(matchId, {
     scores,
     winnerId,
@@ -439,7 +411,7 @@ export function reportMatchResult(room, matchId, scores, winnerId) {
 }
 
 /**
- * Start tournament (admin only)
+ * Broadcast a started tournament to peers. Admin only; the caller has already applied it locally.
  * @param {Object} room - Room connection
  * @param {Object} bracket - Generated bracket
  * @param {Map} matches - Generated matches
@@ -453,7 +425,7 @@ export function startTournament(room, bracket, matches) {
 }
 
 /**
- * Record a local race result and broadcast it (Points Race mode)
+ * Record a local Points Race result and broadcast it.
  * @param {Object|null} room - Room connection; null records locally only
  * @param {string} gameId - Game ID
  * @param {Object[]} results - Array of { participantId }, in finishing order
@@ -466,7 +438,7 @@ export function reportRaceResult(room, gameId, results) {
 }
 
 /**
- * Reset sync state (call when leaving a room)
+ * Forget peer mappings and sync progress. Call when leaving a room.
  */
 export function resetSyncState() {
   stateInitialized = false;

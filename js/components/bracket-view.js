@@ -139,7 +139,6 @@ function updateBracketUI() {
   if (document.getElementById('bracket-view').hidden) return;
 
   const type = store.get('meta.type');
-  console.info('[Bracket] Updating bracket UI, status:', status, 'type:', type);
 
   document.getElementById('bracket-title').textContent = store.get('meta.name') || 'Tournament';
   document.getElementById('bracket-status').textContent = status === 'complete' ? 'Complete' : store.get('local.name') || 'In Progress';

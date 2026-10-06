@@ -1,6 +1,5 @@
 /**
- * Seedless Tournament Styles
- * Extends PicoCSS with tournament-specific styling. Load after Pico so equal-specificity rules win.
+ * Seedless styles layered on PicoCSS. Load after Pico so equal-specificity rules win.
  */
 
 :root {
@@ -13,7 +12,6 @@
   --seedless-warning: #977000;
 }
 
-/* Navigation adjustments */
 #home-link {
   color: inherit;
 }
@@ -66,7 +64,6 @@ nav #connection-status {
   font-weight: 600;
 }
 
-/* Lobby view */
 #participant-list {
   padding: 0;
   margin: 0;
@@ -169,7 +166,6 @@ nav #connection-status {
   padding: 0.5rem 0.75rem;
 }
 
-/* Drag-to-reorder and drag-to-assign items */
 [draggable="true"] {
   cursor: grab;
 }
@@ -344,7 +340,6 @@ nav #connection-status {
   background: var(--pico-muted-color);
 }
 
-/* Button that reads as an inline link, e.g. even-split suggestions */
 button.inline-link {
   all: unset;
   color: var(--pico-primary);
@@ -596,7 +591,7 @@ button.inline-link:focus-visible {
   gap: 1rem;
 }
 
-/* Game card - uses PicoCSS <article> styling for background/border/radius */
+/* Game cards are Pico <article>s, which supply background, border and radius. */
 .game-card {
   overflow: hidden;
 }

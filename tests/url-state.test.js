@@ -131,7 +131,7 @@ Deno.test("sanitizeRoomSlug", async (t) => {
   });
 
   await t.step("handles string with only invalid chars", () => {
-    // All invalid chars become hyphens, then get collapsed/trimmed
+    // Invalid chars become hyphens, which are then trimmed away.
     assertEquals(sanitizeRoomSlug("___"), "");
     assertEquals(sanitizeRoomSlug("@#$"), "");
   });
@@ -149,7 +149,6 @@ Deno.test("formatRoomSlugInput (live typing)", async (t) => {
   });
 
   await t.step("keeps a single trailing hyphen so typing can continue", () => {
-    // User typed "friday " and is about to type the next word
     assertEquals(formatRoomSlugInput("friday "), "friday-");
     assertEquals(formatRoomSlugInput("friday-"), "friday-");
   });
@@ -164,7 +163,7 @@ Deno.test("formatRoomSlugInput (live typing)", async (t) => {
   });
 
   await t.step("finishing the slug matches sanitizeRoomSlug", () => {
-    // Whatever the live value is, submitting runs sanitizeRoomSlug on it
+    // Submitting runs sanitizeRoomSlug on whatever the live value is.
     assertEquals(sanitizeRoomSlug(formatRoomSlugInput("Friday Smash ")), "friday-smash");
   });
 });

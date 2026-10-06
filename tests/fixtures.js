@@ -3,8 +3,6 @@
  * play-through helper. Imports no app modules, so any test can load it cheaply.
  */
 
-// Mock DOM
-
 /**
  * Create a mock DOM element with the properties and methods the app touches
  * @param {string} tag - Element tag name
@@ -232,8 +230,6 @@ export function createMockRoom(selfId = 'local-peer-id') {
     },
   };
 }
-
-// Test data
 
 /**
  * Create participants with sequential IDs and seeds

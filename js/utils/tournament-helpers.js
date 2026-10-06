@@ -1,11 +1,10 @@
 /**
- * Tournament Helper Functions
- * Pure helpers shared by the tournament modules and the UI: match status, ordinals,
- * standings order, seeding and shuffling.
+ * Pure helpers shared by the tournament modules and the UI: ordinals, match status, points,
+ * standings order, seeding and match membership.
  */
 
 /**
- * Get ordinal suffix for a number (1st, 2nd, 3rd, etc.)
+ * Get the ordinal suffix for a number, including 'th' for 11 to 13.
  * @param {number} n - Number to get suffix for
  * @returns {string} Ordinal suffix ('st', 'nd', 'rd', or 'th')
  */
@@ -16,7 +15,7 @@ export function getOrdinalSuffix(n) {
 }
 
 /**
- * Format a number with its ordinal suffix
+ * Format a number with its ordinal suffix.
  * @param {number} n - Number to format
  * @returns {string} Number with suffix (e.g., "1st", "2nd", "3rd")
  */
@@ -25,7 +24,7 @@ export function formatOrdinal(n) {
 }
 
 /**
- * Determine the status of a match
+ * Determine the status of a match: complete once it has a winner, live once both slots are filled.
  * @param {Object} match - Match object
  * @param {string} [match.winnerId] - Winner's ID if determined
  * @param {Array} match.participants - Array of participant IDs
@@ -42,7 +41,7 @@ export function determineMatchStatus(match) {
 }
 
 /**
- * Get points for a position based on points table configuration
+ * Get points for a finishing position. Positions past the end of the table score 0.
  * @param {Array|string} pointsTable - Points table array or 'sequential'
  * @param {number} position - 0-indexed position in results
  * @param {number} totalPlayers - Total number of players (for sequential scoring)
@@ -56,7 +55,7 @@ export function getPointsForPosition(pointsTable, position, totalPlayers) {
 }
 
 /**
- * Sort standings by points, then wins, then games completed
+ * Sort standings by points, then wins, then games completed, without mutating the input.
  * @param {Array} standings - Array of standing objects
  * @returns {Array} Sorted standings
  */
@@ -69,7 +68,7 @@ export function sortStandings(standings) {
 }
 
 /**
- * Fisher-Yates shuffle in place
+ * Fisher-Yates shuffle in place.
  * @param {any[]} items - Array to shuffle
  * @returns {any[]} The same array
  */

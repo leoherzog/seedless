@@ -1,6 +1,6 @@
 /**
- * Points Race Tournament
- * Pool-based scoring with random matchups and minimized repeats
+ * Points Race mode: schedules multi-player games with balanced seat counts and few repeat
+ * pairings, and scores finishing positions into running standings.
  */
 
 import { CONFIG } from '../../config.js';
@@ -11,8 +11,8 @@ const SCHEDULE_BUDGET_MS = 40;
 const SCHEDULE_MAX_ATTEMPTS = 64;
 
 /**
- * Generate a Points Race tournament
- * @param {Object[]} participants - Array of participants
+ * Generate a Points Race tournament. Throws with fewer than 2 participants.
+ * @param {Object[]} participants - Each with id and name
  * @param {Object} config - Tournament configuration
  * @returns {Object} Race settings plus the games and zeroed standings, as Maps
  */
@@ -80,10 +80,9 @@ function resolveOptions(playerCount, config) {
 }
 
 /**
- * Plan seat counts so every player gets exactly gamesPerPlayer scored races.
- * When seats don't divide evenly, 'smaller' leaves some games a player short and
- * 'standins' fills those seats with players racing an extra, unscored game.
- * A game left with one scored player always gets a stand-in so it is still a race.
+ * Plan seat counts so every player gets exactly gamesPerPlayer scored races. When seats don't
+ * divide evenly, 'smaller' plays some games with fewer racers and 'standins' fills every game to
+ * playersPerGame with players racing an extra, unscored game. A one-racer game always gets a stand-in.
  * @param {number} playerCount - Number of participants
  * @param {Object} config - Tournament configuration
  * @returns {{scored: number, standIns: number}[]} One entry per game, larger games first
@@ -107,7 +106,7 @@ export function planGames(playerCount, config = {}) {
 }
 
 /**
- * Games-per-player counts nearest the configured one that leave no leftover seats
+ * Games-per-player counts nearest the configured one that leave no leftover seats.
  * @param {number} playerCount - Number of participants
  * @param {Object} config - Tournament configuration
  * @param {number} maxGames - Largest games-per-player allowed
@@ -126,17 +125,14 @@ export function suggestEvenGamesPerPlayer(playerCount, config = {}, maxGames = I
 }
 
 /**
- * Greatest common divisor
- * @param {number} a - Non-negative integer
- * @param {number} b - Non-negative integer
- * @returns {number}
+ * Greatest common divisor of two non-negative integers.
  */
 function gcd(a, b) {
   return b === 0 ? a : gcd(b, a % b);
 }
 
 /**
- * Seat players into planned games, keeping the attempt with the fewest repeat pairings
+ * Seat players into planned games, keeping the attempt with the fewest repeat pairings.
  * @param {string[]} playerIds - Participant IDs
  * @param {{scored: number, standIns: number}[]} plan - Output of planGames
  * @param {number} gamesPerPlayer - Scored races per player
@@ -163,9 +159,9 @@ function scheduleGames(playerIds, plan, gamesPerPlayer) {
 }
 
 /**
- * Build one randomized schedule over player indices
- * @returns {{games: {racers: number[], standIns: number[]}[], cost: number}}
- *   cost counts repeat meetings, weighted so concentrated repeats cost more
+ * Build one randomized schedule over player indices.
+ * @returns {{games: {racers: number[], standIns: number[]}[], cost: number}} cost counts repeat
+ *   meetings, weighted so concentrated repeats cost more
  */
 function buildSchedule(playerCount, plan, gamesPerPlayer) {
   const players = Array.from({ length: playerCount }, (_, idx) => idx);
@@ -216,7 +212,7 @@ function buildSchedule(playerCount, plan, gamesPerPlayer) {
 }
 
 /**
- * Pick the candidate who has met the field least; candidates arrive shuffled so ties break randomly
+ * Pick the candidate who has met the field least; candidates arrive shuffled so ties break randomly.
  * @param {number[]} candidates - Player indices to choose from
  * @param {number[]} field - Player indices already in the game
  * @param {number[][]} met - Pairwise meeting counts

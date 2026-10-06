@@ -76,14 +76,13 @@ export async function joinRoom(roomId) {
 
   const config = { appId: CONFIG.appId, turnConfig: await fetchTurnServers() };
 
-  console.info(`[Seedless] Joining room: ${roomId}`);
   const room = trysteroJoin(config, roomId);
 
   const actions = Object.fromEntries(Object.values(ActionTypes).map((type) => [type, room.makeAction(type)]));
 
   // Trystero's onPeerJoin/onPeerLeave are replace-only, so handlers fan out from local arrays.
-  const joinHandlers = [(peerId) => console.info(`[Seedless] Peer joined: ${peerId}`)];
-  const leaveHandlers = [(peerId) => console.info(`[Seedless] Peer left: ${peerId}`)];
+  const joinHandlers = [];
+  const leaveHandlers = [];
   room.onPeerJoin = (peerId) => joinHandlers.forEach((handler) => handler(peerId));
   room.onPeerLeave = (peerId) => leaveHandlers.forEach((handler) => handler(peerId));
 
@@ -102,7 +101,6 @@ export async function joinRoom(roomId) {
     leave() {
       room.leave();
       activeRoom = null;
-      console.info('[Seedless] Left room');
     },
   };
   return activeRoom;

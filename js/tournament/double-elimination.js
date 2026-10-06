@@ -1,13 +1,13 @@
 /**
- * Double Elimination Bracket
- * Winners bracket + losers bracket + grand finals
+ * Double-elimination brackets: a winners bracket, a losers bracket of alternating minor and
+ * major rounds, and grand finals with a reset match. Covers generation, advancement and standings.
  */
 
 import { buildKnockout, toMatchIds } from './bracket-utils.js';
 
 /**
- * Generate a double elimination bracket
- * @param {Object[]} participants - Array of participants
+ * Generate a seeded double-elimination bracket with round-1 byes advanced and dead losers slots marked.
+ * @param {Object[]} participants - At least 2, each with id, name and optional seed
  * @returns {{bracket: Object, matches: Map}} Bracket of round match ids, and the matches by id
  */
 export function generateDoubleEliminationBracket(participants) {
@@ -29,9 +29,6 @@ export function generateDoubleEliminationBracket(participants) {
   const winners = { rounds };
   const losers = generateLosersBracket(bracketSize, 2 * (numRounds - 1));
   const grandFinals = generateGrandFinals();
-
-  // Mark losers-bracket slots that can never be filled because their feeding
-  // winners match was a bye (a bye produces no loser to drop down).
   markDeadLosersSlots(winners, losers);
 
   const matches = [...winners.rounds, ...losers.rounds].flatMap(r => r.matches).concat(grandFinals);
@@ -113,34 +110,33 @@ function generateGrandFinals() {
       scores: [0, 0],
       winnerId: null,
       isBye: false,
-      requiresPlay: false, // Only if losers champ wins GF1
+      requiresPlay: false, // Set when the losers champ wins gf1
     },
   ];
 }
 
 /**
- * Calculate where a loser drops to in losers bracket
+ * Where a winners-bracket loser drops into the losers bracket.
+ * @returns {{round: number, position: number, slot: number}} Losers slot; round 0 means grand finals
  */
 function calculateDropTarget(winnersRound, position, winnersRounds) {
-  // Winners Finals loser goes to Losers Finals
+  // Checked first so a two-player bracket, whose only round is both W1 and the final, yields round 0.
   if (winnersRound === winnersRounds) {
     return { round: 2 * (winnersRounds - 1), position: 0, slot: 1 };
   }
 
-  // W1 losers pair up in L1; a Wr loser (r >= 2) drops into slot 1 of major round L(2r-2).
   if (winnersRound === 1) {
     return { round: 1, position: Math.floor(position / 2), slot: position % 2 };
   }
+  // A Wr loser drops into slot 1 of major round L(2r-2); using round r would land in an
+  // already-filled minor round for r >= 3.
   return { round: 2 * (winnersRound - 1), position, slot: 1 };
 }
 
 /**
  * Mark losers-bracket slots that will never receive a participant.
- *
- * Only round-1 winners matches can be byes (with participantCount > bracketSize/2
- * every later winners round is full), so dead losers slots originate from R1 bye
- * drop targets and then cascade: a losers match with both slots dead produces no
- * winner, so the slot it would have advanced into is dead too.
+ * Only round-1 winners matches can be byes, and a bye drops no loser. A losers match
+ * with both slots dead produces no winner, so the slot it feeds is dead too.
  */
 function markDeadLosersSlots(winners, losers) {
   for (const match of winners.rounds[0].matches) {
@@ -153,12 +149,11 @@ function markDeadLosersSlots(winners, losers) {
     }
   }
 
-  // Cascade fully-dead matches downstream (rounds processed in order).
+  // Dead slots only feed later rounds, so one pass in round order covers the whole cascade.
   for (let r = 0; r < losers.rounds.length; r++) {
     for (const match of losers.rounds[r].matches) {
       if ((match.deadSlots?.length || 0) < 2) continue;
 
-      // Fully dead: nobody advances, so mark the slot it would have fed.
       const nextRound = losers.rounds[r + 1];
       if (!nextRound) continue;
       const nextMatchIdx = match.isMinorRound ? match.position : Math.floor(match.position / 2);
@@ -272,10 +267,10 @@ function championId(bracket, matches) {
 }
 
 /**
- * Get final standings
+ * Rank the champion, the grand-finals runner-up, then everyone else by the losers round they lost in, latest first.
  * @param {Object} bracket - Bracket structure
  * @param {Map} matches - Matches by id
- * @param {Map} participants - Participants map
+ * @param {Map} participants - Participant or team by id, for names
  * @returns {Object[]} Standings array; empty until the champion is decided
  */
 export function getStandings(bracket, matches, participants) {

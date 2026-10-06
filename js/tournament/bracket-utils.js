@@ -1,13 +1,12 @@
 /**
- * Bracket Utility Functions
  * Seeding, knockout round building and round naming shared by the bracket generators.
  */
 
 import { bySeed } from '../utils/tournament-helpers.js';
 
 /**
- * Calculate next power of 2
- * @param {number} n - Input number
+ * Bracket size for n participants.
+ * @param {number} n - Participant count
  * @returns {number} Smallest power of 2 that is >= max(n, 2)
  */
 export function nextPowerOf2(n) {
@@ -75,7 +74,7 @@ export function toMatchIds(rounds) {
 }
 
 /**
- * Get round name based on position from finals
+ * Name the last three rounds by their distance from the final; earlier rounds are numbered.
  * @param {number} roundNumber - Current round number (1-indexed)
  * @param {number} totalRounds - Total number of rounds
  * @returns {string} Round name

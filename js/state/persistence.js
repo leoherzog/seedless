@@ -1,5 +1,6 @@
 /**
  * localStorage persistence for tournament snapshots, preferences and the persistent user ID.
+ * Importing this module prunes expired tournaments.
  */
 
 import { CONFIG } from '../../config.js';
@@ -8,7 +9,7 @@ const STORAGE_PREFIX = CONFIG.storage.prefix;
 const RETENTION_MS = CONFIG.storage.retentionDays * 24 * 60 * 60 * 1000;
 
 /**
- * Save tournament state to localStorage
+ * Save a tournament snapshot stamped with savedAt, which drives retention.
  * @param {string} roomId - Room identifier
  * @param {Object} state - State to save
  */
@@ -24,7 +25,7 @@ export function saveTournament(roomId, state) {
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch {
-    // Make room by cleaning up old tournaments, then retry once
+    // Likely over quota: prune expired tournaments, then retry once.
     cleanupOldTournaments();
     try {
       localStorage.setItem(key, JSON.stringify(data));
@@ -47,7 +48,7 @@ function readTournament(key) {
 }
 
 /**
- * Load tournament state from localStorage
+ * Load a tournament snapshot, discarding it if expired or corrupt.
  * @param {string} roomId - Room identifier
  * @returns {Object|null} Stored state or null
  */
@@ -80,8 +81,8 @@ export function savePreferences(prefs) {
 }
 
 /**
- * Load local preferences
- * @returns {Object} Stored preferences
+ * Load local preferences.
+ * @returns {Object} Stored preferences, or {} if absent or corrupt
  */
 export function loadPreferences() {
   const key = STORAGE_PREFIX + '_preferences';
@@ -94,7 +95,7 @@ export function loadPreferences() {
 }
 
 /**
- * Get last used display name
+ * Get the last used display name.
  * @returns {string} Display name or empty string
  */
 export function getLastDisplayName() {
@@ -103,7 +104,7 @@ export function getLastDisplayName() {
 }
 
 /**
- * Save last used display name
+ * Save the last used display name.
  * @param {string} name - Display name
  */
 export function saveDisplayName(name) {
@@ -111,8 +112,7 @@ export function saveDisplayName(name) {
 }
 
 /**
- * Get or create a persistent local user ID
- * This ID persists across page refreshes, unlike the Trystero peerId
+ * Get or create the local user ID, which survives page refreshes unlike the Trystero peerId.
  * @returns {string} Persistent user ID
  */
 export function getLocalUserId() {

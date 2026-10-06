@@ -82,7 +82,6 @@ Deno.test('getDragAfterElement', async (t) => {
     ];
     const container = createMockContainer(elements);
 
-    // Dragging at y=124 (just above center of elem1)
     const result = getDragAfterElement(container, 124);
     assertEquals(result.id, 'elem1');
   });
@@ -93,15 +92,11 @@ Deno.test('getDragAfterElement', async (t) => {
     ];
     const container = createMockContainer(elements);
 
-    // Above the element
     assertEquals(getDragAfterElement(container, 50).id, 'only');
-
-    // Below the element
     assertEquals(getDragAfterElement(container, 200), undefined);
   });
 
   await t.step('handles tightly packed elements', () => {
-    // Elements with no gaps between them
     const elements = [
       createMockElement(0, 50, 'elem1'),   // center at 25
       createMockElement(50, 50, 'elem2'),  // center at 75
@@ -109,7 +104,6 @@ Deno.test('getDragAfterElement', async (t) => {
     ];
     const container = createMockContainer(elements);
 
-    // At y=40 (between centers of elem1 and elem2, closer to elem2)
     const result = getDragAfterElement(container, 40);
     assertEquals(result.id, 'elem2');
   });
@@ -122,7 +116,6 @@ Deno.test('getDragAfterElement', async (t) => {
     ];
     const container = createMockContainer(elements);
 
-    // Dragging at y=80 (below center of tall, above center of short)
     const result = getDragAfterElement(container, 80);
     assertEquals(result.id, 'short');
   });

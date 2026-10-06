@@ -1,5 +1,5 @@
 /**
- * Tests for multi-tournament history feature
+ * Tests for tournament history: archiving each format, reset, serialization and merge.
  */
 
 import { assertEquals, assert, assertExists } from "jsr:@std/assert";
@@ -42,12 +42,9 @@ function createCompleteSingleElimTournament() {
     store.getParticipantList()
   );
 
-  // Play all matches: semi-finals then finals
-  // R1M0: player-1 vs player-4 -> player-1 wins
+  // Seeds 1v4 and 2v3 in the semis, then player-1 beats player-2.
   report(tournament, advanceSingle, "r1m0", "player-1");
-  // R1M1: player-2 vs player-3 -> player-2 wins
   report(tournament, advanceSingle, "r1m1", "player-2");
-  // R2M0: player-1 vs player-2 -> player-1 wins finals
   report(tournament, advanceSingle, "r2m0", "player-1", [2, 1]);
 
   store.setMatches(tournament.matches);
@@ -73,28 +70,18 @@ function createCompleteDoubleElimTournament(resetNeeded = false) {
     store.getParticipantList()
   );
 
-  // Winners bracket
-  // W1M0: player-1 vs player-4 -> player-1 wins
   report(tournament, advanceDouble, "w1m0", "player-1");
-  // W1M1: player-2 vs player-3 -> player-2 wins
   report(tournament, advanceDouble, "w1m1", "player-2");
-  // W2M0 (Winners Finals): player-1 vs player-2 -> player-1 wins
   report(tournament, advanceDouble, "w2m0", "player-1", [2, 1]);
 
-  // Losers bracket
-  // L1M0: player-4 vs player-3 -> player-3 wins
+  // player-2 drops from the winners final and beats player-3 in the losers final.
   report(tournament, advanceDouble, "l1m0", "player-3", [2, 1]);
-  // L2M0 (Losers Finals): player-3 vs player-2 (dropped from WF) -> player-2 wins
   report(tournament, advanceDouble, "l2m0", "player-2");
 
-  // Grand Finals
   if (resetNeeded) {
-    // GF1: player-1 (winners) vs player-2 (losers) -> player-2 wins
     report(tournament, advanceDouble, "gf1", "player-2", [1, 2]);
-    // GF2 (Reset): player-1 vs player-2 -> player-2 wins overall
     report(tournament, advanceDouble, "gf2", "player-2", [1, 2]);
   } else {
-    // GF1: player-1 (winners) vs player-2 (losers) -> player-1 wins
     report(tournament, advanceDouble, "gf1", "player-1", [2, 1]);
   }
 
@@ -121,7 +108,6 @@ function createCompleteMarioKartTournament() {
     gamesPerPlayer: 1,
   });
 
-  // Record race result: player-1 wins, player-2 second, etc.
   recordRaceResult(
     tournament,
     "game1",
@@ -157,9 +143,8 @@ function createCompleteDoublesTournament(bracketType = "single") {
   const participants = createParticipants(4);
   participants.forEach((p) => store.addParticipant(p));
 
+  // team-1 is player-1 and player-2; team-2 is player-3 and player-4.
   const teamAssignments = createTeamAssignments(participants, 2);
-  // team-1: player-1, player-2
-  // team-2: player-3, player-4
 
   const tournament = generateDoublesTournament(
     store.getParticipantList(),
@@ -167,22 +152,17 @@ function createCompleteDoublesTournament(bracketType = "single") {
     { teamSize: 2, bracketType }
   );
 
-  // Play finals: team-1 vs team-2 -> team-1 wins
   const teamId1 = "team-1";
 
   if (bracketType === "double") {
-    // Double elim doubles - play through bracket
     report(tournament, advanceDouble, "w1m0", teamId1);
-    // Grand finals
     report(tournament, advanceDouble, "gf1", teamId1);
   } else {
-    // Single elim finals
     report(tournament, advanceSingle, "r1m0", teamId1);
   }
 
   store.setMatches(tournament.matches);
   store.set("bracket", tournament.bracket);
-  // Set teamAssignments in store
   for (const [participantId, teamId] of teamAssignments) {
     store.setTeamAssignment(participantId, teamId);
   }
@@ -259,7 +239,6 @@ Deno.test("archiveTournament - Double Elimination", async (t) => {
     const entry = store.archiveTournament();
 
     assertExists(entry, "Should create history entry");
-    // player-2 won the reset
     assertEquals(entry.winner.id, "player-2");
     assertEquals(entry.winner.name, "Player 2");
   });
@@ -381,10 +360,8 @@ Deno.test("getHistory", async (t) => {
   await t.step("returns archived tournaments in order", () => {
     const store = createCompleteSingleElimTournament();
 
-    // Archive first tournament
     const entry1 = store.archiveTournament();
 
-    // Reset and set up another complete tournament
     store.resetForNewTournament();
     store.set("meta.type", "single");
     store.set("meta.name", "Tournament 2");

@@ -11,12 +11,10 @@
   "vars": {
     // Comma-separated list of origins allowed to fetch credentials.
     "ALLOWED_ORIGINS": "https://tournament.thehopegang.com,http://localhost:8000",
-    // Your Cloudflare Realtime TURN key ID (dash > Realtime > TURN).
-    // Not a secret on its own — the API token is the secret, set separately:
-    //   npx wrangler secret put TURN_KEY_API_TOKEN
+    // Cloudflare Realtime TURN key ID (dash > Realtime > TURN). Not a secret; the API token is,
+    // set with: npx wrangler secret put TURN_KEY_API_TOKEN
     "TURN_KEY_ID": "63c2ea6b66c02715cc5856554a07caea",
-    // Credential lifetime in seconds. 21600 = 6 hours, enough for a
-    // tournament night; expired credentials disconnect shortly after.
+    // Credential lifetime in seconds. Relays drop shortly after expiry, so 6 hours covers a tournament night.
     "TURN_TTL_SECONDS": "21600"
   }
 }

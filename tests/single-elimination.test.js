@@ -44,7 +44,7 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
 
     assertEquals(bracket.type, "single");
     assertEquals(bracket.rounds.length, 1);
-    // Note: Round 1 is always named "Round 1" even if it's also the finals
+    // Round 1 keeps its name even when it is also the final.
     assertEquals(bracket.rounds[0].name, "Round 1");
     assertEquals(bracket.rounds[0].matchIds.length, 1);
 
@@ -61,16 +61,13 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
 
     assertEquals(bracket.rounds.length, 2);
 
-    // Round 1 should have 2 matches, one being a bye
     const round1 = roundMatches(tournament, 0);
     assertEquals(round1.length, 2);
 
-    // One match should be a bye with seed 1 auto-advanced
     const byeMatch = round1.find(m => m.isBye);
     assert(byeMatch !== undefined, "Should have a bye match");
     assert(byeMatch.winnerId !== null, "Bye should auto-advance winner");
 
-    // Seed 1 should get the bye (faces weakest seed which is missing)
     const nonByeMatch = round1.find(m => !m.isBye);
     assert(nonByeMatch !== undefined, "Should have a non-bye match");
     assertEquals(nonByeMatch.winnerId, null, "Non-bye match should not be decided");
@@ -84,14 +81,11 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     assertEquals(bracket.rounds[1].matchIds.length, 1);
     assertEquals(bracket.rounds[1].name, "Finals");
 
-    // Standard seeding: 1v4, 2v3
     const r1 = roundMatches(tournament, 0);
-    // Match 0: seed 1 vs seed 4
     assert(
       r1[0].participants.includes("player-1") && r1[0].participants.includes("player-4"),
       "Match 0 should be seed 1 vs seed 4"
     );
-    // Match 1: seed 2 vs seed 3
     assert(
       r1[1].participants.includes("player-2") && r1[1].participants.includes("player-3"),
       "Match 1 should be seed 2 vs seed 3"
@@ -105,7 +99,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     assertEquals(bracket.rounds.map((r) => r.matchIds.length), [4, 2, 1]);
     assertEquals(bracket.rounds[2].name, "Finals");
 
-    // Seed 1 should be at position 0 (first match, first slot)
     assertEquals(roundMatches(tournament, 0)[0].participants[0], "player-1");
   });
 
@@ -153,7 +146,6 @@ Deno.test("advance", async (t) => {
   await t.step("advances winner to next round slot 0 (even position)", () => {
     const tournament = generateSingleEliminationBracket(participants4);
 
-    // Match at position 0 - winner goes to slot 0 of next match
     report(tournament, advance, "r1m0", "player-1");
 
     const finals = tournament.matches.get("r2m0");
@@ -163,7 +155,6 @@ Deno.test("advance", async (t) => {
   await t.step("advances winner to next round slot 1 (odd position)", () => {
     const tournament = generateSingleEliminationBracket(participants4);
 
-    // Match at position 1 - winner goes to slot 1 of next match
     report(tournament, advance, "r1m1", "player-2");
 
     const finals = tournament.matches.get("r2m0");
@@ -198,16 +189,12 @@ Deno.test("advance", async (t) => {
   await t.step("full 4-player tournament flow", () => {
     const tournament = generateSingleEliminationBracket(participants4);
 
-    // Semi 1: Player 1 beats Player 4
     report(tournament, advance, "r1m0", "player-1");
-    // Semi 2: Player 3 upsets Player 2
     report(tournament, advance, "r1m1", "player-3");
 
-    // Finals should have correct participants
     const finals = tournament.matches.get("r2m0");
     assertEquals(finals.participants, ["player-1", "player-3"]);
 
-    // Finals: Player 1 wins
     assert(report(tournament, advance, "r2m0", "player-1"));
     assertEquals(finals.winnerId, "player-1");
   });
@@ -242,11 +229,8 @@ Deno.test("getStandings", async (t) => {
     const tournament = generateSingleEliminationBracket(participants4);
     const participantMap = createParticipantMap(participants4);
 
-    // Semi 1: Player 1 beats Player 4
     report(tournament, advance, "r1m0", "player-1");
-    // Semi 2: Player 2 beats Player 3
     report(tournament, advance, "r1m1", "player-2");
-    // Finals: Player 1 beats Player 2
     report(tournament, advance, "r2m0", "player-1");
 
     const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
@@ -256,7 +240,6 @@ Deno.test("getStandings", async (t) => {
     assertEquals(standings[0].participantId, "player-1");
     assertEquals(standings[1].place, 2);
     assertEquals(standings[1].participantId, "player-2");
-    // Places 3-4 should be the semi-final losers (same round)
     assert(
       standings[2].participantId === "player-3" || standings[2].participantId === "player-4",
       "3rd place should be a semi-final loser"

@@ -282,7 +282,7 @@ Deno.test("Store.merge - participant OR-Set", async (t) => {
 
     store.merge(remoteState, null);
 
-    // Both should exist (OR-Set: additions win)
+    // Additions win: merge never removes a participant.
     assert(store.getParticipant("local-1") !== undefined);
     assert(store.getParticipant("remote-1") !== undefined);
     assertEquals(store.getParticipant("remote-1").name, "Bob");
@@ -300,7 +300,7 @@ Deno.test("Store.merge - participant OR-Set", async (t) => {
 
     store.merge(remoteState, null);
 
-    // Newer joinedAt wins
+    // joinedAt is the LWW key when neither side has updatedAt.
     assertEquals(store.getParticipant("user-1").name, "Alice Updated");
   });
 
@@ -316,9 +316,7 @@ Deno.test("Store.merge - participant OR-Set", async (t) => {
 
     store.merge(remoteState, null);
 
-    // Local has newer joinedAt, should preserve but merge properties
     const p = store.getParticipant("user-1");
-    // The implementation merges newer over older, so local values preserved
     assertEquals(p.joinedAt, 2000);
   });
 
@@ -363,7 +361,7 @@ Deno.test("Store.merge - match LWW with admin verification", async (t) => {
 
     store.merge(remoteState, null);
 
-    // Admin verified should win despite older timestamp
+    // Verification beats a newer reportedAt.
     const match = store.getMatch("m1");
     assertEquals(match.winnerId, "p2");
     assertEquals(match.verifiedBy, "admin");
@@ -385,7 +383,6 @@ Deno.test("Store.merge - match LWW with admin verification", async (t) => {
 
     store.merge(remoteState, null);
 
-    // Local verified should be kept
     const match = store.getMatch("m1");
     assertEquals(match.winnerId, "p1");
   });
@@ -406,7 +403,6 @@ Deno.test("Store.merge - match LWW with admin verification", async (t) => {
 
     store.merge(remoteState, null);
 
-    // Newer timestamp wins
     const match = store.getMatch("m1");
     assertEquals(match.winnerId, "p2");
   });

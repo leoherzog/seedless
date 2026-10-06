@@ -1,5 +1,5 @@
 /**
- * Tests for Sync Validation Functions
+ * Tests for the payload validators and match conflict rule in sync-validators.js.
  */
 
 import { assertEquals } from 'jsr:@std/assert';
@@ -20,7 +20,7 @@ Deno.test('isValidName', async (t) => {
     assertEquals(isValidName('Alice'), true);
     assertEquals(isValidName('Bob'), true);
     assertEquals(isValidName('Player 1'), true);
-    assertEquals(isValidName('a'), true); // single char
+    assertEquals(isValidName('a'), true);
     assertEquals(isValidName('A'.repeat(100)), true); // max length
   });
 
@@ -47,7 +47,7 @@ Deno.test('isValidMatchId', async (t) => {
     assertEquals(isValidMatchId('match-1'), true);
     assertEquals(isValidMatchId('r1m1'), true);
     assertEquals(isValidMatchId('gf1'), true);
-    assertEquals(isValidMatchId('a'), true); // single char
+    assertEquals(isValidMatchId('a'), true);
     assertEquals(isValidMatchId('A'.repeat(50)), true); // max length
   });
 
@@ -73,7 +73,7 @@ Deno.test('isValidScores', async (t) => {
     assertEquals(isValidScores([3, 2]), true);
     assertEquals(isValidScores([0, 0]), true);
     assertEquals(isValidScores([100, 50]), true);
-    assertEquals(isValidScores([1.5, 2.5]), true); // floats are valid
+    assertEquals(isValidScores([1.5, 2.5]), true);
   });
 
   await t.step('rejects negative scores', () => {
@@ -155,8 +155,7 @@ Deno.test('isValidState', async (t) => {
   await t.step('rejects non-objects', () => {
     assertEquals(isValidState('state'), false);
     assertEquals(isValidState(123), false);
-    // Note: Arrays are technically objects in JS, but empty arrays pass
-    // since they have no invalid participants/matches/meta
+    // An empty array passes: it has no invalid meta, participants or matches.
   });
 
   await t.step('rejects invalid meta', () => {
@@ -166,36 +165,20 @@ Deno.test('isValidState', async (t) => {
   });
 
   await t.step('rejects invalid participants format', () => {
-    // Not an array
     assertEquals(isValidState({ participants: 'invalid' }), false);
     assertEquals(isValidState({ participants: {} }), false);
-
-    // Entries not arrays
     assertEquals(isValidState({ participants: ['user1', 'user2'] }), false);
-
-    // Entries wrong length
     assertEquals(isValidState({ participants: [['user1']] }), false);
     assertEquals(isValidState({ participants: [['user1', {}, 'extra']] }), false);
-
-    // ID not string
     assertEquals(isValidState({ participants: [[123, {}]] }), false);
-
-    // Participant not object
     assertEquals(isValidState({ participants: [['user1', 'invalid']] }), false);
     assertEquals(isValidState({ participants: [['user1', null]] }), false);
   });
 
   await t.step('rejects invalid matches format', () => {
-    // Not an array
     assertEquals(isValidState({ matches: 'invalid' }), false);
-
-    // Entries not arrays
     assertEquals(isValidState({ matches: ['match1'] }), false);
-
-    // Entries wrong length
     assertEquals(isValidState({ matches: [['match1']] }), false);
-
-    // ID not string
     assertEquals(isValidState({ matches: [[123, {}]] }), false);
   });
 });
@@ -215,14 +198,13 @@ Deno.test('shouldUpdateMatch', async (t) => {
 
   await t.step('accepts admin update on unverified match', () => {
     const incoming = { version: 0, reportedAt: 1000 };
-    const existing = { version: 1, reportedAt: 2000 }; // higher version!
+    const existing = { version: 1, reportedAt: 2000 }; // higher version than incoming
     assertEquals(shouldUpdateMatch(incoming, existing, true), true);
   });
 
   await t.step('accepts admin update on verified match (admin can override)', () => {
     const incoming = { version: 0, reportedAt: 1000 };
     const existing = { version: 1, reportedAt: 2000, verifiedBy: 'admin1' };
-    // Admin can always override, even verified matches
     assertEquals(shouldUpdateMatch(incoming, existing, true), true);
   });
 
@@ -245,16 +227,14 @@ Deno.test('shouldUpdateMatch', async (t) => {
   });
 
   await t.step('handles missing version (defaults to 0)', () => {
-    const incoming = { reportedAt: 2000 }; // no version
-    const existing = { reportedAt: 1000 }; // no version
-    // Same version (0), but newer timestamp
+    const incoming = { reportedAt: 2000 };
+    const existing = { reportedAt: 1000 };
     assertEquals(shouldUpdateMatch(incoming, existing, false), true);
   });
 
   await t.step('handles missing reportedAt (defaults to 0)', () => {
-    const incoming = { version: 1 }; // no timestamp
+    const incoming = { version: 1 };
     const existing = { version: 1, reportedAt: 1000 };
-    // Same version, but 0 < 1000, so rejected
     assertEquals(shouldUpdateMatch(incoming, existing, false), false);
   });
 
@@ -408,14 +388,13 @@ Deno.test('isValidParticipantUpdatePayload', async (t) => {
     assertEquals(isValidParticipantUpdatePayload({ name: 'Alice', localUserId: 'user1' }), false);
     assertEquals(isValidParticipantUpdatePayload({ teamId: 'team-1' }), false);
     assertEquals(isValidParticipantUpdatePayload({ isManual: true }), false);
-    // Use JSON.parse to simulate how __proto__ arrives over network (P2P messages are JSON)
-    // Object literal { __proto__: {} } sets prototype, doesn't create own property
+    // JSON.parse makes __proto__ an own property as on the wire; a literal would set the prototype.
     assertEquals(isValidParticipantUpdatePayload(JSON.parse('{"__proto__":{}}')), false);
     assertEquals(isValidParticipantUpdatePayload({ constructor: {} }), false);
   });
 
   await t.step('rejects invalid name type', () => {
-    assertEquals(isValidParticipantUpdatePayload({ name: '' }), false); // empty string
+    assertEquals(isValidParticipantUpdatePayload({ name: '' }), false);
     assertEquals(isValidParticipantUpdatePayload({ name: 123 }), false);
     assertEquals(isValidParticipantUpdatePayload({ name: null }), false);
   });

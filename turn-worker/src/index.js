@@ -1,5 +1,5 @@
 /**
- * Mints short-lived Cloudflare Realtime TURN credentials (GET / -> { iceServers }) so the TURN API
+ * Mints short-lived Cloudflare Realtime TURN credentials (GET -> { iceServers }) so the TURN API
  * token stays a Worker secret. Requests whose Origin is not in ALLOWED_ORIGINS get a 403; that
  * stops other sites but not scripted clients, hence the short TURN_TTL_SECONDS.
  */

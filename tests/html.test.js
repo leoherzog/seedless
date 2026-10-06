@@ -72,7 +72,7 @@ Deno.test('escapeHtml', async (t) => {
   });
 
   await t.step('re-escapes already escaped entities', () => {
-    // This is expected behavior - prevents double-encoding attacks
+    // Escaping is not idempotent, so escape exactly once, at render time.
     assertEquals(escapeHtml('&amp;'), '&amp;amp;');
     assertEquals(escapeHtml('&lt;'), '&amp;lt;');
   });
@@ -98,7 +98,6 @@ Deno.test('escapeHtml', async (t) => {
 
     for (const attempt of xssAttempts) {
       const escaped = escapeHtml(attempt);
-      // Escaped version should not contain unescaped < or >
       assertEquals(escaped.includes('<'), false, `Should escape < in: ${attempt}`);
       assertEquals(escaped.includes('>'), false, `Should escape > in: ${attempt}`);
     }

@@ -66,7 +66,6 @@ Deno.test("generateDoubleEliminationBracket", async (t) => {
   await t.step("4-player bracket has correct structure", () => {
     const { bracket } = generateDoubleEliminationBracket(participants4);
 
-    // Winners: 2 matches in R1, 1 match in R2 (finals)
     assertEquals(bracket.winners.rounds.map((r) => r.matchIds.length), [2, 1]);
     // Losers: 2 * (2-1) = 2 rounds
     assertEquals(bracket.losers.rounds.length, 2);
@@ -75,7 +74,6 @@ Deno.test("generateDoubleEliminationBracket", async (t) => {
   await t.step("8-player bracket has correct structure", () => {
     const { bracket } = generateDoubleEliminationBracket(participants8);
 
-    // Winners: R1 has 4, R2 has 2, R3 has 1
     assertEquals(bracket.winners.rounds.map((r) => r.matchIds.length), [4, 2, 1]);
     // Losers: 2 * (3-1) = 4 rounds
     assertEquals(bracket.losers.rounds.length, 4);
@@ -109,14 +107,13 @@ Deno.test("advance - winners bracket", async (t) => {
 
     report(tournament, advance, "w1m0", "player-1");
 
-    // Winner should advance to W2M0 (winners finals)
     assertEquals(tournament.matches.get("w2m0").participants[0], "player-1");
   });
 
   await t.step("drops loser to losers bracket", () => {
     const tournament = generateDoubleEliminationBracket(participants4);
 
-    // player-4 loses W1M0
+    // player-4 loses w1m0.
     report(tournament, advance, "w1m0", "player-1");
 
     const losers = tournament.bracket.losers.rounds.flatMap((r) => roundMatches(tournament.matches, r));
@@ -130,7 +127,7 @@ Deno.test("advance - winners bracket", async (t) => {
     report(tournament, advance, "w1m1", "player-2");
     report(tournament, advance, "w2m0", "player-1");
 
-    // Winner should be in GF slot 0 (winners champ)
+    // GF slot 0 holds the winners champion.
     assertEquals(tournament.matches.get("gf1").participants[0], "player-1");
   });
 
@@ -253,7 +250,6 @@ Deno.test("bye handling in double elimination", async (t) => {
   await t.step("3-player bracket handles byes correctly", () => {
     const { bracket, matches } = generateDoubleEliminationBracket(createParticipants(3));
 
-    // With 3 players in bracketSize 4, one match is a bye
     const byeMatch = roundMatches(matches, bracket.winners.rounds[0]).find((m) => m.isBye);
 
     assert(byeMatch !== undefined, "Should have a bye match");

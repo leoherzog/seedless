@@ -1,5 +1,5 @@
 /**
- * Tests that the results card appears as soon as a tournament completes, without a reload
+ * The results card appears as soon as a tournament completes, without a reload.
  */
 
 import { assert, assertEquals } from 'jsr:@std/assert';

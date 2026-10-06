@@ -1,8 +1,6 @@
 /**
- * Tests for localStorage Persistence
- *
- * Uses Deno's built-in localStorage (which persists to disk).
- * Each test clears localStorage to ensure isolation.
+ * Tests for persistence.js. Deno's localStorage persists to disk between runs,
+ * so steps use unique room ids and clear every prefixed key first.
  */
 
 import { assertEquals, assertExists, assertMatch } from 'jsr:@std/assert';
@@ -11,7 +9,6 @@ import { CONFIG } from '../config.js';
 
 const STORAGE_PREFIX = CONFIG.storage.prefix;
 
-// Import persistence module
 const {
   saveTournament,
   loadTournament,
@@ -23,14 +20,11 @@ const {
   getLocalUserId,
 } = await import('../js/state/persistence.js');
 
-// Helper to create timestamps
 const daysAgo = (days) => Date.now() - (days * 24 * 60 * 60 * 1000);
 
-// Use unique room IDs to prevent test interference
 let testCounter = 0;
 const uniqueRoom = () => `test-room-${Date.now()}-${testCounter++}`;
 
-// Helper to clear all seedless keys from localStorage
 function clearSeedlessStorage() {
   const keysToRemove = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -43,7 +37,6 @@ function clearSeedlessStorage() {
 }
 
 Deno.test('persistence', async (t) => {
-  // saveTournament / loadTournament tests
   await t.step('saveTournament saves state with savedAt timestamp', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
@@ -92,7 +85,6 @@ Deno.test('persistence', async (t) => {
     const noTimestamp = { meta: { id: roomId } };
     localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(noTimestamp));
 
-    // Data without savedAt counts as expired
     const loaded = loadTournament(roomId);
     assertEquals(loaded, null, 'Data without savedAt should be treated as expired by loadTournament');
     assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete data without savedAt');
@@ -119,10 +111,9 @@ Deno.test('persistence', async (t) => {
     cleanupOldTournaments();
 
     assertExists(localStorage.getItem(otherKey), 'non-prefixed keys should not be touched');
-    localStorage.removeItem(otherKey); // cleanup
+    localStorage.removeItem(otherKey);
   });
 
-  // Preferences tests
   await t.step('savePreferences merges with existing', () => {
     clearSeedlessStorage();
 
@@ -159,7 +150,6 @@ Deno.test('persistence', async (t) => {
     assertEquals(prefs, {});
   });
 
-  // Display name tests
   await t.step('getLastDisplayName returns empty string if not set', () => {
     clearSeedlessStorage();
 
@@ -177,7 +167,6 @@ Deno.test('persistence', async (t) => {
     assertEquals(getLastDisplayName(), 'New Name');
   });
 
-  // getLocalUserId tests
   await t.step('getLocalUserId generates user_ plus a UUID', () => {
     clearSeedlessStorage();
 
@@ -206,14 +195,10 @@ Deno.test('persistence', async (t) => {
     assertEquals(prefs.localUserId, userId);
   });
 
-  // Boundary condition tests
   await t.step('loadTournament keeps data at the 30 day boundary', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
-    // Just inside the 30-day window. A 1s buffer keeps this deterministic:
-    // loadTournament recomputes `Date.now() - 30d` a few ms after we capture
-    // daysAgo(30), and the expiry check is strict (savedAt < cutoff), so a
-    // record saved *exactly* 30 days ago would flake as "just expired".
+    // loadTournament takes its cutoff a few ms after daysAgo(30), so exactly 30 days would read as expired.
     const atBoundary = {
       meta: { id: roomId },
       savedAt: daysAgo(30) + 1000
@@ -227,7 +212,6 @@ Deno.test('persistence', async (t) => {
   await t.step('loadTournament removes data at 30 days + 1 ms', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
-    // Just over 30 days ago
     const justOverBoundary = {
       meta: { id: roomId },
       savedAt: daysAgo(30) - 1
@@ -239,7 +223,6 @@ Deno.test('persistence', async (t) => {
     assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete expired data');
   });
 
-  // cleanupOldTournaments edge cases
   await t.step('cleanupOldTournaments skips preferences key', () => {
     clearSeedlessStorage();
     const prefsKey = STORAGE_PREFIX + '_preferences';
@@ -290,7 +273,6 @@ Deno.test('persistence', async (t) => {
     assertExists(localStorage.getItem(STORAGE_PREFIX + room3), 'Recent data should remain');
   });
 
-  // saveTournament additional tests
   await t.step('saveTournament preserves existing data properties', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
@@ -352,7 +334,6 @@ Deno.test('persistence', async (t) => {
     assertEquals(loadTournament(roomId).meta.name, 'Retried');
   });
 
-  // Final cleanup
   await t.step('cleanup', () => {
     clearSeedlessStorage();
   });

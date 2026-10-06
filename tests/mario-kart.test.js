@@ -56,7 +56,6 @@ Deno.test("generateMarioKartTournament", async (t) => {
 
     assertEquals(tournament.playersPerGame, 4);
 
-    // Each game should have up to 4 participants
     for (const [_, game] of tournament.matches) {
       assert(game.participants.length <= 4, "Game should have at most 4 players");
     }
@@ -78,7 +77,7 @@ Deno.test("generateMarioKartTournament", async (t) => {
       gamesPerPlayer: 5,
     });
 
-    // totalSlots = 8 * 5 = 40, games = ceil(40 / 4) = 10
+    // 8 players × 5 games = 40 seats, at 4 per game.
     assertEquals(tournament.matches.size, 10);
   });
 
@@ -88,7 +87,6 @@ Deno.test("generateMarioKartTournament", async (t) => {
 
     assert(Array.isArray(tournament.pointsTable), "Should have points table");
     assert(tournament.pointsTable.length > 0, "Points table should have values");
-    // First place should get more points than second
     assert(tournament.pointsTable[0] > tournament.pointsTable[1]);
   });
 
@@ -179,7 +177,6 @@ Deno.test("recordRaceResult", async (t) => {
     const gameId = tournament.matches.keys().next().value;
     const game = tournament.matches.get(gameId);
 
-    // Put player-2 in first place
     const results = [
       { participantId: game.participants[1] },
       { participantId: game.participants[0] },
@@ -232,7 +229,7 @@ Deno.test("scoring systems", async (t) => {
   await t.step("sequential scoring: handles varying game sizes dynamically", () => {
     const participants = createParticipants(5);
     const tournament = generateMarioKartTournament(participants, {
-      playersPerGame: 4,  // Target 4 players, but last game might have fewer
+      playersPerGame: 4, // 5 seats split into games of 3 and 2
       gamesPerPlayer: 1,
       pointsTable: 'sequential',
     });

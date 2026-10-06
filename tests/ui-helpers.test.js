@@ -1,5 +1,5 @@
 /**
- * Tests for Tournament UI Helper Functions
+ * Tests for tournament-helpers.js.
  */
 
 import { assertEquals } from 'jsr:@std/assert';
@@ -155,7 +155,7 @@ Deno.test('sortStandings', async (t) => {
       { name: 'B', points: 10, wins: 0, gamesCompleted: 0 }
     ];
     const sorted = sortStandings(standings);
-    assertEquals(standings[0].name, 'A'); // original unchanged
+    assertEquals(standings[0].name, 'A');
     assertEquals(sorted[0].name, 'B');
   });
 

@@ -14,9 +14,8 @@ import { nextPowerOf2 } from "../js/tournament/bracket-utils.js";
 import { createParticipants, createTeamAssignments, playToCompletion } from "./fixtures.js";
 
 /**
- * Assert that a set of formed teams is internally consistent:
- * every team has exactly `teamSize` members, and no participant appears on
- * more than one team (or twice on the same team).
+ * Assert every team has exactly `teamSize` members and no participant appears twice.
+ * @returns {Set<string>} Every member id seen
  */
 function assertTeamsWellFormed(teams, teamSize) {
   const seen = new Set();
@@ -30,11 +29,7 @@ function assertTeamsWellFormed(teams, teamSize) {
   return seen;
 }
 
-/**
- * Standings invariants shared by both bracket types: complete coverage of
- * every team, sequential places with no gaps/duplicates, and the champion
- * matching the recorded finals winner.
- */
+/** Assert standings list every team once, in places 1..N, with the champion first. */
 function assertStandingsInvariants(standings, teams, championId) {
   assertEquals(standings.length, teams.length, "standings should cover every team");
   assertEquals(standings[0].place, 1, "first standing should be place 1");
@@ -87,9 +82,7 @@ Deno.test("Doubles - odd participant counts leave the leftover player unassigned
       const seen = assertTeamsWellFormed(teams, 2);
       assertEquals(seen.size, expectedCompleteTeams * 2, "only fully-paired participants should be assigned");
 
-      // The last-created participant is the one left without a partner
-      // (createTeamAssignments pairs sequentially, so an odd remainder is
-      // always the final participant).
+      // createTeamAssignments pairs in order, so an odd count leaves the last participant out.
       const leftoverId = `player-${n}`;
       assert(!seen.has(leftoverId), `leftover participant ${leftoverId} should not be on any team`);
     });
@@ -170,7 +163,7 @@ Deno.test("Doubles - single elimination run to completion (odd participant count
 });
 
 Deno.test("Doubles - double elimination run to completion", async (t) => {
-  const DOUBLE_ELIM_COUNTS = [6, 8]; // 3 teams (needs a bye) and 4 teams (clean power of 2)
+  const DOUBLE_ELIM_COUNTS = [6, 8]; // 3 teams need a bye; 4 teams fill the bracket
 
   for (const n of DOUBLE_ELIM_COUNTS) {
     await t.step(`N=${n}: double-elimination team bracket completes with one champion`, () => {

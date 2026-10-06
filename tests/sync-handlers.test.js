@@ -394,7 +394,6 @@ Deno.test('TOURNAMENT_START handler', async (t) => {
     assertNotEquals(store.get('meta.status'), 'active');
   });
 
-  // Runs as admin so the handler skips navigation, which needs window.
   await t.step('accepts tournament start from admin', async () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: adminId, adminId });

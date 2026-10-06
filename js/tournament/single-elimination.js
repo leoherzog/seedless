@@ -1,13 +1,12 @@
 /**
- * Single Elimination Bracket
- * Standard knockout tournament format
+ * Single-elimination brackets: generation, winner advancement and final standings.
  */
 
 import { buildKnockout, getRoundName, toMatchIds } from './bracket-utils.js';
 
 /**
- * Generate a single elimination bracket
- * @param {Object[]} participants - Array of participants with id, name, seed
+ * Generate a seeded single-elimination bracket with round-1 byes already advanced.
+ * @param {Object[]} participants - At least 2, each with id, name and optional seed
  * @returns {{bracket: Object, matches: Map}} Bracket of round match ids, and the matches by id
  */
 export function generateSingleEliminationBracket(participants) {
@@ -58,10 +57,10 @@ function finalMatch(bracket, matches) {
 }
 
 /**
- * Get final standings
+ * Rank the champion, the runner-up, then everyone else by the round they lost in, latest first.
  * @param {Object} bracket - Bracket structure
  * @param {Map} matches - Matches by id
- * @param {Map} participants - Participants map
+ * @param {Map} participants - Participant or team by id, for names
  * @returns {Object[]} Standings array; empty until the final has a winner
  */
 export function getStandings(bracket, matches, participants) {

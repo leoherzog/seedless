@@ -72,8 +72,6 @@ store.on('change', ({ path }) => {
 });
 
 async function init() {
-  console.info('[Seedless] Initializing...');
-
   const lastName = getLastDisplayName();
   if (lastName) {
     store.set('local.name', lastName);
@@ -93,8 +91,6 @@ async function init() {
   window.addEventListener('popstate', handleUrlChange);
 
   await handleUrlChange();
-
-  console.info('[Seedless] Ready!');
 }
 
 function setupFormHandlers() {
@@ -106,9 +102,8 @@ function setupFormHandlers() {
 }
 
 /**
- * Live-format a room-slug text input on every keystroke while keeping the
- * caret in a sensible place (formatting the text before the caret tells us
- * where it should land in the new value).
+ * Live-format a room-slug input on every keystroke. The caret moves to the
+ * formatted length of the text that preceded it.
  * @param {HTMLInputElement} input
  */
 function attachSlugFormatter(input) {
@@ -218,8 +213,7 @@ async function onCreateRoom(e) {
   const slug = sanitizeRoomSlug(slugInput.value);
   const name = nameInput.value.trim();
 
-  // Auto-formatted: only reject when there's nothing usable left (e.g. the
-  // input was empty or made up entirely of unsupported characters).
+  // Empty after sanitizing means the input held no supported characters.
   if (!slug) {
     showError('Please enter a room name');
     return;
@@ -395,8 +389,7 @@ function updatePeerCount() {
 }
 
 /**
- * Reset all participants to offline status
- * Used when loading from localStorage since saved connection status is stale
+ * Mark every participant offline, since connection status loaded from localStorage is stale.
  */
 function resetAllParticipantsOffline() {
   const participants = store.getParticipantList();

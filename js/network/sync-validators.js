@@ -1,6 +1,6 @@
 /**
- * Sync Validation and Conflict Resolution
- * Pure functions for validating sync payloads and resolving conflicts
+ * Pure validators for peer payloads and the last-writer-wins rule for match
+ * results. sync.js runs them before a payload reaches the store.
  */
 
 import { CONFIG } from '../../config.js';
@@ -28,7 +28,7 @@ export function isValidScores(scores) {
     Number.isFinite(scores[1]) && scores[1] >= 0;
 }
 
-/** Serialized state whose meta is an object and whose participants and matches are [id, value] entry arrays. */
+/** Serialized state shape. meta, participants and matches may be absent; when present, meta is an object and the others are [id, value] entry arrays. */
 export function isValidState(state) {
   if (!state || typeof state !== 'object') return false;
 
