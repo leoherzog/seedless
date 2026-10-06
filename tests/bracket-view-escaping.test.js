@@ -15,22 +15,22 @@ const XSS_SCRIPT = '<script>alert(1)</script>';
  * Render a one-match bracket through initBracketView and return the container HTML.
  * @param {Map} participants - Store participants
  * @param {string[]} slotIds - The match's two participant or team IDs
- * @param {Object} [options] - type, and teams for a doubles bracket
+ * @param {Object} [options] - type, teams for a doubles bracket, match field overrides, and round name
  * @returns {string} bracket-container innerHTML
  */
-function renderOneMatch(participants, slotIds, { type = 'single', teams } = {}) {
+function renderOneMatch(participants, slotIds, { type = 'single', teams, match = {}, roundName = 'Round 1' } = {}) {
   store.reset();
   const doc = installBracketViewDom();
   initBracketView();
 
   store.set('participants', participants);
+  store.setAdmin(true);
+  store.setMatches(new Map([
+    ['m1', { id: 'm1', position: 0, participants: slotIds, scores: [0, 0], winnerId: null, isBye: false, ...match }],
+  ]));
   store.set('bracket', {
     ...(teams && { bracketType: 'single', teams }),
-    rounds: [{
-      number: 1,
-      name: 'Round 1',
-      matches: [{ id: 'm1', position: 0, participants: slotIds, scores: [0, 0], winnerId: null, isBye: false }],
-    }],
+    rounds: [{ number: 1, name: roundName, matchIds: ['m1'] }],
   });
   store.set('meta.type', type);
   // Rendering starts when status leaves 'lobby', so this goes last.
@@ -66,6 +66,24 @@ Deno.test('Bracket View XSS Escaping - Single Elimination match card', async (t)
       assert(!html.includes(XSS_SCRIPT), 'raw <script> tag must not appear unescaped');
       assert(html.includes('&lt;script&gt;'), 'escaped opening script tag must appear');
       assert(html.includes('&lt;/script&gt;'), 'escaped closing script tag must appear');
+    } finally {
+      cleanupBracketView();
+    }
+  });
+
+  await t.step('match fields a peer can merge into the Map are escaped', () => {
+    try {
+      const html = renderOneMatch(new Map([
+        ['p1', { id: 'p1', name: 'Alice' }],
+        ['p2', { id: 'p2', name: 'Bob' }],
+      ]), ['p1', 'p2'], {
+        match: { id: XSS_IMG, position: XSS_SCRIPT, scores: [XSS_IMG, XSS_SCRIPT] },
+        roundName: XSS_SCRIPT,
+      });
+
+      assert(html.includes(`data-match="${escapeHtml(XSS_IMG)}"`), 'the report button must carry the escaped id');
+      assert(!html.includes(XSS_IMG), 'raw <img onerror> must not appear in any match field');
+      assert(!html.includes(XSS_SCRIPT), 'raw <script> must not appear in any match field');
     } finally {
       cleanupBracketView();
     }

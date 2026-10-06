@@ -112,6 +112,6 @@ Messages travel as `{ payload }`. Sender identity comes from Trystero's `peerId`
 
 **View System**: HTML sections have `data-view` attributes. `showView()` in `main.js` hides/shows by toggling `hidden` attribute.
 
-**Bracket Generation**: `single-elimination.js` creates bracket structure with seeding positions calculated to ensure high seeds don't meet until later rounds. Byes are placed to give high seeds the advantage.
+**Bracket Generation**: `single-elimination.js` creates bracket structure with seeding positions calculated to ensure high seeds don't meet until later rounds. Byes are placed to give high seeds the advantage. Generators return `{ bracket, matches }`: the store's `matches` Map is the only copy of each match, and bracket rounds hold match ids. `bracket.startedAt` marks the tournament, so a merge never mixes matches from two tournaments.
 
-**Match Advancement**: When a match result is reported, `advanceWinner()` in `sync.js` places the winner in the next round's match at the correct slot position.
+**Match Advancement**: Each elimination module exports `advance()`, the only advancement engine. `advanceWinner()` in `sync.js` runs it with `store.updateMatch` as the writer and sets `meta.status` to `'complete'` once the champion is decided.

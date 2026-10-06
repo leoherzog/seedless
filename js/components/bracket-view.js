@@ -194,13 +194,13 @@ function renderBracket(bracketFilter = null) {
 }
 
 /**
- * Render a list of bracket rounds into a container
+ * Render a list of bracket rounds into a container; each round's matchIds are read from the store
  */
 function renderRounds(container, rounds, participants, localUserId) {
   container.innerHTML = rounds.map(round => `
     <div class="bracket-round">
-      <h4>${round.name}</h4>
-      ${round.matches.map(match => renderMatchCard(match, participants, localUserId)).join('')}
+      <h4>${escapeHtml(round.name)}</h4>
+      ${round.matchIds.map(id => renderMatchCard(store.getMatch(id), participants, localUserId)).join('')}
     </div>
   `).join('');
 
@@ -230,13 +230,10 @@ function renderDoubleEliminationBracket(container, bracket, filter) {
   } else if (filter === 'losers') {
     rounds = bracket.losers?.rounds || [];
   } else if (filter === 'finals') {
+    const [gf1, gf2] = bracket.grandFinals;
     rounds = [{
-      number: 'GF',
       name: 'Grand Finals',
-      matches: [
-        bracket.grandFinals?.match,
-        bracket.grandFinals?.reset?.requiresPlay ? bracket.grandFinals.reset : null,
-      ].filter(Boolean),
+      matchIds: store.getMatch(gf2).requiresPlay ? [gf1, gf2] : [gf1],
     }];
   }
 
@@ -361,12 +358,13 @@ function computeMatchActions(match, canReportPredicate, isAdmin) {
 function renderMatchFooter(match, actions) {
   const { canReport, needsVerify, canAdminEdit } = actions;
   if (!canReport && !needsVerify && !canAdminEdit) return '';
+  const id = escapeHtml(match.id);
 
   return `
         <footer>
-          ${canReport ? `<button class="report-btn" data-match="${match.id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
-          ${needsVerify ? `<button class="verify-btn outline" data-match="${match.id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
-          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${match.id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
+          ${canReport ? `<button class="report-btn" data-match="${id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
+          ${needsVerify ? `<button class="verify-btn outline" data-match="${id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
+          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
         </footer>
       `;
 }
@@ -396,19 +394,19 @@ function renderMatchCard(match, participants, localUserId) {
   return `
     <article class="match-card ${match.isBye ? 'bye' : ''}">
       <header>
-        <small>Match ${match.position + 1}</small>
+        <small>Match ${escapeHtml(match.position + 1)}</small>
         ${match.isBye ? '<mark>BYE</mark>' : `<span class="status-badge ${status}">${status}</span>`}
       </header>
 
       <div class="participants">
         <div class="participant ${match.winnerId === match.participants[0] ? 'winner' : match.winnerId ? 'loser' : ''}">
           <span class="name ${!p1 ? 'tbd' : ''}">${escapeHtml(p1?.name || 'TBD')}</span>
-          <span class="score">${match.scores[0]}</span>
+          <span class="score">${escapeHtml(match.scores[0])}</span>
         </div>
         <div class="vs">vs</div>
         <div class="participant ${match.winnerId === match.participants[1] ? 'winner' : match.winnerId ? 'loser' : ''}">
           <span class="name ${!p2 ? 'tbd' : ''}">${escapeHtml(p2?.name || 'TBD')}</span>
-          <span class="score">${match.scores[1]}</span>
+          <span class="score">${escapeHtml(match.scores[1])}</span>
         </div>
       </div>
 
@@ -447,7 +445,7 @@ function renderTeamMatchCard(match, localUserId) {
   return `
     <article class="match-card team-match ${match.isBye ? 'bye' : ''}">
       <header>
-        <small>Match ${match.position + 1}</small>
+        <small>Match ${escapeHtml(match.position + 1)}</small>
         ${match.isBye ? '<mark>BYE</mark>' : `<span class="status-badge ${status}">${status}</span>`}
       </header>
 
@@ -455,13 +453,13 @@ function renderTeamMatchCard(match, localUserId) {
         <div class="participant team ${match.winnerId === match.participants[0] ? 'winner' : match.winnerId ? 'loser' : ''}">
           <span class="team-name ${!team1 ? 'tbd' : ''}">${escapeHtml(team1?.name || 'TBD')}</span>
           ${team1 ? `<span class="team-members">${team1.members.map(m => escapeHtml(m.name)).join(' & ')}</span>` : ''}
-          <span class="score">${match.scores[0]}</span>
+          <span class="score">${escapeHtml(match.scores[0])}</span>
         </div>
         <div class="vs">vs</div>
         <div class="participant team ${match.winnerId === match.participants[1] ? 'winner' : match.winnerId ? 'loser' : ''}">
           <span class="team-name ${!team2 ? 'tbd' : ''}">${escapeHtml(team2?.name || 'TBD')}</span>
           ${team2 ? `<span class="team-members">${team2.members.map(m => escapeHtml(m.name)).join(' & ')}</span>` : ''}
-          <span class="score">${match.scores[1]}</span>
+          <span class="score">${escapeHtml(match.scores[1])}</span>
         </div>
       </div>
 
@@ -568,25 +566,8 @@ async function onSubmitScore() {
   const winnerId = winnerRadio.value === 'player1' ? form.dataset.p1 : form.dataset.p2;
 
   try {
-    // Update local state with version for LWW conflict resolution
-    const currentVersion = store.get('meta.version') || 0;
-    store.updateMatch(matchId, {
-      scores: [score1, score2],
-      winnerId,
-      reportedBy: store.get('local.localUserId'),
-      reportedAt: Date.now(),
-      version: currentVersion,
-    });
-
-    // Advance winner to next match locally
-    const { advanceWinner, reportMatchResult } = await import('../network/sync.js');
-    advanceWinner(matchId, winnerId);
-
-    // Broadcast to peers
-    const room = getRoom();
-    if (room) {
-      reportMatchResult(room, matchId, [score1, score2], winnerId);
-    }
+    const { reportMatchResult } = await import('../network/sync.js');
+    reportMatchResult(getRoom(), matchId, [score1, score2], winnerId);
 
     // Close modal
     document.getElementById('score-modal').close();
@@ -632,7 +613,7 @@ async function verifyMatch(matchId) {
 
   // Advance winner to next match (in case it wasn't advanced during initial report)
   const { advanceWinner } = await import('../network/sync.js');
-  advanceWinner(matchId, match.winnerId);
+  advanceWinner(matchId);
 
   // Broadcast verification
   const room = getRoom();
@@ -933,6 +914,7 @@ async function renderFinalStandings() {
 
   const type = store.get('meta.type');
   const bracket = store.get('bracket');
+  const matches = store.get('matches');
   const participants = store.get('participants');
 
   if (!bracket) {
@@ -942,9 +924,6 @@ async function renderFinalStandings() {
 
   let standings = [];
 
-  // Ensure bracket has isComplete flag set (store may only set meta.status)
-  const completeBracket = { ...bracket, isComplete: true };
-
   try {
     if (type === 'mariokart') {
       // Mario Kart uses standings from store
@@ -952,21 +931,21 @@ async function renderFinalStandings() {
       if (storeStandings && storeStandings.size > 0) {
         const { getStandings } = await import('../tournament/mario-kart.js');
         standings = getStandings({
-          ...completeBracket,
+          ...bracket,
           standings: storeStandings,
         });
       }
     } else if (type === 'doubles') {
       const { getStandings } = await import('../tournament/doubles.js');
-      standings = getStandings(completeBracket);
+      standings = getStandings(bracket, matches);
     } else if (type === 'double') {
       // Double elimination
       const { getStandings } = await import('../tournament/double-elimination.js');
-      standings = getStandings(completeBracket, participants);
+      standings = getStandings(bracket, matches, participants);
     } else {
       // Single elimination (default)
       const { getStandings } = await import('../tournament/single-elimination.js');
-      standings = getStandings(completeBracket, participants);
+      standings = getStandings(bracket, matches, participants);
     }
   } catch (e) {
     console.error('[Bracket] Failed to get standings:', e);

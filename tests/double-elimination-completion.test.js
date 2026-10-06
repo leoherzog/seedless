@@ -7,10 +7,10 @@
 import { assertEquals, assert } from "jsr:@std/assert";
 import {
   generateDoubleEliminationBracket,
-  recordMatchResult,
+  advance,
   getStandings,
 } from "../js/tournament/double-elimination.js";
-import { createParticipants, createParticipantMap, playToCompletion } from "./fixtures.js";
+import { createParticipants, createParticipantMap, playToCompletion, report } from "./fixtures.js";
 
 const N_VALUES = Array.from({ length: 16 }, (_, i) => i + 2);
 
@@ -28,17 +28,22 @@ function forceGrandFinalsReset(match) {
   return match.participants[0];
 }
 
-function snapshotParticipants(bracket) {
+/** The match objects of every losers round, in order. */
+function losersMatches({ bracket, matches }) {
+  return bracket.losers.rounds.flatMap((round) => round.matchIds.map((id) => matches.get(id)));
+}
+
+function snapshotParticipants({ matches }) {
   const snap = new Map();
-  for (const match of bracket.matches.values()) {
+  for (const match of matches.values()) {
     snap.set(match.id, [...match.participants]);
   }
   return snap;
 }
 
 /** Throws if any filled slot changed to a different participant since `before`. */
-function assertNoOverwrites(before, bracket, justPlayedMatchId) {
-  for (const match of bracket.matches.values()) {
+function assertNoOverwrites(before, { matches }, justPlayedMatchId) {
+  for (const match of matches.values()) {
     const prev = before.get(match.id);
     if (!prev) continue;
     for (let slot = 0; slot < 2; slot++) {
@@ -55,39 +60,35 @@ function assertNoOverwrites(before, bracket, justPlayedMatchId) {
   }
 }
 
-function describeIncomplete(bracket) {
+function describeIncomplete({ matches }) {
   const stuck = [];
-  for (const match of bracket.matches.values()) {
+  for (const match of matches.values()) {
     if (match.isBye || match.winnerId) continue;
     const [p1, p2] = match.participants;
     if (p1 || p2) stuck.push(`${match.id}=[${p1},${p2}]`);
   }
-  const gf1 = bracket.grandFinals.match;
-  const gf2 = bracket.grandFinals.reset;
+  const gf1 = matches.get("gf1");
+  const gf2 = matches.get("gf2");
   return `stuck=[${stuck.join(" ")}] gf1.participants=[${gf1.participants.join(",")}] ` +
     `gf1.winnerId=${gf1.winnerId} gf2.requiresPlay=${gf2.requiresPlay} gf2.winnerId=${gf2.winnerId}`;
 }
 
-function hasDeadSlot(bracket) {
-  return bracket.losers.rounds.some((round) =>
-    round.matches.some((m) => (m.deadSlots?.length || 0) > 0)
-  );
+function hasDeadSlot(tournament) {
+  return losersMatches(tournament).some((m) => (m.deadSlots?.length || 0) > 0);
 }
 
 /**
  * No losers match may wait forever with exactly one participant and no winner.
  * A match with zero participants is dead: only bye slots fed it.
  */
-function assertNoStalledLosersMatches(bracket) {
-  for (const round of bracket.losers.rounds) {
-    for (const match of round.matches) {
-      const [p1, p2] = match.participants;
-      const hasExactlyOneRealParticipant = (p1 && !p2) || (!p1 && p2);
-      assert(
-        !hasExactlyOneRealParticipant || match.winnerId,
-        `Losers match ${match.id} is stalled: single participant [${p1},${p2}] with no winner`
-      );
-    }
+function assertNoStalledLosersMatches(tournament) {
+  for (const match of losersMatches(tournament)) {
+    const [p1, p2] = match.participants;
+    const hasExactlyOneRealParticipant = (p1 && !p2) || (!p1 && p2);
+    assert(
+      !hasExactlyOneRealParticipant || match.winnerId,
+      `Losers match ${match.id} is stalled: single participant [${p1},${p2}] with no winner`
+    );
   }
 }
 
@@ -95,8 +96,8 @@ function assertNoStalledLosersMatches(bracket) {
  * Every participant appears in the standings exactly once, with places 1..N.
  * A competitor whose slot was overwritten would be missing.
  */
-function assertConservation(bracket, participants, participantMap) {
-  const standings = getStandings(bracket, participantMap);
+function assertConservation({ bracket, matches }, participants, participantMap) {
+  const standings = getStandings(bracket, matches, participantMap);
   const standingIds = standings.map((s) => s.participantId);
   const standingIdSet = new Set(standingIds);
   const expectedIds = new Set(participants.map((p) => p.id));
@@ -115,42 +116,37 @@ function assertConservation(bracket, participants, participantMap) {
 function runFullTournament(n, winnerSelector = slot0Wins) {
   const participants = createParticipants(n);
   const participantMap = createParticipantMap(participants);
-  const bracket = generateDoubleEliminationBracket(participants);
+  const tournament = generateDoubleEliminationBracket(participants);
 
-  let before = snapshotParticipants(bracket);
-  playToCompletion(bracket, recordMatchResult, winnerSelector, (m) => {
-    assertNoOverwrites(before, bracket, m.id);
-    before = snapshotParticipants(bracket);
+  let before = snapshotParticipants(tournament);
+  const complete = playToCompletion(tournament, advance, winnerSelector, (m) => {
+    assertNoOverwrites(before, tournament, m.id);
+    before = snapshotParticipants(tournament);
   });
 
-  assert(bracket.isComplete, `${n}-player bracket should complete. ${describeIncomplete(bracket)}`);
+  assert(complete, `${n}-player bracket should complete. ${describeIncomplete(tournament)}`);
 
-  return { bracket, participants, participantMap };
+  return { tournament, participants, participantMap };
 }
 
 Deno.test("Double Elimination - parametric run to completion (no forced reset)", async (t) => {
   for (const n of N_VALUES) {
     await t.step(`N=${n}: single champion, complete standings, no stalled matches`, () => {
-      const { bracket, participants, participantMap } = runFullTournament(n, slot0Wins);
+      const { tournament, participants, participantMap } = runFullTournament(n, slot0Wins);
 
-      assertNoStalledLosersMatches(bracket);
-      assertEquals(hasDeadSlot(bracket), (n & (n - 1)) !== 0, "dead losers slots exist exactly when N is not a power of two");
-      const standings = assertConservation(bracket, participants, participantMap);
+      assertNoStalledLosersMatches(tournament);
+      assertEquals(hasDeadSlot(tournament), (n & (n - 1)) !== 0, "dead losers slots exist exactly when N is not a power of two");
+      const standings = assertConservation(tournament, participants, participantMap);
 
       assertEquals(standings[0].place, 1);
       assertEquals(standings[1].place, 2);
 
       // With N=2 there is no losers bracket; the winners-final loser fills GF slot 1 directly.
-      assert(
-        bracket.grandFinals.match.participants[1],
-        `GF participants[1] (losers champion) should be filled for N=${n}`
-      );
-      assert(
-        bracket.grandFinals.match.participants[0],
-        `GF participants[0] (winners champion) should be filled for N=${n}`
-      );
+      const gf1 = tournament.matches.get("gf1");
+      assert(gf1.participants[1], `GF participants[1] (losers champion) should be filled for N=${n}`);
+      assert(gf1.participants[0], `GF participants[0] (winners champion) should be filled for N=${n}`);
 
-      assertEquals(bracket.grandFinals.reset.requiresPlay, false);
+      assertEquals(tournament.matches.get("gf2").requiresPlay, false);
     });
   }
 });
@@ -158,13 +154,14 @@ Deno.test("Double Elimination - parametric run to completion (no forced reset)",
 Deno.test("Double Elimination - parametric run to completion (forced grand-finals reset)", async (t) => {
   for (const n of N_VALUES) {
     await t.step(`N=${n}: bracket reset triggers and tournament still completes`, () => {
-      const { bracket, participants, participantMap } = runFullTournament(n, forceGrandFinalsReset);
+      const { tournament, participants, participantMap } = runFullTournament(n, forceGrandFinalsReset);
+      const reset = tournament.matches.get("gf2");
 
-      assert(bracket.grandFinals.reset.requiresPlay, `Bracket reset should be required for N=${n}`);
-      assert(bracket.grandFinals.reset.winnerId, `Bracket reset match should have been played for N=${n}`);
+      assert(reset.requiresPlay, `Bracket reset should be required for N=${n}`);
+      assert(reset.winnerId, `Bracket reset match should have been played for N=${n}`);
 
-      assertNoStalledLosersMatches(bracket);
-      assertConservation(bracket, participants, participantMap);
+      assertNoStalledLosersMatches(tournament);
+      assertConservation(tournament, participants, participantMap);
     });
   }
 });
@@ -172,7 +169,7 @@ Deno.test("Double Elimination - parametric run to completion (forced grand-final
 Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
   await t.step("has no losers-bracket rounds at all", () => {
     const participants = createParticipants(2);
-    const bracket = generateDoubleEliminationBracket(participants);
+    const { bracket } = generateDoubleEliminationBracket(participants);
 
     assertEquals(bracket.losersRounds, 0);
     assertEquals(bracket.losers.rounds.length, 0);
@@ -181,23 +178,21 @@ Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
   await t.step("winners-final loser drops straight into GF slot 1 and the tournament completes", () => {
     const participants = createParticipants(2);
     const participantMap = createParticipantMap(participants);
-    const bracket = generateDoubleEliminationBracket(participants);
+    const tournament = generateDoubleEliminationBracket(participants);
+    const gf1 = tournament.matches.get("gf1");
 
-    const w1m0 = bracket.winners.rounds[0].matches[0];
-    recordMatchResult(bracket, w1m0.id, [2, 0], "player-1", "player-1");
+    report(tournament, advance, "w1m0", "player-1");
 
-    assertEquals(bracket.grandFinals.match.participants[0], "player-1");
+    assertEquals(gf1.participants[0], "player-1");
     assertEquals(
-      bracket.grandFinals.match.participants[1],
+      gf1.participants[1],
       "player-2",
       "loser of the only winners match should drop directly into GF slot 1"
     );
 
-    recordMatchResult(bracket, "gf1", [2, 0], "player-1", "player-1");
+    assert(report(tournament, advance, "gf1", "player-1"), "2-player tournament must be able to complete");
 
-    assert(bracket.isComplete, "2-player tournament must be able to complete");
-
-    const standings = getStandings(bracket, participantMap);
+    const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
     assertEquals(standings.length, 2);
     assertEquals(standings[0].participantId, "player-1");
     assertEquals(standings[1].participantId, "player-2");
@@ -206,18 +201,17 @@ Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
   await t.step("losers-side finalist winning GF1 forces a reset, then the tournament completes", () => {
     const participants = createParticipants(2);
     const participantMap = createParticipantMap(participants);
-    const bracket = generateDoubleEliminationBracket(participants);
+    const tournament = generateDoubleEliminationBracket(participants);
 
-    recordMatchResult(bracket, "w1m0", [2, 0], "player-1", "player-1");
-    recordMatchResult(bracket, "gf1", [2, 0], "player-2", "player-2");
+    report(tournament, advance, "w1m0", "player-1");
+    const complete = report(tournament, advance, "gf1", "player-2");
 
-    assert(bracket.grandFinals.reset.requiresPlay, "Bracket reset should be required");
-    assertEquals(bracket.isComplete, false, "Tournament should not be complete before the reset is played");
+    assert(tournament.matches.get("gf2").requiresPlay, "Bracket reset should be required");
+    assertEquals(complete, false, "Tournament should not be complete before the reset is played");
 
-    recordMatchResult(bracket, "gf2", [2, 1], "player-1", "player-1");
-    assert(bracket.isComplete, "Tournament should complete once the reset match is played");
+    assert(report(tournament, advance, "gf2", "player-1"), "Tournament should complete once the reset match is played");
 
-    const standings = getStandings(bracket, participantMap);
+    const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
     assertEquals(standings.length, 2);
     assertEquals(standings[0].participantId, "player-1");
     assertEquals(standings[1].participantId, "player-2");

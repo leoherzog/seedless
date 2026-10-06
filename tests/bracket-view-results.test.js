@@ -21,12 +21,11 @@ function setup() {
     ['p1', { id: 'p1', name: 'Alice' }],
     ['p2', { id: 'p2', name: 'Bob' }],
   ]));
+  store.setMatches(new Map([
+    ['m1', { id: 'm1', position: 0, participants: ['p1', 'p2'], scores: [0, 0], winnerId: null, isBye: false }],
+  ]));
   store.set('bracket', {
-    rounds: [{
-      number: 1,
-      name: 'Final',
-      matches: [{ id: 'm1', position: 0, participants: ['p1', 'p2'], scores: [0, 0], winnerId: null, isBye: false }],
-    }],
+    rounds: [{ number: 1, name: 'Final', matchIds: ['m1'] }],
   });
   store.set('meta.type', 'single');
   store.set('meta.status', 'active');

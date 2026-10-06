@@ -6,18 +6,18 @@ import { assertEquals, assert, assertExists } from "jsr:@std/assert";
 import { Store } from "../js/state/store.js";
 import {
   generateSingleEliminationBracket,
-  recordMatchResult as recordSingleResult,
+  advance as advanceSingle,
 } from "../js/tournament/single-elimination.js";
 import {
   generateDoubleEliminationBracket,
-  recordMatchResult as recordDoubleResult,
+  advance as advanceDouble,
 } from "../js/tournament/double-elimination.js";
 import {
   generateMarioKartTournament,
   recordRaceResult,
 } from "../js/tournament/mario-kart.js";
 import { generateDoublesTournament } from "../js/tournament/doubles.js";
-import { createParticipants, createTeamAssignments } from "./fixtures.js";
+import { createParticipants, createTeamAssignments, report } from "./fixtures.js";
 
 const historyEntry = (id, completedAt = 1000) => ({
   id,
@@ -38,20 +38,20 @@ function createCompleteSingleElimTournament() {
   const participants = createParticipants(4);
   participants.forEach((p) => store.addParticipant(p));
 
-  const bracket = generateSingleEliminationBracket(
+  const tournament = generateSingleEliminationBracket(
     store.getParticipantList()
   );
 
   // Play all matches: semi-finals then finals
   // R1M0: player-1 vs player-4 -> player-1 wins
-  recordSingleResult(bracket, "r1m0", [2, 0], "player-1", "player-1");
+  report(tournament, advanceSingle, "r1m0", "player-1");
   // R1M1: player-2 vs player-3 -> player-2 wins
-  recordSingleResult(bracket, "r1m1", [2, 0], "player-2", "player-2");
+  report(tournament, advanceSingle, "r1m1", "player-2");
   // R2M0: player-1 vs player-2 -> player-1 wins finals
-  recordSingleResult(bracket, "r2m0", [2, 1], "player-1", "player-1");
+  report(tournament, advanceSingle, "r2m0", "player-1", [2, 1]);
 
-  store.set("bracket", bracket);
-  store.deserialize({ matches: Array.from(bracket.matches.entries()) });
+  store.setMatches(tournament.matches);
+  store.set("bracket", tournament.bracket);
   store.set("meta.status", "complete");
   store.set("meta.type", "single");
   store.set("meta.name", "Test Tournament");
@@ -69,37 +69,37 @@ function createCompleteDoubleElimTournament(resetNeeded = false) {
   const participants = createParticipants(4);
   participants.forEach((p) => store.addParticipant(p));
 
-  const bracket = generateDoubleEliminationBracket(
+  const tournament = generateDoubleEliminationBracket(
     store.getParticipantList()
   );
 
   // Winners bracket
   // W1M0: player-1 vs player-4 -> player-1 wins
-  recordDoubleResult(bracket, "w1m0", [2, 0], "player-1", "player-1");
+  report(tournament, advanceDouble, "w1m0", "player-1");
   // W1M1: player-2 vs player-3 -> player-2 wins
-  recordDoubleResult(bracket, "w1m1", [2, 0], "player-2", "player-2");
+  report(tournament, advanceDouble, "w1m1", "player-2");
   // W2M0 (Winners Finals): player-1 vs player-2 -> player-1 wins
-  recordDoubleResult(bracket, "w2m0", [2, 1], "player-1", "player-1");
+  report(tournament, advanceDouble, "w2m0", "player-1", [2, 1]);
 
   // Losers bracket
   // L1M0: player-4 vs player-3 -> player-3 wins
-  recordDoubleResult(bracket, "l1m0", [2, 1], "player-3", "player-3");
+  report(tournament, advanceDouble, "l1m0", "player-3", [2, 1]);
   // L2M0 (Losers Finals): player-3 vs player-2 (dropped from WF) -> player-2 wins
-  recordDoubleResult(bracket, "l2m0", [2, 0], "player-2", "player-2");
+  report(tournament, advanceDouble, "l2m0", "player-2");
 
   // Grand Finals
   if (resetNeeded) {
     // GF1: player-1 (winners) vs player-2 (losers) -> player-2 wins
-    recordDoubleResult(bracket, "gf1", [1, 2], "player-2", "player-2");
+    report(tournament, advanceDouble, "gf1", "player-2", [1, 2]);
     // GF2 (Reset): player-1 vs player-2 -> player-2 wins overall
-    recordDoubleResult(bracket, "gf2", [1, 2], "player-2", "player-2");
+    report(tournament, advanceDouble, "gf2", "player-2", [1, 2]);
   } else {
     // GF1: player-1 (winners) vs player-2 (losers) -> player-1 wins
-    recordDoubleResult(bracket, "gf1", [2, 1], "player-1", "player-1");
+    report(tournament, advanceDouble, "gf1", "player-1", [2, 1]);
   }
 
-  store.set("bracket", bracket);
-  store.deserialize({ matches: Array.from(bracket.matches.entries()) });
+  store.setMatches(tournament.matches);
+  store.set("bracket", tournament.bracket);
   store.set("meta.status", "complete");
   store.set("meta.type", "double");
   store.set("meta.name", "Double Elim Tournament");
@@ -168,20 +168,19 @@ function createCompleteDoublesTournament(bracketType = "single") {
 
   // Play finals: team-1 vs team-2 -> team-1 wins
   const teamId1 = "team-1";
-  const teamId2 = "team-2";
 
   if (bracketType === "double") {
     // Double elim doubles - play through bracket
-    recordDoubleResult(tournament, "w1m0", [2, 0], teamId1, teamId1);
+    report(tournament, advanceDouble, "w1m0", teamId1);
     // Grand finals
-    recordDoubleResult(tournament, "gf1", [2, 0], teamId1, teamId1);
+    report(tournament, advanceDouble, "gf1", teamId1);
   } else {
     // Single elim finals
-    recordSingleResult(tournament, "r1m0", [2, 0], teamId1, teamId1);
+    report(tournament, advanceSingle, "r1m0", teamId1);
   }
 
-  store.set("bracket", tournament);
-  store.deserialize({ matches: Array.from(tournament.matches.entries()) });
+  store.setMatches(tournament.matches);
+  store.set("bracket", tournament.bracket);
   // Set teamAssignments in store
   for (const [participantId, teamId] of teamAssignments) {
     store.setTeamAssignment(participantId, teamId);
@@ -245,9 +244,10 @@ Deno.test("archiveTournament - Single Elimination", async (t) => {
     const participants = createParticipants(4);
     participants.forEach((p) => store.addParticipant(p));
 
-    const bracket = generateSingleEliminationBracket(
+    const { bracket, matches } = generateSingleEliminationBracket(
       store.getParticipantList()
     );
+    store.setMatches(matches);
     store.set("bracket", bracket);
     store.set("meta.status", "active"); // Not complete
 
@@ -396,14 +396,14 @@ Deno.test("getHistory", async (t) => {
     store.set("meta.type", "single");
     store.set("meta.name", "Tournament 2");
 
-    const bracket = generateSingleEliminationBracket(
+    const tournament = generateSingleEliminationBracket(
       store.getParticipantList()
     );
-    recordSingleResult(bracket, "r1m0", [2, 0], "player-1", "player-1");
-    recordSingleResult(bracket, "r1m1", [2, 0], "player-2", "player-2");
-    recordSingleResult(bracket, "r2m0", [2, 0], "player-2", "player-2");
-    store.set("bracket", bracket);
-    store.deserialize({ matches: Array.from(bracket.matches.entries()) });
+    report(tournament, advanceSingle, "r1m0", "player-1");
+    report(tournament, advanceSingle, "r1m1", "player-2");
+    report(tournament, advanceSingle, "r2m0", "player-2");
+    store.setMatches(tournament.matches);
+    store.set("bracket", tournament.bracket);
     store.set("meta.status", "complete");
 
     const entry2 = store.archiveTournament();

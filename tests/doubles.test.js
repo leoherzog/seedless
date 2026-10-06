@@ -202,51 +202,51 @@ Deno.test("generateDoublesTournament", async (t) => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
-    const tournament = generateDoublesTournament(participants, assignments);
+    const { bracket } = generateDoublesTournament(participants, assignments);
 
-    assertEquals(tournament.type, "doubles");
+    assertEquals(bracket.type, "doubles");
   });
 
   await t.step("includes teams array", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
-    const tournament = generateDoublesTournament(participants, assignments);
+    const { bracket } = generateDoublesTournament(participants, assignments);
 
-    assert(Array.isArray(tournament.teams), "Should have teams array");
-    assertEquals(tournament.teams.length, 2);
+    assert(Array.isArray(bracket.teams), "Should have teams array");
+    assertEquals(bracket.teams.length, 2);
   });
 
   await t.step("uses single elimination by default", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
-    const tournament = generateDoublesTournament(participants, assignments);
+    const { bracket } = generateDoublesTournament(participants, assignments);
 
-    assertEquals(tournament.bracketType, "single");
+    assertEquals(bracket.bracketType, "single");
   });
 
   await t.step("can use double elimination", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
-    const tournament = generateDoublesTournament(participants, assignments, {
+    const { bracket } = generateDoublesTournament(participants, assignments, {
       bracketType: "double",
     });
 
-    assertEquals(tournament.bracketType, "double");
-    assert(tournament.winners !== undefined, "Should have winners bracket");
-    assert(tournament.losers !== undefined, "Should have losers bracket");
+    assertEquals(bracket.bracketType, "double");
+    assert(bracket.winners !== undefined, "Should have winners bracket");
+    assert(bracket.losers !== undefined, "Should have losers bracket");
   });
 
   await t.step("stores team assignments in tournament", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
-    const tournament = generateDoublesTournament(participants, assignments);
+    const { bracket } = generateDoublesTournament(participants, assignments);
 
-    assert(Array.isArray(tournament.teamAssignments), "Should store team assignments");
-    assertEquals(tournament.teamAssignments.length, 4);
+    assert(Array.isArray(bracket.teamAssignments), "Should store team assignments");
+    assertEquals(bracket.teamAssignments.length, 4);
   });
 
   await t.step("configurable team size", () => {
@@ -260,12 +260,12 @@ Deno.test("generateDoublesTournament", async (t) => {
       ["player-6", "team-2"],
     ]);
 
-    const tournament = generateDoublesTournament(participants, assignments, {
+    const { bracket } = generateDoublesTournament(participants, assignments, {
       teamSize: 3,
     });
 
-    assertEquals(tournament.teamSize, 3);
-    assertEquals(tournament.teams.length, 2);
-    assertEquals(tournament.teams[0].members.length, 3);
+    assertEquals(bracket.teamSize, 3);
+    assertEquals(bracket.teams.length, 2);
+    assertEquals(bracket.teams[0].members.length, 3);
   });
 });

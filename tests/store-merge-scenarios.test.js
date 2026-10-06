@@ -14,14 +14,14 @@ Deno.test("Store.merge - fresh joiner bootstrap", async (t) => {
 
     const remoteBracket = {
       type: "single",
-      rounds: [
-        { number: 1, matches: [{ id: "r1m0", participants: ["p1", "p2"], winnerId: null }] },
-      ],
+      startedAt: 1,
+      rounds: [{ number: 1, matchIds: ["r1m0"] }],
     };
 
     const remoteState = {
       meta: { id: "room-1", adminId: "admin-1", status: "active", version: 3 },
       bracket: remoteBracket,
+      matches: [["r1m0", { id: "r1m0", participants: ["p1", "p2"], winnerId: null }]],
       standings: [
         ["p1", { participantId: "p1", name: "Alice", points: 10 }],
       ],
@@ -41,7 +41,8 @@ Deno.test("Store.merge - fresh joiner bootstrap", async (t) => {
 
     const bracket = store.get("bracket");
     assert(bracket !== null, "bracket should be adopted, not left null");
-    assertEquals(bracket.rounds[0].matches[0].id, "r1m0");
+    assertEquals(bracket.rounds[0].matchIds[0], "r1m0");
+    assertEquals(store.getMatch("r1m0").participants, ["p1", "p2"]);
 
     const standings = store.get("standings");
     assert(standings.has("p1"), "standings should be adopted");
@@ -58,12 +59,12 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
     store.set("meta.version", 10);
-    store._state.bracket = { type: "single", rounds: [{ number: 1, matches: [] }] };
+    store._state.bracket = { type: "single", rounds: [{ number: 1, matchIds: [] }] };
     store._state.standings = new Map([["old", { participantId: "old", points: 1 }]]);
 
     const remoteState = {
       meta: { adminId: "admin-1", status: "complete", version: 1 },
-      bracket: { type: "single", rounds: [{ number: 2, matches: [] }] },
+      bracket: { type: "single", rounds: [{ number: 2, matchIds: [] }] },
       standings: [["new", { participantId: "new", points: 99 }]],
     };
 
@@ -82,7 +83,7 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
     store.set("meta.adminId", "admin-1");
     store.set("meta.version", 10);
     store.set("meta.status", "active");
-    store._state.bracket = { type: "single", rounds: [{ number: 1, matches: [] }], marker: "local" };
+    store._state.bracket = { type: "single", rounds: [{ number: 1, matchIds: [] }], marker: "local" };
     store._state.standings = new Map([["local", { participantId: "local", points: 5 }]]);
 
     const remoteState = {
@@ -130,6 +131,62 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
     const standings = store.get("standings");
     assert(standings.has("local"));
     assert(!standings.has("remote"), "non-admin sender must not adopt standings even with higher meta version");
+  });
+});
+
+Deno.test("Store.merge - matches belong to one tournament", async (t) => {
+  const result = (id, winnerId, reportedAt) => ({ id, participants: ["a", "d"], winnerId, reportedAt });
+
+  /** A store holding a single-elimination bracket started at startedAt. */
+  function storeWith(startedAt, matches) {
+    const store = new Store();
+    store.set("meta.adminId", "admin-1");
+    store._state.bracket = { type: "single", startedAt, rounds: [] };
+    store.setMatches(new Map(matches));
+    return store;
+  }
+
+  await t.step("the admin's new tournament replaces a stale matches Map", () => {
+    const store = storeWith(1, [
+      ["r1m0", result("r1m0", "a", 500)],
+      ["r2m0", { id: "r2m0", participants: ["a", null], winnerId: null }],
+    ]);
+
+    store.merge({
+      bracket: { type: "single", startedAt: 2, rounds: [] },
+      matches: [["r1m0", result("r1m0", null, null)]],
+    }, true);
+
+    assertEquals(store.get("bracket").startedAt, 2);
+    assertEquals(store.getMatch("r1m0").winnerId, null, "an old result must not survive into the new tournament");
+    assertEquals(store.getMatch("r2m0"), undefined);
+  });
+
+  await t.step("a non-admin peer's matches from another tournament are ignored", () => {
+    const store = storeWith(2, [["r1m0", result("r1m0", null, null)]]);
+
+    store.merge({
+      bracket: { type: "single", startedAt: 1, rounds: [] },
+      matches: [["r1m0", result("r1m0", "a", 500)]],
+    }, false);
+
+    assertEquals(store.getMatch("r1m0").winnerId, null);
+  });
+
+  await t.step("within a tournament a reportedAt tie goes to the admin only", () => {
+    const empty = [["r2m0", { id: "r2m0", participants: [null, null], reportedAt: null }]];
+    const remote = {
+      bracket: { type: "single", startedAt: 1, rounds: [] },
+      matches: [["r2m0", { id: "r2m0", participants: ["a", "b"], reportedAt: null }]],
+    };
+
+    const fromPeer = storeWith(1, empty);
+    fromPeer.merge(remote, false);
+    assertEquals(fromPeer.getMatch("r2m0").participants, [null, null]);
+
+    const fromAdmin = storeWith(1, structuredClone(empty));
+    fromAdmin.merge(remote, true);
+    assertEquals(fromAdmin.getMatch("r2m0").participants, ["a", "b"], "the admin's slot fill arrives");
   });
 });
 

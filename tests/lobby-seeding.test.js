@@ -113,7 +113,7 @@ Deno.test('Manual seeding - drag-drop order overrides join order', async (t) => 
     store.updateParticipant('p-c', { seed: 4 });
 
     const seeded = applySeedingAndReassign(store, 'manual');
-    const bracket = generateSingleEliminationBracket(seeded, {});
+    const { bracket, matches } = generateSingleEliminationBracket(seeded, {});
 
     // Standard 4-bracket seeding order is [1, 4, 2, 3]: seed1 vs seed4 in the
     // first slot, seed2 vs seed3 in the second. With the manual arrangement
@@ -122,7 +122,7 @@ Deno.test('Manual seeding - drag-drop order overrides join order', async (t) => 
     // coincidence here only because it's the same as the manual grouping for
     // the second match, so also assert match 0 explicitly excludes A vs D
     // (the join-order-seeded pairing) to catch a regression to join order.
-    const round1 = bracket.rounds[0].matches;
+    const round1 = bracket.rounds[0].matchIds.map(id => matches.get(id));
     assertEquals(round1.length, 2);
 
     const match0 = round1.find(m => m.position === 0);
@@ -181,7 +181,7 @@ Deno.test('Random seeding - shuffle branch still runs and preserves participants
     store.set('meta.config.seedingMode', 'random');
 
     const seeded = applySeedingAndReassign(store, 'random');
-    const bracket = generateSingleEliminationBracket(seeded, {});
+    const { bracket, matches } = generateSingleEliminationBracket(seeded, {});
 
     // 5 participants -> padded to bracket size 8, 3 rounds
     assertEquals(bracket.bracketSize, 8);
@@ -189,8 +189,8 @@ Deno.test('Random seeding - shuffle branch still runs and preserves participants
     assertEquals(bracket.participantCount, 5);
 
     // Every seeded participant appears exactly once across round 1 slots
-    const round1ParticipantIds = bracket.rounds[0].matches
-      .flatMap(m => m.participants)
+    const round1ParticipantIds = bracket.rounds[0].matchIds
+      .flatMap(id => matches.get(id).participants)
       .filter(id => id !== null);
     assertEquals(round1ParticipantIds.length, 5);
     assertEquals(new Set(round1ParticipantIds).size, 5);

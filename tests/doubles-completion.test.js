@@ -6,9 +6,10 @@ import { assertEquals, assert } from "jsr:@std/assert";
 import {
   formTeams,
   generateDoublesTournament,
-  recordMatchResult,
   getStandings,
 } from "../js/tournament/doubles.js";
+import { advance as advanceSingle } from "../js/tournament/single-elimination.js";
+import { advance as advanceDouble } from "../js/tournament/double-elimination.js";
 import { nextPowerOf2 } from "../js/tournament/bracket-utils.js";
 import { createParticipants, createTeamAssignments, playToCompletion } from "./fixtures.js";
 
@@ -105,32 +106,31 @@ Deno.test("Doubles - single elimination run to completion (even participant coun
         teamSize: 2,
         bracketType: "single",
       });
+      const { bracket, matches } = tournament;
 
       const expectedTeamCount = n / 2;
       const expectedBracketSize = nextPowerOf2(expectedTeamCount);
       const expectedNumRounds = Math.log2(expectedBracketSize);
 
-      assertEquals(tournament.type, "doubles");
-      assertEquals(tournament.bracketType, "single");
-      assertEquals(tournament.teams.length, expectedTeamCount, "team bracket should use every complete team");
-      assertEquals(tournament.bracketSize, expectedBracketSize, "team bracket size");
-      assertEquals(tournament.numRounds, expectedNumRounds, "team bracket rounds");
-      assertEquals(tournament.rounds.length, expectedNumRounds);
+      assertEquals(bracket.type, "doubles");
+      assertEquals(bracket.bracketType, "single");
+      assertEquals(bracket.teams.length, expectedTeamCount, "team bracket should use every complete team");
+      assertEquals(bracket.bracketSize, expectedBracketSize, "team bracket size");
+      assertEquals(bracket.numRounds, expectedNumRounds, "team bracket rounds");
+      assertEquals(bracket.rounds.length, expectedNumRounds);
 
-      const finalRound = tournament.rounds[tournament.rounds.length - 1];
-      assertEquals(finalRound.matches.length, 1, "final round should have exactly one match");
+      const finalRound = bracket.rounds[bracket.rounds.length - 1];
+      assertEquals(finalRound.matchIds.length, 1, "final round should have exactly one match");
 
-      playToCompletion(tournament, recordMatchResult);
-
-      assert(tournament.isComplete, "doubles tournament should report complete");
-      const finals = finalRound.matches[0];
+      assert(playToCompletion(tournament, advanceSingle), "doubles tournament should report complete");
+      const finals = matches.get(finalRound.matchIds[0]);
       assert(finals.winnerId, "finals match must have a winning team");
 
-      const teamIds = new Set(tournament.teams.map((t) => t.id));
+      const teamIds = new Set(bracket.teams.map((t) => t.id));
       assert(teamIds.has(finals.winnerId), "champion must be one of the formed teams");
 
-      const standings = getStandings(tournament);
-      assertStandingsInvariants(standings, tournament.teams, finals.winnerId);
+      const standings = getStandings(bracket, matches);
+      assertStandingsInvariants(standings, bracket.teams, finals.winnerId);
     });
   }
 });
@@ -146,25 +146,26 @@ Deno.test("Doubles - single elimination run to completion (odd participant count
         teamSize: 2,
         bracketType: "single",
       });
+      const { bracket, matches } = tournament;
 
-      assertEquals(tournament.teams.length, expectedTeamCount);
+      assertEquals(bracket.teams.length, expectedTeamCount);
 
       const leftoverId = `player-${n}`;
-      for (const team of tournament.teams) {
+      for (const team of bracket.teams) {
         assert(
           !team.members.some((m) => m.id === leftoverId),
           `leftover participant ${leftoverId} should not appear in the generated bracket`
         );
       }
 
-      playToCompletion(tournament, recordMatchResult);
+      assert(
+        playToCompletion(tournament, advanceSingle),
+        "doubles tournament should complete despite the excluded leftover player",
+      );
+      const finals = matches.get(bracket.rounds.at(-1).matchIds[0]);
 
-      assert(tournament.isComplete, "doubles tournament should complete despite the excluded leftover player");
-      const finalRound = tournament.rounds[tournament.rounds.length - 1];
-      const finals = finalRound.matches[0];
-
-      const standings = getStandings(tournament);
-      assertStandingsInvariants(standings, tournament.teams, finals.winnerId);
+      const standings = getStandings(bracket, matches);
+      assertStandingsInvariants(standings, bracket.teams, finals.winnerId);
     });
   }
 });
@@ -181,25 +182,24 @@ Deno.test("Doubles - double elimination run to completion", async (t) => {
         teamSize: 2,
         bracketType: "double",
       });
+      const { bracket, matches } = tournament;
 
-      assertEquals(tournament.type, "doubles");
-      assertEquals(tournament.bracketType, "double");
-      assertEquals(tournament.teams.length, n / 2);
-      assert(tournament.winners, "should have winners bracket");
-      assert(tournament.losers, "should have losers bracket");
-      assert(tournament.grandFinals, "should have grand finals");
+      assertEquals(bracket.type, "doubles");
+      assertEquals(bracket.bracketType, "double");
+      assertEquals(bracket.teams.length, n / 2);
+      assert(bracket.winners, "should have winners bracket");
+      assert(bracket.losers, "should have losers bracket");
+      assert(bracket.grandFinals, "should have grand finals");
 
-      playToCompletion(tournament, recordMatchResult);
+      assert(playToCompletion(tournament, advanceDouble), "double-elimination doubles tournament should complete");
 
-      assert(tournament.isComplete, "double-elimination doubles tournament should complete");
-
-      const championId = tournament.grandFinals.match.winnerId;
+      const championId = matches.get("gf1").winnerId;
       assert(championId, "grand finals should have produced a champion team");
-      const teamIds = new Set(tournament.teams.map((t) => t.id));
+      const teamIds = new Set(bracket.teams.map((t) => t.id));
       assert(teamIds.has(championId), "champion must be one of the formed teams");
 
-      const standings = getStandings(tournament);
-      assertStandingsInvariants(standings, tournament.teams, championId);
+      const standings = getStandings(bracket, matches);
+      assertStandingsInvariants(standings, bracket.teams, championId);
     });
   }
 });

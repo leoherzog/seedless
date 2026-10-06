@@ -5,7 +5,6 @@
 import { assertEquals, assert, assertNotEquals } from 'jsr:@std/assert';
 import { store } from '../js/state/store.js';
 import {
-  advanceWinner,
   announceJoin,
   reportMatchResult,
   startTournament,
@@ -14,7 +13,6 @@ import {
 } from '../js/network/sync.js';
 import { ActionTypes } from '../js/network/room.js';
 import { generateSingleEliminationBracket } from '../js/tournament/single-elimination.js';
-import { generateDoubleEliminationBracket } from '../js/tournament/double-elimination.js';
 import { generateMarioKartTournament } from '../js/tournament/mario-kart.js';
 import { createMockRoom, createParticipants } from './fixtures.js';
 import { connectAs, mapAdmin } from './sync-fixtures.js';
@@ -24,10 +22,9 @@ const testOpts = { sanitizeOps: false, sanitizeResources: false };
 
 /** Load a 4-player single-elimination bracket into the store. */
 function loadSingleBracket() {
-  const bracket = generateSingleEliminationBracket(createParticipants(4));
+  const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
+  store.setMatches(matches);
   store.set('bracket', bracket);
-  store.deserialize({ matches: Array.from(bracket.matches.entries()) });
-  return bracket;
 }
 
 Deno.test('STATE_REQUEST handler', testOpts, async (t) => {
@@ -406,11 +403,11 @@ Deno.test('TOURNAMENT_START handler', testOpts, async (t) => {
       localUserId: 'user-1',
     }, 'peer-1');
 
-    const bracket = generateSingleEliminationBracket(createParticipants(4));
+    const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
 
     await mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, {
       bracket,
-      matches: Array.from(bracket.matches.entries()),
+      matches: Array.from(matches.entries()),
     }, 'peer-1');
 
     assertNotEquals(store.get('meta.status'), 'active');
@@ -422,17 +419,17 @@ Deno.test('TOURNAMENT_START handler', testOpts, async (t) => {
     const mockRoom = connectAs({ userId: adminId, adminId });
     mapAdmin(mockRoom, adminId);
 
-    const bracket = generateSingleEliminationBracket(createParticipants(4));
+    const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
 
     await mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, {
-      bracket: { ...bracket, matches: undefined },
-      matches: Array.from(bracket.matches.entries()),
+      bracket,
+      matches: Array.from(matches.entries()),
     }, 'admin-peer');
 
     assertEquals(store.get('meta.status'), 'active');
     assertEquals(store.get('meta.type'), 'single');
     assert(store.get('bracket') !== null);
-    assertEquals(store.get('matches').size, bracket.matches.size);
+    assertEquals(store.get('matches').size, matches.size);
   });
 
   await t.step('tournament start deserializes standings for mario kart', async () => {
@@ -509,17 +506,20 @@ Deno.test('MATCH_RESULT handler', testOpts, async (t) => {
 
     const matchId = 'r1m0';
     const winnerId = store.getMatch(matchId).participants[0];
+    const reportedAt = Date.now() - 5000;
 
     mockRoom._simulateAction(ActionTypes.MATCH_RESULT, {
       matchId,
       scores: [2, 1],
       winnerId,
-      reportedAt: Date.now(),
+      reportedAt,
       version: 1,
     }, 'peer-1');
 
     assertEquals(store.getMatch(matchId).winnerId, winnerId);
     assertEquals(store.getMatch(matchId).reportedBy, 'player-1');
+    assertEquals(store.getMatch(matchId).reportedAt, reportedAt, 'the sender\'s reportedAt survives advancement');
+    assertEquals(store.getMatch('r2m0').participants[0], winnerId, 'the winner advances');
   });
 
   await t.step('rejects result with invalid winnerId', () => {
@@ -644,6 +644,7 @@ Deno.test('MATCH_VERIFY handler', testOpts, async (t) => {
 
     const matchId = 'r1m0';
     const winnerId = store.getMatch(matchId).participants[0];
+    store.updateMatch(matchId, { reportedBy: winnerId });
 
     mockRoom._simulateAction(ActionTypes.MATCH_VERIFY, {
       matchId,
@@ -653,6 +654,8 @@ Deno.test('MATCH_VERIFY handler', testOpts, async (t) => {
 
     assertEquals(store.getMatch(matchId).winnerId, winnerId);
     assertEquals(store.getMatch(matchId).verifiedBy, adminId);
+    assertEquals(store.getMatch(matchId).reportedBy, winnerId, 'verify keeps the reporter');
+    assertEquals(store.getMatch('r2m0').participants[0], winnerId, 'the winner advances');
   });
 
   await t.step('rejects verify from non-admin', () => {
@@ -824,80 +827,6 @@ Deno.test('Peer join/leave handlers', testOpts, async (t) => {
   });
 });
 
-Deno.test('advanceWinner - Single Elimination', testOpts, async (t) => {
-  await t.step('advances winner to next round', () => {
-    connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-
-    loadSingleBracket();
-
-    const matchId = 'r1m0';
-    const winnerId = store.getMatch(matchId).participants[0];
-
-    advanceWinner(matchId, winnerId);
-
-    assertEquals(store.getMatch('r2m0').participants[0], winnerId);
-  });
-
-  await t.step('sets tournament complete after finals', () => {
-    connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-
-    const bracket = generateSingleEliminationBracket(createParticipants(2));
-    store.set('bracket', bracket);
-    store.deserialize({ matches: Array.from(bracket.matches.entries()) });
-    store.set('meta.status', 'active');
-
-    const matchId = 'r1m0';
-    advanceWinner(matchId, store.getMatch(matchId).participants[0]);
-
-    assertEquals(store.get('meta.status'), 'complete');
-  });
-
-  await t.step('handles missing bracket gracefully', () => {
-    connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-    store.set('bracket', null);
-
-    advanceWinner('r1m0', 'player-1');
-  });
-});
-
-// The network bracket omits the matches Map; advancement reads and writes store matches.
-Deno.test('advanceWinner - Double Elimination', testOpts, async (t) => {
-  function loadNetworkDoubleBracket() {
-    const bracket = generateDoubleEliminationBracket(createParticipants(4));
-    store.set('bracket', { ...bracket, matches: undefined });
-    store.setMatches(bracket.matches);
-    return bracket;
-  }
-
-  await t.step('advances winner in winners bracket', () => {
-    connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-    const bracket = loadNetworkDoubleBracket();
-
-    const winnersMatch = bracket.winners.rounds[0].matches[0];
-    const winnerId = winnersMatch.participants[0];
-
-    advanceWinner(winnersMatch.id, winnerId);
-
-    assertEquals(store.getMatch('w2m0').participants[0], winnerId);
-    assertEquals(store.get('bracket').matches, undefined);
-  });
-
-  await t.step('drops loser to losers bracket', () => {
-    connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-    const bracket = loadNetworkDoubleBracket();
-
-    const winnersMatch = bracket.winners.rounds[0].matches[0];
-    const loserId = winnersMatch.participants[1];
-
-    advanceWinner(winnersMatch.id, winnersMatch.participants[0]);
-
-    const losersHasLoser = store.get('bracket').losers.rounds
-      .some(round => round.matches.some(match => match.participants.includes(loserId)));
-    assert(losersHasLoser, 'Loser should be dropped to losers bracket');
-    assertEquals(store.get('bracket').matches, undefined);
-  });
-});
-
 Deno.test('announceJoin', testOpts, async (t) => {
   await t.step('broadcasts participant join', () => {
     const mockRoom = createMockRoom();
@@ -926,6 +855,18 @@ Deno.test('reportMatchResult', testOpts, async (t) => {
     assertEquals(mockRoom._broadcasts[0].payload.matchId, 'match-1');
     assertEquals(mockRoom._broadcasts[0].payload.winnerId, 'player-1');
     assertEquals(mockRoom._broadcasts[0].payload.version, 1);
+  });
+
+  await t.step('records and advances locally without a room', () => {
+    connectAs({ userId: 'player-1', adminId: 'admin-123' });
+    loadSingleBracket();
+
+    reportMatchResult(null, 'r1m0', [2, 0], 'player-1');
+
+    assertEquals(store.getMatch('r1m0').winnerId, 'player-1');
+    assertEquals(store.getMatch('r1m0').reportedBy, 'player-1');
+    assertEquals(store.getMatch('r1m0').version, 1);
+    assertEquals(store.getMatch('r2m0').participants[0], 'player-1');
   });
 });
 

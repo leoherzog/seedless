@@ -5,7 +5,7 @@
 import { assertEquals, assert, assertThrows } from "jsr:@std/assert";
 import {
   generateDoubleEliminationBracket,
-  recordMatchResult,
+  advance,
   getStandings,
 } from "../js/tournament/double-elimination.js";
 import {
@@ -13,7 +13,11 @@ import {
   createParticipantMap,
   participants4,
   participants8,
+  report,
 } from "./fixtures.js";
+
+/** The match objects of a winners or losers round. */
+const roundMatches = (matches, round) => round.matchIds.map((id) => matches.get(id));
 
 Deno.test("generateDoubleEliminationBracket", async (t) => {
   await t.step("throws for less than 2 participants", () => {
@@ -25,16 +29,15 @@ Deno.test("generateDoubleEliminationBracket", async (t) => {
   });
 
   await t.step("generates correct bracket type", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const { bracket } = generateDoubleEliminationBracket(participants4);
     assertEquals(bracket.type, "double");
   });
 
   await t.step("generates winners bracket with w prefix", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const { bracket, matches } = generateDoubleEliminationBracket(participants4);
 
-    // Check winners bracket matches have 'w' prefix
     for (const round of bracket.winners.rounds) {
-      for (const match of round.matches) {
+      for (const match of roundMatches(matches, round)) {
         assert(match.id.startsWith("w"), `Winners match should start with 'w': ${match.id}`);
         assertEquals(match.bracket, "winners");
       }
@@ -42,10 +45,10 @@ Deno.test("generateDoubleEliminationBracket", async (t) => {
   });
 
   await t.step("generates losers bracket with l prefix", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const { bracket, matches } = generateDoubleEliminationBracket(participants4);
 
     for (const round of bracket.losers.rounds) {
-      for (const match of round.matches) {
+      for (const match of roundMatches(matches, round)) {
         assert(match.id.startsWith("l"), `Losers match should start with 'l': ${match.id}`);
         assertEquals(match.bracket, "losers");
       }
@@ -53,20 +56,15 @@ Deno.test("generateDoubleEliminationBracket", async (t) => {
   });
 
   await t.step("generates grand finals matches", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const { bracket, matches } = generateDoubleEliminationBracket(participants4);
 
-    assert(bracket.grandFinals !== undefined, "Should have grandFinals");
-    assert(bracket.grandFinals.match !== undefined, "Should have GF1");
-    assert(bracket.grandFinals.reset !== undefined, "Should have GF2 (reset)");
-
-    assertEquals(bracket.grandFinals.match.id, "gf1");
-    assertEquals(bracket.grandFinals.match.bracket, "grandFinals");
-    assertEquals(bracket.grandFinals.reset.id, "gf2");
-    assertEquals(bracket.grandFinals.reset.requiresPlay, false);
+    assertEquals(bracket.grandFinals, ["gf1", "gf2"]);
+    assertEquals(matches.get("gf1").bracket, "grandFinals");
+    assertEquals(matches.get("gf2").requiresPlay, false);
   });
 
   await t.step("4-player bracket has correct structure", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const { bracket } = generateDoubleEliminationBracket(participants4);
 
     // 4 players = bracketSize 4
     assertEquals(bracket.bracketSize, 4);
@@ -74,249 +72,203 @@ Deno.test("generateDoubleEliminationBracket", async (t) => {
     assertEquals(bracket.losersRounds, 2); // 2 * (2-1) = 2 rounds in losers
 
     // Winners: 2 matches in R1, 1 match in R2 (finals)
-    assertEquals(bracket.winners.rounds.length, 2);
-    assertEquals(bracket.winners.rounds[0].matches.length, 2);
-    assertEquals(bracket.winners.rounds[1].matches.length, 1);
+    assertEquals(bracket.winners.rounds.map((r) => r.matchIds.length), [2, 1]);
 
     // Losers: should have rounds
     assert(bracket.losers.rounds.length > 0);
   });
 
   await t.step("8-player bracket has correct structure", () => {
-    const bracket = generateDoubleEliminationBracket(participants8);
+    const { bracket } = generateDoubleEliminationBracket(participants8);
 
     assertEquals(bracket.bracketSize, 8);
     assertEquals(bracket.winnersRounds, 3);
     assertEquals(bracket.losersRounds, 4); // 2 * (3-1) = 4
 
     // Winners: R1 has 4, R2 has 2, R3 has 1
-    assertEquals(bracket.winners.rounds[0].matches.length, 4);
-    assertEquals(bracket.winners.rounds[1].matches.length, 2);
-    assertEquals(bracket.winners.rounds[2].matches.length, 1);
+    assertEquals(bracket.winners.rounds.map((r) => r.matchIds.length), [4, 2, 1]);
   });
 
-  await t.step("all matches are in the matches map", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+  await t.step("every bracket id is in the matches map exactly once", () => {
+    const { bracket, matches } = generateDoubleEliminationBracket(participants8);
 
-    // Count total matches
-    let totalMatches = 0;
-    for (const round of bracket.winners.rounds) {
-      totalMatches += round.matches.length;
-    }
-    for (const round of bracket.losers.rounds) {
-      totalMatches += round.matches.length;
-    }
-    totalMatches += 2; // GF1 and GF2
+    const ids = [...bracket.winners.rounds, ...bracket.losers.rounds]
+      .flatMap((r) => r.matchIds)
+      .concat(bracket.grandFinals);
 
-    assertEquals(bracket.matches.size, totalMatches);
+    assertEquals(ids.length, matches.size);
+    assertEquals(new Set(ids), new Set(matches.keys()));
   });
 
   await t.step("winners matches have dropsTo property", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const { bracket, matches } = generateDoubleEliminationBracket(participants4);
 
-    // All winners matches except winners finals should have dropsTo
-    for (let i = 0; i < bracket.winners.rounds.length - 1; i++) {
-      for (const match of bracket.winners.rounds[i].matches) {
+    for (const round of bracket.winners.rounds) {
+      for (const match of roundMatches(matches, round)) {
         assert(match.dropsTo !== undefined, `Match ${match.id} should have dropsTo`);
       }
     }
   });
 });
 
-Deno.test("recordMatchResult - winners bracket", async (t) => {
+Deno.test("advance - winners bracket", async (t) => {
   await t.step("advances winner in winners bracket", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const tournament = generateDoubleEliminationBracket(participants4);
 
-    // Record W1M0 result
-    recordMatchResult(bracket, "w1m0", [2, 0], "player-1", "player-1");
+    report(tournament, advance, "w1m0", "player-1");
 
     // Winner should advance to W2M0 (winners finals)
-    const winnersFinals = bracket.matches.get("w2m0");
-    assertEquals(winnersFinals.participants[0], "player-1");
+    assertEquals(tournament.matches.get("w2m0").participants[0], "player-1");
   });
 
   await t.step("drops loser to losers bracket", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const tournament = generateDoubleEliminationBracket(participants4);
 
-    // Record W1M0 result - player-4 loses
-    recordMatchResult(bracket, "w1m0", [2, 0], "player-1", "player-1");
+    // player-4 loses W1M0
+    report(tournament, advance, "w1m0", "player-1");
 
-    // Loser should drop to losers bracket
-    // The exact position depends on the dropsTo calculation
-    const match = bracket.matches.get("w1m0");
-    assertEquals(match.loserId, "player-4");
-
-    // Find the losers match that received the dropout
-    let foundInLosers = false;
-    for (const round of bracket.losers.rounds) {
-      for (const lMatch of round.matches) {
-        if (lMatch.participants.includes("player-4")) {
-          foundInLosers = true;
-          break;
-        }
-      }
-    }
-    assert(foundInLosers, "Loser should be placed in losers bracket");
+    const losers = tournament.bracket.losers.rounds.flatMap((r) => roundMatches(tournament.matches, r));
+    assert(losers.some((m) => m.participants.includes("player-4")), "Loser should be placed in losers bracket");
   });
 
   await t.step("winners finals winner goes to grand finals", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const tournament = generateDoubleEliminationBracket(participants4);
 
-    // Play through winners bracket
-    recordMatchResult(bracket, "w1m0", [2, 0], "player-1", "player-1");
-    recordMatchResult(bracket, "w1m1", [2, 0], "player-2", "player-2");
-
-    // Winners finals
-    recordMatchResult(bracket, "w2m0", [2, 0], "player-1", "player-1");
+    report(tournament, advance, "w1m0", "player-1");
+    report(tournament, advance, "w1m1", "player-2");
+    report(tournament, advance, "w2m0", "player-1");
 
     // Winner should be in GF slot 0 (winners champ)
-    assertEquals(bracket.grandFinals.match.participants[0], "player-1");
+    assertEquals(tournament.matches.get("gf1").participants[0], "player-1");
+  });
+
+  await t.step("writes new participants arrays through the update callback", () => {
+    const tournament = generateDoubleEliminationBracket(participants4);
+    const before = tournament.matches.get("w2m0").participants;
+    const written = [];
+
+    tournament.matches.get("w1m0").winnerId = "player-1";
+    advance(tournament, "w1m0", (id, fields) => {
+      written.push(id);
+      Object.assign(tournament.matches.get(id), fields);
+    });
+
+    assertEquals(written, ["w2m0", "l1m0"]);
+    assertEquals(before, [null, null], "the existing array is never mutated");
   });
 });
 
-Deno.test("recordMatchResult - losers bracket", async (t) => {
+Deno.test("advance - losers bracket", async (t) => {
   await t.step("minor round winner advances to next round slot 0", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
-    const minorRound = bracket.losers.rounds[0];
-    const minorMatch = minorRound.matches[0];
+    const tournament = generateDoubleEliminationBracket(participants4);
+    const minorMatch = roundMatches(tournament.matches, tournament.bracket.losers.rounds[0])[0];
 
     minorMatch.participants = ["player-1", "player-2"];
-    recordMatchResult(bracket, minorMatch.id, [2, 0], "player-1", "player-1");
+    report(tournament, advance, minorMatch.id, "player-1");
 
-    const nextRound = bracket.losers.rounds[1];
-    const nextMatch = nextRound.matches[0];
+    const nextMatch = roundMatches(tournament.matches, tournament.bracket.losers.rounds[1])[0];
     assertEquals(nextMatch.participants[0], "player-1");
   });
 
   await t.step("losers finals winner advances to grand finals slot 1", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
-    const lastRound = bracket.losers.rounds[bracket.losers.rounds.length - 1];
-    const finalMatch = lastRound.matches[0];
+    const tournament = generateDoubleEliminationBracket(participants4);
+    const finalMatch = roundMatches(tournament.matches, tournament.bracket.losers.rounds.at(-1))[0];
 
     finalMatch.participants = ["player-1", "player-2"];
-    recordMatchResult(bracket, finalMatch.id, [2, 1], "player-1", "player-1");
+    report(tournament, advance, finalMatch.id, "player-1");
 
-    assertEquals(bracket.grandFinals.match.participants[1], "player-1");
+    assertEquals(tournament.matches.get("gf1").participants[1], "player-1");
   });
 });
 
-Deno.test("recordMatchResult - grand finals", async (t) => {
+Deno.test("advance - grand finals", async (t) => {
   function setupToGrandFinals() {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const tournament = generateDoubleEliminationBracket(participants4);
 
-    // Winners bracket
-    recordMatchResult(bracket, "w1m0", [2, 0], "player-1", "player-1");
-    recordMatchResult(bracket, "w1m1", [2, 0], "player-2", "player-2");
-    recordMatchResult(bracket, "w2m0", [2, 0], "player-1", "player-1");
+    report(tournament, advance, "w1m0", "player-1");
+    report(tournament, advance, "w1m1", "player-2");
+    report(tournament, advance, "w2m0", "player-1");
 
-    for (const round of bracket.losers.rounds) {
-      for (const match of round.matches) {
+    for (const round of tournament.bracket.losers.rounds) {
+      for (const match of roundMatches(tournament.matches, round)) {
         const [a, b] = match.participants;
-        if (a && b && !match.winnerId) recordMatchResult(bracket, match.id, [2, 0], a, a);
+        if (a && b && !match.winnerId) report(tournament, advance, match.id, a);
       }
     }
 
-    return bracket;
+    return tournament;
   }
 
   await t.step("winners champ winning GF1 completes tournament", () => {
-    const bracket = setupToGrandFinals();
+    const tournament = setupToGrandFinals();
+    const winnersChamp = tournament.matches.get("gf1").participants[0];
 
-    const winnersChamp = bracket.grandFinals.match.participants[0];
-
-    // Winners champ wins GF1
-    recordMatchResult(bracket, "gf1", [2, 0], winnersChamp, winnersChamp);
-
-    assertEquals(bracket.isComplete, true, "Tournament should be complete");
-    assertEquals(bracket.grandFinals.reset.requiresPlay, false, "No bracket reset needed");
+    assert(report(tournament, advance, "gf1", winnersChamp), "Tournament should be complete");
+    assertEquals(tournament.matches.get("gf2").requiresPlay, false, "No bracket reset needed");
   });
 
   await t.step("losers champ winning GF1 triggers bracket reset", () => {
-    const bracket = setupToGrandFinals();
+    const tournament = setupToGrandFinals();
+    const [winnersChamp, losersChamp] = tournament.matches.get("gf1").participants;
 
-    const [winnersChamp, losersChamp] = bracket.grandFinals.match.participants;
+    assertEquals(report(tournament, advance, "gf1", losersChamp), false, "Tournament should not be complete yet");
 
-    // Losers champ wins GF1
-    recordMatchResult(bracket, "gf1", [2, 0], losersChamp, losersChamp);
-
-    assertEquals(bracket.isComplete, false, "Tournament should not be complete yet");
-    assertEquals(bracket.grandFinals.reset.requiresPlay, true, "Bracket reset should be required");
-    assertEquals(
-      bracket.grandFinals.reset.participants[0],
-      winnersChamp,
-      "Reset should have winners champ"
-    );
-    assertEquals(
-      bracket.grandFinals.reset.participants[1],
-      losersChamp,
-      "Reset should have losers champ"
-    );
+    const reset = tournament.matches.get("gf2");
+    assertEquals(reset.requiresPlay, true, "Bracket reset should be required");
+    assertEquals(reset.participants, [winnersChamp, losersChamp]);
   });
 
   await t.step("GF2 (bracket reset) winner is champion", () => {
-    const bracket = setupToGrandFinals();
+    const tournament = setupToGrandFinals();
+    const [winnersChamp, losersChamp] = tournament.matches.get("gf1").participants;
 
-    const [winnersChamp, losersChamp] = bracket.grandFinals.match.participants;
+    report(tournament, advance, "gf1", losersChamp);
 
-    // Losers champ wins GF1, triggering reset
-    recordMatchResult(bracket, "gf1", [2, 0], losersChamp, losersChamp);
-
-    // Play bracket reset (GF2)
-    recordMatchResult(bracket, "gf2", [2, 1], winnersChamp, winnersChamp);
-
-    assertEquals(bracket.isComplete, true, "Tournament should be complete after reset");
+    assert(report(tournament, advance, "gf2", winnersChamp), "Tournament should be complete after reset");
   });
 });
 
 Deno.test("getStandings", async (t) => {
   await t.step("returns empty array if not complete", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
+    const { bracket, matches } = generateDoubleEliminationBracket(participants4);
     const participantMap = createParticipantMap(participants4);
 
-    const standings = getStandings(bracket, participantMap);
-    assertEquals(standings, []);
+    assertEquals(getStandings(bracket, matches, participantMap), []);
+  });
+
+  await t.step("places losers-bracket eliminations below the finalists", () => {
+    const tournament = generateDoubleEliminationBracket(participants4);
+    const participantMap = createParticipantMap(participants4);
+
+    report(tournament, advance, "w1m0", "player-1");
+    report(tournament, advance, "w1m1", "player-2");
+    report(tournament, advance, "w2m0", "player-1");
+    report(tournament, advance, "l1m0", "player-3"); // player-4 out
+    report(tournament, advance, "l2m0", "player-2"); // player-3 out
+    report(tournament, advance, "gf1", "player-1");
+
+    const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
+    assertEquals(standings.map((s) => [s.place, s.participantId]), [
+      [1, "player-1"],
+      [2, "player-2"],
+      [3, "player-3"],
+      [4, "player-4"],
+    ]);
   });
 });
 
 Deno.test("bye handling in double elimination", async (t) => {
   await t.step("3-player bracket handles byes correctly", () => {
-    const participants3 = createParticipants(3);
-    const bracket = generateDoubleEliminationBracket(participants3);
+    const { bracket, matches } = generateDoubleEliminationBracket(createParticipants(3));
 
     // With 3 players in bracketSize 4, one match is a bye
-    const round1 = bracket.winners.rounds[0];
-    const byeMatch = round1.matches.find(m => m.isBye);
+    const byeMatch = roundMatches(matches, bracket.winners.rounds[0]).find((m) => m.isBye);
 
     assert(byeMatch !== undefined, "Should have a bye match");
     assert(byeMatch.winnerId !== null, "Bye winner should be set");
 
-    const hasAdvanced = bracket.winners.rounds[1].matches.some(m =>
-      m.participants.includes(byeMatch.winnerId)
-    );
+    const hasAdvanced = roundMatches(matches, bracket.winners.rounds[1])
+      .some((m) => m.participants.includes(byeMatch.winnerId));
     assert(hasAdvanced, "Bye winner should advance to next round");
-  });
-});
-
-Deno.test("match properties", async (t) => {
-  await t.step("winners matches have loserId after result", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
-
-    recordMatchResult(bracket, "w1m0", [2, 0], "player-1", "player-1");
-
-    const match = bracket.matches.get("w1m0");
-    assertEquals(match.winnerId, "player-1");
-    assertEquals(match.loserId, "player-4");
-  });
-
-  await t.step("records reportedBy and reportedAt", () => {
-    const bracket = generateDoubleEliminationBracket(participants4);
-
-    const before = Date.now();
-    recordMatchResult(bracket, "w1m0", [2, 0], "player-1", "player-2");
-    const after = Date.now();
-
-    const match = bracket.matches.get("w1m0");
-    assertEquals(match.reportedBy, "player-2");
-    assert(match.reportedAt >= before && match.reportedAt <= after);
   });
 });

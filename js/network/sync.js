@@ -15,6 +15,8 @@ import {
   isValidParticipantJoinPayload,
   isValidParticipantUpdatePayload
 } from './sync-validators.js';
+import { advance as advanceSingle } from '../tournament/single-elimination.js';
+import { advance as advanceDouble } from '../tournament/double-elimination.js';
 
 // Map peerId (transient) to localUserId (persistent)
 // This allows us to identify participants across page refreshes
@@ -377,20 +379,20 @@ export function setupStateSync(room) {
 
     console.info('[Sync] Tournament starting');
 
-    // Apply tournament state
+    // Apply tournament state. Matches go first so no render sees a bracket id missing from them.
+    if (payload.matches) {
+      store.deserialize({ matches: payload.matches });
+    }
     if (payload.bracket) {
+      // Deserialize standings if present (Mario Kart mode)
+      if (payload.bracket.standings) {
+        store.deserialize({ standings: payload.bracket.standings });
+      }
       store.set('bracket', payload.bracket);
       // Sync meta.type from bracket type (handles mariokart, doubles, etc.)
       if (payload.bracket.type) {
         store.set('meta.type', payload.bracket.type);
       }
-      // Deserialize standings if present (Mario Kart mode)
-      if (payload.bracket.standings) {
-        store.deserialize({ standings: payload.bracket.standings });
-      }
-    }
-    if (payload.matches) {
-      store.deserialize({ matches: payload.matches });
     }
     store.set('meta.status', 'active');
 
@@ -535,9 +537,7 @@ export function setupStateSync(room) {
         reportedAt,
         version: incomingVersion,  // Store version for future comparisons
       });
-
-      // Update bracket advancement
-      advanceWinner(matchId, winnerId);
+      advanceWinner(matchId);
     }
   });
 
@@ -570,8 +570,7 @@ export function setupStateSync(room) {
       verifiedBy: localUserId,
       reportedAt: Date.now(),
     });
-
-    advanceWinner(matchId, winnerId);
+    advanceWinner(matchId);
   });
 
   // --- Handle standings updates (Mario Kart mode) ---
@@ -765,193 +764,24 @@ export function setupStateSync(room) {
 }
 
 /**
- * Advance winner to next match in bracket
- * @param {string} matchId - Completed match ID
- * @param {string} winnerId - Winner's participant ID
+ * Advance the bracket past a match whose result is already in the store, and
+ * mark the tournament complete once the champion is decided.
+ * @param {string} matchId - Decided match ID
  */
-export function advanceWinner(matchId, winnerId) {
+export function advanceWinner(matchId) {
   const bracket = store.get('bracket');
-  if (!bracket) return;
+  const match = store.getMatch(matchId);
+  if (!match?.winnerId || !(bracket?.winners || bracket?.rounds)) return;
 
-  // Handle double-elimination (has winners/losers structure)
-  if (bracket.winners) {
-    advanceInDoubleElim(bracket, matchId, winnerId);
-    return;
+  const advance = bracket.winners ? advanceDouble : advanceSingle;
+  const complete = advance(
+    { bracket, matches: store.get('matches') },
+    matchId,
+    (id, fields) => store.updateMatch(id, fields),
+  );
+  if (complete) {
+    store.set('meta.status', 'complete');
   }
-
-  // Handle single-elimination (has rounds array)
-  if (!bracket.rounds) return;
-
-  // Find current match
-  let currentMatch = null;
-  let currentRoundIdx = -1;
-  let currentMatchIdx = -1;
-
-  for (let r = 0; r < bracket.rounds.length; r++) {
-    const round = bracket.rounds[r];
-    for (let m = 0; m < round.matches.length; m++) {
-      if (round.matches[m].id === matchId) {
-        currentMatch = round.matches[m];
-        currentRoundIdx = r;
-        currentMatchIdx = m;
-        break;
-      }
-    }
-    if (currentMatch) break;
-  }
-
-  if (!currentMatch) return;
-
-  // Find next match
-  const nextRoundIdx = currentRoundIdx + 1;
-  if (nextRoundIdx >= bracket.rounds.length) {
-    // This was the finals, tournament is complete
-    if (currentRoundIdx === bracket.rounds.length - 1) {
-      store.set('meta.status', 'complete');
-    }
-    return;
-  }
-
-  const nextMatchIdx = Math.floor(currentMatchIdx / 2);
-  const nextMatch = bracket.rounds[nextRoundIdx]?.matches[nextMatchIdx];
-
-  if (nextMatch) {
-    // Determine which slot (0 or 1) the winner goes to
-    const slot = currentMatchIdx % 2;
-    const newParticipants = [...nextMatch.participants];
-    newParticipants[slot] = winnerId;
-
-    store.updateMatch(nextMatch.id, {
-      participants: newParticipants,
-    });
-  }
-}
-
-/**
- * Advance winner in double-elimination bracket
- * @param {Object} bracket - Double-elimination bracket
- * @param {string} matchId - Completed match ID
- * @param {string} winnerId - Winner's participant/team ID
- */
-function advanceInDoubleElim(bracket, matchId, winnerId) {
-  const match =
-    store.getMatch(matchId) ||
-    (bracket.matches instanceof Map
-      ? bracket.matches.get(matchId)
-      : bracket.matches?.[matchId]) ||
-    findDoubleElimMatch(bracket, matchId);
-
-  if (!match) return;
-
-  const loserId = match.participants.find(p => p !== winnerId);
-
-  if (match.bracket === 'winners') {
-    // Advance winner in winners bracket
-    const currentRoundIdx = match.round - 1;
-    const nextRound = bracket.winners.rounds[currentRoundIdx + 1];
-
-    if (nextRound) {
-      const nextMatchIdx = Math.floor(match.position / 2);
-      const nextMatch = nextRound.matches[nextMatchIdx];
-      if (nextMatch) {
-        const slot = match.position % 2;
-        store.updateMatch(nextMatch.id, {
-          participants: updateSlot(nextMatch.participants, slot, winnerId),
-        });
-      }
-    } else {
-      // Winners finals - advance to grand finals
-      const gf = bracket.grandFinals.match;
-      store.updateMatch(gf.id, {
-        participants: updateSlot(gf.participants, 0, winnerId),
-      });
-    }
-
-    // Drop loser to losers bracket
-    if (loserId && !match.isBye && match.dropsTo) {
-      const losersRound = bracket.losers.rounds[match.dropsTo.round - 1];
-      if (losersRound) {
-        const targetMatch = losersRound.matches[match.dropsTo.position];
-        if (targetMatch) {
-          const dropSlot = match.dropsTo.slot !== undefined ? match.dropsTo.slot : 1;
-          store.updateMatch(targetMatch.id, {
-            participants: updateSlot(targetMatch.participants, dropSlot, loserId),
-          });
-        }
-      }
-    }
-  } else if (match.bracket === 'losers') {
-    // Advance winner in losers bracket
-    const currentRoundIdx = match.round - 1;
-    const nextRound = bracket.losers.rounds[currentRoundIdx + 1];
-
-    if (nextRound) {
-      const nextMatchIdx = match.isMinorRound ? match.position : Math.floor(match.position / 2);
-      const nextMatch = nextRound.matches[nextMatchIdx];
-      if (nextMatch) {
-        const slot = match.isMinorRound ? 0 : match.position % 2;
-        store.updateMatch(nextMatch.id, {
-          participants: updateSlot(nextMatch.participants, slot, winnerId),
-        });
-      }
-    } else {
-      // Losers finals - advance to grand finals
-      const gf = bracket.grandFinals.match;
-      store.updateMatch(gf.id, {
-        participants: updateSlot(gf.participants, 1, winnerId),
-      });
-    }
-  } else if (match.bracket === 'grandFinals') {
-    // Handle grand finals
-    if (match.id === 'gf1') {
-      if (winnerId === match.participants[1]) {
-        // Losers champ won - need bracket reset
-        const reset = bracket.grandFinals.reset;
-        store.updateMatch(reset.id, {
-          participants: [...match.participants],
-        });
-      } else {
-        // Winners champ won - tournament complete
-        store.set('meta.status', 'complete');
-      }
-    } else if (match.id === 'gf2') {
-      // Bracket reset complete
-      store.set('meta.status', 'complete');
-    }
-  }
-}
-
-/**
- * Update a single slot in participants array
- */
-function updateSlot(participants, slot, value) {
-  const updated = [...participants];
-  updated[slot] = value;
-  return updated;
-}
-
-/**
- * Find a match in a double-elimination bracket structure (when matches map is absent)
- */
-function findDoubleElimMatch(bracket, matchId) {
-  if (!bracket) return null;
-
-  const winnersRounds = bracket.winners?.rounds || [];
-  for (const round of winnersRounds) {
-    const match = round.matches?.find(m => m.id === matchId);
-    if (match) return match;
-  }
-
-  const losersRounds = bracket.losers?.rounds || [];
-  for (const round of losersRounds) {
-    const match = round.matches?.find(m => m.id === matchId);
-    if (match) return match;
-  }
-
-  if (bracket.grandFinals?.match?.id === matchId) return bracket.grandFinals.match;
-  if (bracket.grandFinals?.reset?.id === matchId) return bracket.grandFinals.reset;
-
-  return null;
 }
 
 /**
@@ -969,8 +799,8 @@ export function announceJoin(room, name, localUserId) {
 }
 
 /**
- * Report match result
- * @param {Object} room - Room connection
+ * Record a local match result, advance the bracket and broadcast the result
+ * @param {Object|null} room - Room connection; null records locally only
  * @param {string} matchId - Match ID
  * @param {number[]} scores - Match scores
  * @param {string} winnerId - Winner's participant ID
@@ -992,8 +822,9 @@ export function reportMatchResult(room, matchId, scores, winnerId) {
     reportedAt,
     version,
   });
+  advanceWinner(matchId);
 
-  room.broadcast(ActionTypes.MATCH_RESULT, {
+  room?.broadcast(ActionTypes.MATCH_RESULT, {
     matchId,
     scores,
     winnerId,

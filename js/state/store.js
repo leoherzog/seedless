@@ -33,7 +33,7 @@
  * @typedef {Object} TournamentState
  * @property {Object} meta - Tournament metadata
  * @property {Map<string, Participant>} participants - Participants map
- * @property {Object|null} bracket - Bracket structure
+ * @property {Object|null} bracket - Bracket structure; its rounds hold ids into matches
  * @property {Map<string, Match>} matches - Matches map
  * @property {Map<string, Object>} standings - Standings (Mario Kart)
  * @property {Object} local - Local-only state (not synced)
@@ -331,63 +331,10 @@ class Store extends EventEmitter {
     if (match) {
       Object.assign(match, updates);
       this._state.meta.version++;
-
-      // Also update the bracket's embedded match (they can be separate objects after deserialization)
-      this._updateBracketEmbeddedMatch(id, updates);
-
       this.emit('match:update', { id, match, updates });
       this.emit('change', { path: 'matches' });
     }
     return this;
-  }
-
-  /**
-   * Update a match embedded in the bracket structure
-   * After JSON deserialization, bracket.rounds[].matches[] are separate objects from the matches Map
-   * @private
-   */
-  _updateBracketEmbeddedMatch(id, updates) {
-    const bracket = this._state.bracket;
-    if (!bracket) return;
-
-    // Single elimination: bracket.rounds[].matches[]
-    if (bracket.rounds) {
-      for (const round of bracket.rounds) {
-        if (!round.matches) continue;
-        const match = round.matches.find(m => m.id === id);
-        if (match) {
-          Object.assign(match, updates);
-          return;
-        }
-      }
-    }
-
-    // Double elimination: bracket.winners/losers/grandFinals
-    if (bracket.winners?.rounds) {
-      for (const round of bracket.winners.rounds) {
-        const match = round.matches?.find(m => m.id === id);
-        if (match) {
-          Object.assign(match, updates);
-          return;
-        }
-      }
-    }
-    if (bracket.losers?.rounds) {
-      for (const round of bracket.losers.rounds) {
-        const match = round.matches?.find(m => m.id === id);
-        if (match) {
-          Object.assign(match, updates);
-          return;
-        }
-      }
-    }
-    if (bracket.grandFinals?.match?.id === id) {
-      Object.assign(bracket.grandFinals.match, updates);
-      return;
-    }
-    if (bracket.grandFinals?.reset?.id === id) {
-      Object.assign(bracket.grandFinals.reset, updates);
-    }
   }
 
   // --- Admin helpers ---
@@ -441,17 +388,7 @@ class Store extends EventEmitter {
     } else if (type === 'doubles') {
       // Doubles: winner is from grand finals or finals match
       const teams = bracket?.teams || [];
-      let winnerId = null;
-
-      if (bracket?.grandFinals) {
-        // Double elimination doubles
-        winnerId = this._resolveGrandFinalsWinner(bracket);
-      } else if (bracket?.rounds) {
-        // Single elimination doubles
-        const finalRound = bracket.rounds[bracket.rounds.length - 1];
-        const finalMatch = finalRound?.matches?.[0];
-        winnerId = finalMatch?.winnerId;
-      }
+      const winnerId = this._decidingMatch(bracket)?.winnerId;
 
       if (winnerId) {
         const winningTeam = teams.find(t => t.id === winnerId);
@@ -469,26 +406,13 @@ class Store extends EventEmitter {
       }
       // Build standings from bracket (simplified for doubles)
       standingsSummary = this._extractBracketStandings(bracket, participants, type);
-    } else if (type === 'double') {
-      // Double elimination
-      const winnerId = this._resolveGrandFinalsWinner(bracket);
+    } else {
+      // Single or double elimination
+      const winnerId = this._decidingMatch(bracket)?.winnerId;
 
       if (winnerId) {
         const p = participants.get(winnerId);
         winner = { id: winnerId, name: p?.name || 'Unknown' };
-      }
-      standingsSummary = this._extractBracketStandings(bracket, participants, type);
-    } else {
-      // Single elimination (default)
-      if (bracket?.rounds) {
-        const finalRound = bracket.rounds[bracket.rounds.length - 1];
-        const finalMatch = finalRound?.matches?.[0];
-        const winnerId = finalMatch?.winnerId;
-
-        if (winnerId) {
-          const p = participants.get(winnerId);
-          winner = { id: winnerId, name: p?.name || 'Unknown' };
-        }
       }
       standingsSummary = this._extractBracketStandings(bracket, participants, type);
     }
@@ -511,13 +435,17 @@ class Store extends EventEmitter {
   }
 
   /**
-   * Resolve the grand-finals winner, preferring the reset match winner only
-   * when the reset was actually played.
+   * The match that decides an elimination bracket: the final, or the grand-finals
+   * reset once it has been played.
    * @private
    */
-  _resolveGrandFinalsWinner(bracket) {
-    const gf = bracket?.grandFinals;
-    return (gf?.reset?.requiresPlay && gf?.reset?.winnerId) || gf?.match?.winnerId;
+  _decidingMatch(bracket) {
+    const matches = this._state.matches;
+    if (bracket?.grandFinals) {
+      const [gf1, gf2] = bracket.grandFinals.map(id => matches.get(id));
+      return gf2?.requiresPlay && gf2.winnerId ? gf2 : gf1;
+    }
+    return matches.get(bracket?.rounds?.at(-1)?.matchIds[0]);
   }
 
   /**
@@ -526,79 +454,32 @@ class Store extends EventEmitter {
    */
   _extractBracketStandings(bracket, participants, type) {
     const standings = [];
+    // Doubles brackets hold team ids, so names come from the bracket's teams.
+    const names = type === 'doubles' ? new Map((bracket?.teams || []).map(t => [t.id, t])) : participants;
+    const nameOf = (id) => names.get(id)?.name || 'Unknown';
 
-    if (type === 'doubles') {
-      // For doubles, extract team standings
-      const teams = bracket?.teams || [];
-      const teamMap = new Map(teams.map(t => [t.id, t]));
+    const decider = this._decidingMatch(bracket);
+    const winnerId = decider?.winnerId;
+    const runnerUpId = decider?.participants.find(id => id !== winnerId);
 
-      let winnerId, runnerUpId;
-      if (bracket?.grandFinals) {
-        const gfMatch = bracket.grandFinals.match;
-        winnerId = this._resolveGrandFinalsWinner(bracket);
-        const gfParticipants = gfMatch?.participants || [];
-        runnerUpId = gfParticipants.find(id => id !== winnerId);
-      } else if (bracket?.rounds) {
-        const finalRound = bracket.rounds[bracket.rounds.length - 1];
-        const finalMatch = finalRound?.matches?.[0];
-        winnerId = finalMatch?.winnerId;
-        runnerUpId = finalMatch?.participants?.find(id => id !== winnerId);
-      }
+    if (winnerId) {
+      standings.push({ place: 1, name: nameOf(winnerId) });
+    }
+    if (runnerUpId) {
+      standings.push({ place: 2, name: nameOf(runnerUpId) });
+    }
 
-      if (winnerId) {
-        const winnerTeam = teamMap.get(winnerId);
-        standings.push({ place: 1, name: winnerTeam?.name || 'Unknown' });
-      }
-      if (runnerUpId) {
-        const runnerUpTeam = teamMap.get(runnerUpId);
-        standings.push({ place: 2, name: runnerUpTeam?.name || 'Unknown' });
-      }
-    } else if (type === 'double') {
-      // Double elimination
-      const gfMatch = bracket?.grandFinals?.match;
-      const winnerId = this._resolveGrandFinalsWinner(bracket);
-      const gfParticipants = gfMatch?.participants || [];
-      const runnerUpId = gfParticipants.find(id => id !== winnerId);
+    // Single elimination: 3rd and 4th from the semi-final losers
+    if (type === 'single' && bracket?.rounds?.length >= 2) {
+      const semiLosers = bracket.rounds.at(-2).matchIds
+        .map(id => this._state.matches.get(id))
+        .filter(m => m.winnerId)
+        .map(m => m.participants.find(id => id !== m.winnerId))
+        .filter(Boolean);
 
-      if (winnerId) {
-        const p = participants.get(winnerId);
-        standings.push({ place: 1, name: p?.name || 'Unknown' });
-      }
-      if (runnerUpId) {
-        const p = participants.get(runnerUpId);
-        standings.push({ place: 2, name: p?.name || 'Unknown' });
-      }
-    } else {
-      // Single elimination
-      if (bracket?.rounds) {
-        const finalRound = bracket.rounds[bracket.rounds.length - 1];
-        const finalMatch = finalRound?.matches?.[0];
-        const winnerId = finalMatch?.winnerId;
-        const runnerUpId = finalMatch?.participants?.find(id => id !== winnerId);
-
-        if (winnerId) {
-          const p = participants.get(winnerId);
-          standings.push({ place: 1, name: p?.name || 'Unknown' });
-        }
-        if (runnerUpId) {
-          const p = participants.get(runnerUpId);
-          standings.push({ place: 2, name: p?.name || 'Unknown' });
-        }
-
-        // Try to get 3rd/4th from semi-finals
-        if (bracket.rounds.length >= 2) {
-          const semiFinals = bracket.rounds[bracket.rounds.length - 2];
-          const semiLosers = semiFinals?.matches
-            ?.filter(m => m.winnerId)
-            .map(m => m.participants.find(id => id !== m.winnerId))
-            .filter(Boolean) || [];
-
-          semiLosers.forEach((loserId, idx) => {
-            const p = participants.get(loserId);
-            standings.push({ place: 3 + idx, name: p?.name || 'Unknown' });
-          });
-        }
-      }
+      semiLosers.forEach((loserId, idx) => {
+        standings.push({ place: 3 + idx, name: nameOf(loserId) });
+      });
     }
 
     return standings.slice(0, 4);
@@ -757,15 +638,20 @@ class Store extends EventEmitter {
       }
     }
 
+    // Match ids repeat across tournaments, so matches merge only within the same
+    // tournament (bracket.startedAt); the admin's new tournament replaces them all.
+    const sameTournament = remoteState.bracket?.startedAt === localState.bracket?.startedAt;
+
     // Bracket: admin-authoritative
     if (remoteState.bracket && isRemoteAdmin) {
       this._state.bracket = remoteState.bracket;
     }
 
     // Matches: LWW with admin verification override
-    if (remoteState.matches) {
-      const remoteMatches = new Map(remoteState.matches);
-      for (const [id, remoteMatch] of remoteMatches) {
+    if (remoteState.matches && remoteState.bracket && isRemoteAdmin && !sameTournament) {
+      localState.matches = new Map(remoteState.matches);
+    } else if (remoteState.matches && sameTournament) {
+      for (const [id, remoteMatch] of remoteState.matches) {
         const localMatch = localState.matches.get(id);
         if (!localMatch) {
           localState.matches.set(id, remoteMatch);
@@ -775,8 +661,12 @@ class Store extends EventEmitter {
             localState.matches.set(id, remoteMatch);
           } else if (!remoteMatch.verifiedBy && localMatch.verifiedBy) {
             // Keep local (admin verified)
-          } else if ((remoteMatch.reportedAt || 0) > (localMatch.reportedAt || 0)) {
-            localState.matches.set(id, remoteMatch);
+          } else {
+            // Ties go to the admin, whose bracket advancement carries no reportedAt.
+            const newer = (remoteMatch.reportedAt || 0) - (localMatch.reportedAt || 0);
+            if (newer > 0 || (newer === 0 && isRemoteAdmin)) {
+              localState.matches.set(id, remoteMatch);
+            }
           }
         }
       }

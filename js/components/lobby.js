@@ -674,21 +674,17 @@ async function onStartTournament() {
 
     if (tournamentType === 'single') {
       const { generateSingleEliminationBracket } = await import('../tournament/single-elimination.js');
-      const result = generateSingleEliminationBracket(seededParticipants, store.get('meta.config'));
-      bracket = { ...result, matches: undefined };
-      matches = result.matches;
+      ({ bracket, matches } = generateSingleEliminationBracket(seededParticipants, store.get('meta.config')));
     } else if (tournamentType === 'double') {
       const { generateDoubleEliminationBracket } = await import('../tournament/double-elimination.js');
-      const result = generateDoubleEliminationBracket(seededParticipants, store.get('meta.config'));
-      bracket = { ...result, matches: undefined };
-      matches = result.matches;
+      ({ bracket, matches } = generateDoubleEliminationBracket(seededParticipants, store.get('meta.config')));
     } else if (tournamentType === 'mariokart') {
       const { generateMarioKartTournament } = await import('../tournament/mario-kart.js');
-      const result = generateMarioKartTournament(seededParticipants, store.get('meta.config'));
+      const { matches: games, standings, ...race } = generateMarioKartTournament(seededParticipants, store.get('meta.config'));
       // Include standings in bracket for broadcast (serialized as array for transmission)
-      bracket = { ...result, matches: undefined, standings: Array.from(result.standings.entries()) };
-      matches = result.matches;
-      store.deserialize({ standings: Array.from(result.standings.entries()) });
+      bracket = { ...race, standings: Array.from(standings.entries()) };
+      matches = games;
+      store.deserialize({ standings: bracket.standings });
     } else if (tournamentType === 'doubles') {
       const teamAssignments = store.getTeamAssignments();
       const teamSize = store.get('meta.config.teamSize') || 2;
@@ -702,23 +698,18 @@ async function onStartTournament() {
         return;
       }
 
-      const result = generateDoublesTournament(seededParticipants, teamAssignments, {
+      ({ bracket, matches } = generateDoublesTournament(seededParticipants, teamAssignments, {
         ...store.get('meta.config'),
         bracketType: store.get('meta.config.bracketType') || 'single',
-      });
-
-      bracket = {
-        ...result,
-        matches: undefined,
-        teams: result.teams,
-        teamAssignments: result.teamAssignments,
-      };
-      matches = result.matches;
+      }));
     }
 
-    // Update store
-    store.set('bracket', bracket);
+    // startedAt tells a peer's stale matches from this tournament's on merge.
+    bracket.startedAt = Date.now();
+
+    // Matches go first so no render sees a bracket id missing from them.
     store.setMatches(matches);
+    store.set('bracket', bracket);
     store.set('meta.status', 'active');
 
     // Broadcast to peers

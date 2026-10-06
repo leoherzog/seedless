@@ -3,13 +3,13 @@
  * Standard knockout tournament format
  */
 
-import { nextPowerOf2, getSeedPositions, getRoundName } from './bracket-utils.js';
+import { nextPowerOf2, getSeedPositions, getRoundName, toMatchIds } from './bracket-utils.js';
 
 /**
  * Generate a single elimination bracket
  * @param {Object[]} participants - Array of participants with id, name, seed
  * @param {Object} config - Tournament configuration
- * @returns {Object} Bracket structure with rounds and matches
+ * @returns {{bracket: Object, matches: Map}} Bracket of round match ids, and the matches by id
  */
 export function generateSingleEliminationBracket(participants, config = {}) {
   if (participants.length < 2) {
@@ -23,17 +23,8 @@ export function generateSingleEliminationBracket(participants, config = {}) {
   const bracketSize = nextPowerOf2(seeded.length);
   const numRounds = Math.log2(bracketSize);
 
-  const rounds = [];
-  const matches = new Map();
-
   // Generate Round 1 with proper seeding
-  const round1 = generateRound1(seeded, bracketSize);
-  rounds.push(round1);
-
-  // Add round 1 matches to map
-  for (const match of round1.matches) {
-    matches.set(match.id, match);
-  }
+  const rounds = [generateRound1(seeded, bracketSize)];
 
   // Generate subsequent rounds
   let matchesInRound = bracketSize / 2;
@@ -59,22 +50,23 @@ export function generateSingleEliminationBracket(participants, config = {}) {
         isBye: false,
       };
       round.matches.push(match);
-      matches.set(match.id, match);
     }
 
     rounds.push(round);
   }
 
   // Process byes - advance winners automatically
-  processByes(rounds, matches);
+  processByes(rounds);
 
   return {
-    type: 'single',
-    rounds,
-    matches,
-    bracketSize,
-    numRounds,
-    participantCount: seeded.length,
+    bracket: {
+      type: 'single',
+      rounds: toMatchIds(rounds),
+      bracketSize,
+      numRounds,
+      participantCount: seeded.length,
+    },
+    matches: new Map(rounds.flatMap(r => r.matches).map(m => [m.id, m])),
   };
 }
 
@@ -127,7 +119,7 @@ function generateRound1(seeded, bracketSize) {
 /**
  * Process byes - advance winners to next round
  */
-function processByes(rounds, matches) {
+function processByes(rounds) {
   for (let r = 0; r < rounds.length - 1; r++) {
     const round = rounds[r];
 
@@ -148,71 +140,38 @@ function processByes(rounds, matches) {
 }
 
 /**
- * Record match result and advance winner
- * @param {Object} bracket - Bracket structure
- * @param {string} matchId - Match ID
- * @param {number[]} scores - Match scores [p1Score, p2Score]
- * @param {string} winnerId - Winner's participant ID
- * @param {string} reportedBy - Reporter's participant ID
- * @returns {Object} Updated bracket
+ * Advance a decided match's winner into the next round.
+ * @param {{bracket: Object, matches: Map}} tournament
+ * @param {string} matchId - Match whose winnerId is set
+ * @param {Function} [update] - (id, fields) writer for a match; defaults to the Map entry
+ * @returns {boolean} True once the final has a winner
  */
-export function recordMatchResult(bracket, matchId, scores, winnerId, reportedBy) {
-  const match = bracket.matches.get(matchId);
-  if (!match) {
-    throw new Error(`Match not found: ${matchId}`);
+export function advance({ bracket, matches }, matchId, update = (id, fields) => Object.assign(matches.get(id), fields)) {
+  const match = matches.get(matchId);
+  const nextId = bracket.rounds[match.round]?.matchIds[Math.floor(match.position / 2)];
+  if (nextId) {
+    update(nextId, { participants: matches.get(nextId).participants.with(match.position % 2, match.winnerId) });
   }
-
-  // Update match
-  match.scores = scores;
-  match.winnerId = winnerId;
-  match.reportedBy = reportedBy;
-  match.reportedAt = Date.now();
-
-  // Advance winner to next round
-  advanceWinner(bracket, match);
-
-  // Check if tournament is complete
-  checkTournamentComplete(bracket);
-
-  return bracket;
+  return !!finalMatch(bracket, matches).winnerId;
 }
 
 /**
- * Advance winner to next match
+ * The championship match.
  */
-function advanceWinner(bracket, match) {
-  if (match.round >= bracket.numRounds) {
-    // This was the finals
-    return;
-  }
-
-  const nextRound = bracket.rounds[match.round];
-  const nextMatchIdx = Math.floor(match.position / 2);
-  const nextMatch = nextRound?.matches[nextMatchIdx];
-
-  if (nextMatch) {
-    const slot = match.position % 2;
-    nextMatch.participants[slot] = match.winnerId;
-  }
-}
-
-/**
- * Check if tournament is complete
- */
-function checkTournamentComplete(bracket) {
-  const finals = bracket.rounds[bracket.rounds.length - 1]?.matches[0];
-  bracket.isComplete = !!(finals && finals.winnerId);
-  return bracket.isComplete;
+function finalMatch(bracket, matches) {
+  return matches.get(bracket.rounds.at(-1).matchIds[0]);
 }
 
 /**
  * Get final standings
  * @param {Object} bracket - Bracket structure
+ * @param {Map} matches - Matches by id
  * @param {Map} participants - Participants map
- * @returns {Object[]} Standings array
+ * @returns {Object[]} Standings array; empty until the final has a winner
  */
-export function getStandings(bracket, participants) {
-  if (!bracket.isComplete) {
+export function getStandings(bracket, matches, participants) {
+  const finals = finalMatch(bracket, matches);
+  if (!finals.winnerId) {
     return [];
   }
 
@@ -220,37 +179,33 @@ export function getStandings(bracket, participants) {
   const eliminated = new Map(); // participantId -> round eliminated
 
   // Track when each participant was eliminated
-  for (const round of bracket.rounds) {
-    for (const match of round.matches) {
-      if (match.winnerId && !match.isBye) {
-        const loserId = match.participants.find(p => p !== match.winnerId);
-        if (loserId && !eliminated.has(loserId)) {
-          eliminated.set(loserId, match.round);
-        }
+  for (const id of bracket.rounds.flatMap(r => r.matchIds)) {
+    const match = matches.get(id);
+    if (match.winnerId && !match.isBye) {
+      const loserId = match.participants.find(p => p !== match.winnerId);
+      if (loserId && !eliminated.has(loserId)) {
+        eliminated.set(loserId, match.round);
       }
     }
   }
 
   // Winner
-  const finals = bracket.rounds[bracket.rounds.length - 1].matches[0];
-  if (finals.winnerId) {
-    const winner = participants.get(finals.winnerId);
-    standings.push({
-      place: 1,
-      participantId: finals.winnerId,
-      name: winner?.name || 'Unknown',
-    });
+  const winner = participants.get(finals.winnerId);
+  standings.push({
+    place: 1,
+    participantId: finals.winnerId,
+    name: winner?.name || 'Unknown',
+  });
 
-    // Runner-up
-    const loserId = finals.participants.find(p => p !== finals.winnerId);
-    if (loserId) {
-      const loser = participants.get(loserId);
-      standings.push({
-        place: 2,
-        participantId: loserId,
-        name: loser?.name || 'Unknown',
-      });
-    }
+  // Runner-up
+  const runnerUpId = finals.participants.find(p => p !== finals.winnerId);
+  if (runnerUpId) {
+    const runnerUp = participants.get(runnerUpId);
+    standings.push({
+      place: 2,
+      participantId: runnerUpId,
+      name: runnerUp?.name || 'Unknown',
+    });
   }
 
   // Sort remaining by round eliminated (later = better)

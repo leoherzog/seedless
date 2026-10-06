@@ -3,8 +3,8 @@
  * Wraps other bracket types to work with teams
  */
 
-import { generateSingleEliminationBracket, recordMatchResult as recordSingleElim, getStandings as getSingleStandings } from './single-elimination.js';
-import { generateDoubleEliminationBracket, recordMatchResult as recordDoubleElim, getStandings as getDoubleStandings } from './double-elimination.js';
+import { generateSingleEliminationBracket, getStandings as getSingleStandings } from './single-elimination.js';
+import { generateDoubleEliminationBracket, getStandings as getDoubleStandings } from './double-elimination.js';
 
 /**
  * Form teams from participants
@@ -53,7 +53,7 @@ export function formTeams(participants, teamAssignments, teamSize = 2) {
  * @param {Object[]} participants - All participants
  * @param {Map} teamAssignments - Map of participantId -> teamId
  * @param {Object} config - Tournament configuration
- * @returns {Object} Tournament structure
+ * @returns {{bracket: Object, matches: Map}} Team bracket of round match ids, and the matches by id
  */
 export function generateDoublesTournament(participants, teamAssignments, config = {}) {
   const teamSize = config.teamSize || 2;
@@ -67,33 +67,21 @@ export function generateDoublesTournament(participants, teamAssignments, config 
   }
 
   // Generate underlying bracket using teams as "participants"
-  let bracket;
-  if (bracketType === 'double') {
-    bracket = generateDoubleEliminationBracket(teams, config);
-  } else {
-    bracket = generateSingleEliminationBracket(teams, config);
-  }
+  const generate = bracketType === 'double' ? generateDoubleEliminationBracket : generateSingleEliminationBracket;
+  const { bracket, matches } = generate(teams, config);
 
   return {
-    ...bracket,
-    type: 'doubles',
-    bracketType,
-    teams,
-    teamSize,
-    teamAssignments: Array.from(teamAssignments.entries()),
-    participants,
+    bracket: {
+      ...bracket,
+      type: 'doubles',
+      bracketType,
+      teams,
+      teamSize,
+      teamAssignments: Array.from(teamAssignments.entries()),
+      participants,
+    },
+    matches,
   };
-}
-
-/**
- * Record match result for doubles
- */
-export function recordMatchResult(tournament, matchId, scores, winnerId, reportedBy) {
-  if (tournament.bracketType === 'double') {
-    return recordDoubleElim(tournament, matchId, scores, winnerId, reportedBy);
-  } else {
-    return recordSingleElim(tournament, matchId, scores, winnerId, reportedBy);
-  }
 }
 
 /**
@@ -151,19 +139,20 @@ export function autoAssignTeams(participants, teamSize = 2) {
 
 /**
  * Get team standings from the underlying single- or double-elimination bracket.
- * @param {Object} tournament - Doubles tournament with teams and bracketType
+ * @param {Object} bracket - Doubles bracket with teams and bracketType
+ * @param {Map} matches - Matches by id
  * @returns {Object[]} Standings, each with its team attached
  */
-export function getStandings(tournament) {
-  const teamMap = new Map(tournament.teams.map(t => [t.id, t]));
+export function getStandings(bracket, matches) {
+  const teamMap = new Map(bracket.teams.map(t => [t.id, t]));
 
-  const getUnderlyingStandings = tournament.bracketType === 'double'
+  const getUnderlyingStandings = bracket.bracketType === 'double'
     ? getDoubleStandings
     : getSingleStandings;
-  const teamStandings = getUnderlyingStandings(tournament, teamMap);
+  const teamStandings = getUnderlyingStandings(bracket, matches, teamMap);
 
   return teamStandings.map(s => ({
     ...s,
-    team: tournament.teams.find(t => t.id === s.participantId),
+    team: teamMap.get(s.participantId),
   }));
 }

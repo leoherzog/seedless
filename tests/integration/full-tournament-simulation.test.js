@@ -7,17 +7,16 @@ import { assertEquals, assert } from 'jsr:@std/assert';
 import { Store } from '../../js/state/store.js';
 import {
   generateSingleEliminationBracket,
-  recordMatchResult as recordSingleResult,
+  advance as advanceSingle,
   getStandings as getSingleStandings,
 } from '../../js/tournament/single-elimination.js';
 import {
   generateDoubleEliminationBracket,
-  recordMatchResult as recordDoubleResult,
+  advance as advanceDouble,
   getStandings as getDoubleStandings,
 } from '../../js/tournament/double-elimination.js';
 import {
   generateDoublesTournament,
-  recordMatchResult as recordDoublesResult,
   getStandings as getDoublesStandings,
 } from '../../js/tournament/doubles.js';
 import {
@@ -111,27 +110,28 @@ Deno.test('Single elimination: 15 tennis players play to a champion', () => {
   });
   const participants = store.getParticipantList();
   const participantMap = createParticipantMap(participants);
-  const bracket = generateSingleEliminationBracket(participants);
+  const tournament = generateSingleEliminationBracket(participants);
+  const { bracket, matches } = tournament;
 
   assertEquals(bracket.bracketSize, 16);
   assertEquals(bracket.rounds.map((r) => r.name), ['Round 1', 'Quarter-Finals', 'Semi-Finals', 'Finals']);
   // Seeds 1 and 2 start in opposite halves, so they can meet only in the final.
-  const inTopHalf = (id) => bracket.rounds[0].matches.find((m) => m.participants.includes(id)).position < 4;
+  const inTopHalf = (id) => bracket.rounds[0].matchIds.map((mid) => matches.get(mid))
+    .find((m) => m.participants.includes(id)).position < 4;
   assert(inTopHalf('player-roger-federer') !== inTopHalf('player-rafael-nadal'));
 
   const seedOf = (id) => participantMap.get(id).seed;
-  playToCompletion(bracket, recordSingleResult, (m) => pickWinner(m, seedOf, random));
+  assert(playToCompletion(tournament, advanceSingle, (m) => pickWinner(m, seedOf, random)));
 
-  assert(bracket.isComplete);
-  assertSequentialPlaces(getSingleStandings(bracket, participantMap), 15);
+  assertSequentialPlaces(getSingleStandings(bracket, matches, participantMap), 15);
 
+  store.setMatches(matches);
   store.set('bracket', bracket);
-  store.setMatches(bracket.matches);
   store.set('meta.status', 'complete');
   const copy = roundTrip(store);
   assertEquals(copy.get('meta.type'), 'single');
   assertEquals(copy.getParticipantList().length, 15);
-  assertEquals(copy.get('matches').size, bracket.matches.size);
+  assertEquals(copy.get('matches').size, matches.size);
 });
 
 Deno.test('Double elimination: 8 fighting-game players play through grand finals', () => {
@@ -142,26 +142,26 @@ Deno.test('Double elimination: 8 fighting-game players play through grand finals
   });
   const participants = store.getParticipantList();
   const participantMap = createParticipantMap(participants);
-  const bracket = generateDoubleEliminationBracket(participants);
+  const tournament = generateDoubleEliminationBracket(participants);
+  const { bracket, matches } = tournament;
 
   assertEquals(bracket.winners.rounds.map((r) => r.name), ['Winners R1', 'Winners Semis', 'Winners Finals']);
   bracket.losers.rounds.forEach((round, i) => {
-    for (const match of round.matches) assertEquals(match.isMinorRound, i % 2 === 0);
+    for (const id of round.matchIds) assertEquals(matches.get(id).isMinorRound, i % 2 === 0);
   });
 
   const seedOf = (id) => participantMap.get(id).seed;
-  playToCompletion(bracket, recordDoubleResult, (m) => pickWinner(m, seedOf, random));
+  assert(playToCompletion(tournament, advanceDouble, (m) => pickWinner(m, seedOf, random)));
 
-  assert(bracket.isComplete);
-  assertSequentialPlaces(getDoubleStandings(bracket, participantMap), 8);
+  assertSequentialPlaces(getDoubleStandings(bracket, matches, participantMap), 8);
 
+  store.setMatches(matches);
   store.set('bracket', bracket);
-  store.setMatches(bracket.matches);
   store.set('meta.status', 'complete');
   const copy = roundTrip(store);
   assertEquals(copy.get('meta.type'), 'double');
   assertEquals(copy.getParticipantList().length, 8);
-  assertEquals(copy.get('matches').size, bracket.matches.size);
+  assertEquals(copy.get('matches').size, matches.size);
 });
 
 Deno.test('Doubles: 16 tennis players in 8 teams play to a champion team', () => {
@@ -176,18 +176,18 @@ Deno.test('Doubles: 16 tennis players in 8 teams play to a champion team', () =>
     bracketType: 'single',
   });
 
-  assertEquals(tournament.teams.length, 8);
+  const { bracket, matches } = tournament;
+  assertEquals(bracket.teams.length, 8);
 
-  const teamSeeds = new Map(tournament.teams.map((t) => [t.id, t.seed]));
-  playToCompletion(tournament, recordDoublesResult, (m) => pickWinner(m, (id) => teamSeeds.get(id), random));
+  const teamSeeds = new Map(bracket.teams.map((t) => [t.id, t.seed]));
+  assert(playToCompletion(tournament, advanceSingle, (m) => pickWinner(m, (id) => teamSeeds.get(id), random)));
 
-  assert(tournament.isComplete);
-  const standings = getDoublesStandings(tournament);
+  const standings = getDoublesStandings(bracket, matches);
   assertSequentialPlaces(standings, 8);
   assert(standings[0].team, 'champion standing should carry team info');
 
-  store.set('bracket', tournament);
-  store.setMatches(tournament.matches);
+  store.setMatches(matches);
+  store.set('bracket', bracket);
   store.set('meta.status', 'complete');
   const copy = roundTrip(store);
   assertEquals(copy.getParticipantList().length, 16);

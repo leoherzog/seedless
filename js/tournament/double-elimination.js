@@ -3,13 +3,13 @@
  * Winners bracket + losers bracket + grand finals
  */
 
-import { nextPowerOf2, getSeedPositions } from './bracket-utils.js';
+import { nextPowerOf2, getSeedPositions, toMatchIds } from './bracket-utils.js';
 
 /**
  * Generate a double elimination bracket
  * @param {Object[]} participants - Array of participants
  * @param {Object} config - Tournament configuration
- * @returns {Object} Bracket structure
+ * @returns {{bracket: Object, matches: Map}} Bracket of round match ids, and the matches by id
  */
 export function generateDoubleEliminationBracket(participants, config = {}) {
   if (participants.length < 2) {
@@ -22,50 +22,30 @@ export function generateDoubleEliminationBracket(participants, config = {}) {
   const losersRounds = 2 * (winnersRounds - 1);
 
   const winners = generateWinnersBracket(seeded, bracketSize);
-  const losers = generateLosersBracket(bracketSize, winnersRounds);
+  const losers = generateLosersBracket(bracketSize, losersRounds);
   const grandFinals = generateGrandFinals();
 
-  // Combine all matches into one map
-  const matches = new Map();
-
-  // Winners bracket matches
-  for (const round of winners.rounds) {
-    for (const match of round.matches) {
-      matches.set(match.id, match);
-    }
-  }
-
-  // Losers bracket matches
-  for (const round of losers.rounds) {
-    for (const match of round.matches) {
-      matches.set(match.id, match);
-    }
-  }
-
-  // Grand finals
-  matches.set(grandFinals.match.id, grandFinals.match);
-  if (grandFinals.reset) {
-    matches.set(grandFinals.reset.id, grandFinals.reset);
-  }
-
   // Process winners bracket byes
-  processWinnersByes(winners, losers, matches);
+  processWinnersByes(winners);
 
   // Mark losers-bracket slots that can never be filled because their feeding
   // winners match was a bye (a bye produces no loser to drop down).
   markDeadLosersSlots(winners, losers);
 
+  const matches = [...winners.rounds, ...losers.rounds].flatMap(r => r.matches).concat(grandFinals);
+
   return {
-    type: 'double',
-    winners,
-    losers,
-    grandFinals,
-    matches,
-    bracketSize,
-    winnersRounds,
-    losersRounds,
-    participantCount: seeded.length,
-    isComplete: false,
+    bracket: {
+      type: 'double',
+      winners: { rounds: toMatchIds(winners.rounds) },
+      losers: { rounds: toMatchIds(losers.rounds) },
+      grandFinals: grandFinals.map(m => m.id),
+      bracketSize,
+      winnersRounds,
+      losersRounds,
+      participantCount: seeded.length,
+    },
+    matches: new Map(matches.map(m => [m.id, m])),
   };
 }
 
@@ -96,9 +76,8 @@ function generateWinnersBracket(seeded, bracketSize) {
       participants: [p1?.id || null, p2?.id || null],
       scores: [0, 0],
       winnerId: null,
-      loserId: null,
       isBye: !p1 || !p2,
-      dropsTo: calculateDropTarget(1, i, bracketSize),
+      dropsTo: calculateDropTarget(1, i, numRounds),
     });
   }
 
@@ -119,9 +98,8 @@ function generateWinnersBracket(seeded, bracketSize) {
         participants: [null, null],
         scores: [0, 0],
         winnerId: null,
-        loserId: null,
         isBye: false,
-        dropsTo: calculateDropTarget(r + 1, m, bracketSize),
+        dropsTo: calculateDropTarget(r + 1, m, numRounds),
       });
     }
 
@@ -138,9 +116,8 @@ function generateWinnersBracket(seeded, bracketSize) {
 /**
  * Generate losers bracket
  */
-function generateLosersBracket(bracketSize, winnersRounds) {
+function generateLosersBracket(bracketSize, losersRounds) {
   const rounds = [];
-  const losersRounds = 2 * (winnersRounds - 1);
 
   let currentSize = bracketSize / 2;
 
@@ -155,7 +132,7 @@ function generateLosersBracket(bracketSize, winnersRounds) {
     const matchCount = currentSize / 2;
     const roundMatches = [];
 
-    for (let m = 0; m < Math.max(1, matchCount); m++) {
+    for (let m = 0; m < matchCount; m++) {
       roundMatches.push({
         id: `l${roundNum}m${m}`,
         bracket: 'losers',
@@ -180,11 +157,11 @@ function generateLosersBracket(bracketSize, winnersRounds) {
 }
 
 /**
- * Generate grand finals (and bracket reset)
+ * Generate grand finals and the bracket reset
  */
 function generateGrandFinals() {
-  return {
-    match: {
+  return [
+    {
       id: 'gf1',
       bracket: 'grandFinals',
       round: 1,
@@ -194,7 +171,7 @@ function generateGrandFinals() {
       winnerId: null,
       isBye: false,
     },
-    reset: {
+    {
       id: 'gf2',
       bracket: 'grandFinals',
       round: 2,
@@ -205,19 +182,16 @@ function generateGrandFinals() {
       isBye: false,
       requiresPlay: false, // Only if losers champ wins GF1
     },
-  };
+  ];
 }
 
 /**
  * Calculate where a loser drops to in losers bracket
  */
-function calculateDropTarget(winnersRound, position, bracketSize) {
-  const numWinnersRounds = Math.log2(bracketSize);
-  const numLosersRounds = 2 * (numWinnersRounds - 1);
-
+function calculateDropTarget(winnersRound, position, winnersRounds) {
   // Winners Finals loser goes to Losers Finals
-  if (winnersRound === numWinnersRounds) {
-    return { round: numLosersRounds, position: 0, slot: 1 };
+  if (winnersRound === winnersRounds) {
+    return { round: 2 * (winnersRounds - 1), position: 0, slot: 1 };
   }
 
   // W1 losers pair up in L1, W2 losers mix in L2, etc.
@@ -242,7 +216,7 @@ function calculateDropTarget(winnersRound, position, bracketSize) {
 /**
  * Process byes in winners bracket
  */
-function processWinnersByes(winners, losers, matches) {
+function processWinnersByes(winners) {
   for (let r = 0; r < winners.rounds.length - 1; r++) {
     const round = winners.rounds[r];
 
@@ -277,10 +251,7 @@ function processWinnersByes(winners, losers, matches) {
  * winner, so the slot it would have advanced into is dead too.
  */
 function markDeadLosersSlots(winners, losers) {
-  const round1 = winners.rounds[0];
-  if (!round1) return;
-
-  for (const match of round1.matches) {
+  for (const match of winners.rounds[0].matches) {
     if (match.isBye && match.dropsTo) {
       const losersRound = losers.rounds[match.dropsTo.round - 1];
       const targetMatch = losersRound?.matches[match.dropsTo.position];
@@ -314,32 +285,6 @@ function addDeadSlot(match, slot) {
 }
 
 /**
- * Resolve losers-bracket byes: any unresolved losers match that has exactly one
- * real participant and a permanently-dead slot auto-advances its lone participant.
- * Runs to a fixed point so cascading walkovers keep the bracket progressing.
- */
-function resolveLosersByes(bracket) {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const round of bracket.losers.rounds) {
-      for (const match of round.matches) {
-        if (match.winnerId) continue;
-        if (!match.deadSlots || match.deadSlots.length === 0) continue;
-
-        const realIds = match.participants.filter(p => p !== null);
-        if (realIds.length === 1) {
-          match.winnerId = realIds[0];
-          match.loserId = null;
-          advanceInLosers(bracket, match);
-          changed = true;
-        }
-      }
-    }
-  }
-}
-
-/**
  * Get winners round name
  */
 function getWinnersRoundName(roundNumber, totalRounds) {
@@ -352,195 +297,125 @@ function getWinnersRoundName(roundNumber, totalRounds) {
 }
 
 /**
- * Record match result in double elimination
+ * Apply a decided match: advance its winner, drop its loser, open the reset when
+ * the losers champion takes gf1, and walk over losers matches left without an opponent.
+ * @param {{bracket: Object, matches: Map}} tournament
+ * @param {string} matchId - Match whose winnerId is set
+ * @param {Function} [update] - (id, fields) writer for a match; defaults to the Map entry
+ * @returns {boolean} True once the champion is decided
  */
-export function recordMatchResult(bracket, matchId, scores, winnerId, reportedBy) {
-  const match = bracket.matches.get(matchId);
-  if (!match) {
-    throw new Error(`Match not found: ${matchId}`);
-  }
-
-  match.scores = scores;
-  match.winnerId = winnerId;
-  match.reportedBy = reportedBy;
-  match.reportedAt = Date.now();
-
-  const loserId = match.participants.find(p => p !== winnerId);
-  match.loserId = loserId;
+export function advance({ bracket, matches }, matchId, update = (id, fields) => Object.assign(matches.get(id), fields)) {
+  const ctx = { bracket, matches, update };
+  const [gf1, gf2] = bracket.grandFinals;
+  const match = matches.get(matchId);
 
   if (match.bracket === 'winners') {
-    // Advance winner in winners bracket
-    advanceInWinners(bracket, match);
-    // Drop loser to losers bracket
-    if (loserId && !match.isBye) {
-      dropToLosers(bracket, match, loserId);
+    const nextId = bracket.winners.rounds[match.round]?.matchIds[Math.floor(match.position / 2)];
+    if (nextId) {
+      fillSlot(ctx, nextId, match.position % 2, match.winnerId);
+    } else {
+      fillSlot(ctx, gf1, 0, match.winnerId);
+    }
+
+    const loserId = match.participants.find(p => p && p !== match.winnerId);
+    if (loserId) {
+      const { round, position, slot } = match.dropsTo;
+      // With two players there is no losers bracket, so the loser goes straight to grand finals.
+      if (round < 1) {
+        fillSlot(ctx, gf1, 1, loserId);
+      } else {
+        fillSlot(ctx, bracket.losers.rounds[round - 1].matchIds[position], slot, loserId);
+      }
     }
   } else if (match.bracket === 'losers') {
-    // Advance winner in losers bracket (loser is eliminated)
-    advanceInLosers(bracket, match);
-  } else if (match.bracket === 'grandFinals') {
-    handleGrandFinals(bracket, match, winnerId);
+    advanceInLosers(ctx, match);
+  } else if (matchId === gf1 && match.winnerId === match.participants[1]) {
+    update(gf2, { participants: [...match.participants], requiresPlay: true });
   }
 
-  // Auto-advance any losers matches whose opponent slot is permanently empty
-  // (byes from non-power-of-2 fields) so the losers bracket keeps progressing.
-  resolveLosersByes(bracket);
-
-  checkTournamentComplete(bracket);
-  return bracket;
+  resolveLosersByes(ctx);
+  return championId(bracket, matches) !== null;
 }
 
 /**
- * Advance winner in winners bracket
+ * Write a participant into one slot of a match.
  */
-function advanceInWinners(bracket, match) {
-  const currentRoundIdx = match.round - 1;
-  const nextRound = bracket.winners.rounds[currentRoundIdx + 1];
+function fillSlot({ matches, update }, id, slot, participantId) {
+  update(id, { participants: matches.get(id).participants.with(slot, participantId) });
+}
 
-  if (nextRound) {
-    const nextMatchIdx = Math.floor(match.position / 2);
-    const nextMatch = nextRound.matches[nextMatchIdx];
-    if (nextMatch) {
-      const slot = match.position % 2;
-      nextMatch.participants[slot] = match.winnerId;
-    }
+/**
+ * Advance a losers-bracket winner, or send the losers champion to grand finals.
+ */
+function advanceInLosers(ctx, match) {
+  const round = ctx.bracket.losers.rounds[match.round];
+  if (round) {
+    const nextId = round.matchIds[match.isMinorRound ? match.position : Math.floor(match.position / 2)];
+    fillSlot(ctx, nextId, match.isMinorRound ? 0 : match.position % 2, match.winnerId);
   } else {
-    // Winners finals - advance to grand finals
-    bracket.grandFinals.match.participants[0] = match.winnerId;
+    fillSlot(ctx, ctx.bracket.grandFinals[0], 1, match.winnerId);
   }
 }
 
 /**
- * Drop loser to losers bracket
+ * Auto-advance each unresolved losers match whose only participant faces a dead slot.
+ * Walkovers only feed later rounds, so one pass in round order resolves every cascade.
  */
-function dropToLosers(bracket, match, loserId) {
-  if (!match.dropsTo) return;
-
-  // Degenerate case (e.g. 2-player: losersRounds === 0): there is no losers
-  // bracket, so the winners-final loser is the de-facto losers champion and
-  // drops straight into grand finals slot 1. Without this, grandFinals never
-  // fills and the tournament can never complete.
-  if (match.dropsTo.round < 1 || bracket.losers.rounds.length === 0) {
-    bracket.grandFinals.match.participants[1] = loserId;
-    return;
-  }
-
-  const losersRound = bracket.losers.rounds[match.dropsTo.round - 1];
-  if (losersRound) {
-    const targetMatch = losersRound.matches[match.dropsTo.position];
-    if (targetMatch) {
-      // Use the slot from dropsTo (0 or 1)
-      const slot = match.dropsTo.slot !== undefined ? match.dropsTo.slot : 1;
-      targetMatch.participants[slot] = loserId;
-    }
+function resolveLosersByes(ctx) {
+  for (const id of ctx.bracket.losers.rounds.flatMap(r => r.matchIds)) {
+    const match = ctx.matches.get(id);
+    const present = match.participants.filter(Boolean);
+    if (match.winnerId || !match.deadSlots?.length || present.length !== 1) continue;
+    ctx.update(id, { winnerId: present[0] });
+    advanceInLosers(ctx, ctx.matches.get(id));
   }
 }
 
 /**
- * Advance winner in losers bracket
+ * The champion: the reset winner when the reset was played, else the winners champion if they took gf1.
+ * @returns {string|null} Champion id, or null while grand finals are undecided
  */
-function advanceInLosers(bracket, match) {
-  const currentRoundIdx = match.round - 1;
-  const nextRound = bracket.losers.rounds[currentRoundIdx + 1];
-
-  if (nextRound) {
-    const nextMatchIdx = match.isMinorRound ? match.position : Math.floor(match.position / 2);
-    const nextMatch = nextRound.matches[nextMatchIdx];
-    if (nextMatch) {
-      const slot = match.isMinorRound ? 0 : match.position % 2;
-      nextMatch.participants[slot] = match.winnerId;
-    }
-  } else {
-    // Losers finals - advance to grand finals
-    bracket.grandFinals.match.participants[1] = match.winnerId;
-  }
-}
-
-/**
- * Handle grand finals result
- */
-function handleGrandFinals(bracket, match, winnerId) {
-  if (match.id === 'gf1') {
-    // First grand finals
-    if (winnerId === bracket.grandFinals.match.participants[1]) {
-      // Losers champ won - need bracket reset
-      bracket.grandFinals.reset.requiresPlay = true;
-      bracket.grandFinals.reset.participants = [...match.participants];
-    } else {
-      // Winners champ won - tournament over
-      bracket.isComplete = true;
-    }
-  } else if (match.id === 'gf2') {
-    // Bracket reset - whoever wins is champion
-    bracket.isComplete = true;
-  }
-}
-
-/**
- * Check if tournament is complete
- */
-function checkTournamentComplete(bracket) {
-  const gf1 = bracket.grandFinals.match;
-  const gf2 = bracket.grandFinals.reset;
-
-  if (gf1.winnerId) {
-    if (gf1.winnerId === gf1.participants[0]) {
-      // Winners champ won GF1
-      bracket.isComplete = true;
-    } else if (gf2.requiresPlay && gf2.winnerId) {
-      // Bracket reset completed
-      bracket.isComplete = true;
-    }
-  }
-
-  return bracket.isComplete;
+function championId(bracket, matches) {
+  const [gf1, gf2] = bracket.grandFinals.map(id => matches.get(id));
+  if (gf2.requiresPlay && gf2.winnerId) return gf2.winnerId;
+  if (gf1.winnerId && gf1.winnerId === gf1.participants[0]) return gf1.winnerId;
+  return null;
 }
 
 /**
  * Get final standings
+ * @param {Object} bracket - Bracket structure
+ * @param {Map} matches - Matches by id
+ * @param {Map} participants - Participants map
+ * @returns {Object[]} Standings array; empty until the champion is decided
  */
-export function getStandings(bracket, participants) {
-  if (!bracket.isComplete) return [];
+export function getStandings(bracket, matches, participants) {
+  const champion = championId(bracket, matches);
+  if (!champion) return [];
 
   const standings = [];
+  const p = participants.get(champion);
+  standings.push({ place: 1, participantId: champion, name: p?.name || 'Unknown' });
 
-  // Champion
-  let champion;
-  if (bracket.grandFinals.reset.requiresPlay && bracket.grandFinals.reset.winnerId) {
-    champion = bracket.grandFinals.reset.winnerId;
-  } else {
-    champion = bracket.grandFinals.match.winnerId;
+  // Runner-up
+  const runnerUp = matches.get(bracket.grandFinals[0]).participants.find(id => id !== champion);
+  if (runnerUp) {
+    const p2 = participants.get(runnerUp);
+    standings.push({ place: 2, participantId: runnerUp, name: p2?.name || 'Unknown' });
   }
 
-  if (champion) {
-    const p = participants.get(champion);
-    standings.push({ place: 1, participantId: champion, name: p?.name || 'Unknown' });
-
-    // Runner-up
-    const runnerUp = bracket.grandFinals.match.participants.find(id => id !== champion);
-    if (runnerUp) {
-      const p2 = participants.get(runnerUp);
-      standings.push({ place: 2, participantId: runnerUp, name: p2?.name || 'Unknown' });
-    }
-  }
-
-  // Track elimination for others
+  // Everyone else is eliminated by a losers-bracket loss; walkovers have no loser.
   const eliminated = new Map();
-
-  for (const round of bracket.losers.rounds) {
-    for (const match of round.matches) {
-      if (match.winnerId && match.loserId) {
-        if (!eliminated.has(match.loserId)) {
-          eliminated.set(match.loserId, { round: match.round, bracket: 'losers' });
-        }
-      }
-    }
+  for (const id of bracket.losers.rounds.flatMap(r => r.matchIds)) {
+    const match = matches.get(id);
+    const loserId = match.winnerId && match.participants.find(p => p && p !== match.winnerId);
+    if (loserId && !eliminated.has(loserId)) eliminated.set(loserId, match.round);
   }
 
   // Sort by elimination round
   const remaining = Array.from(eliminated.entries())
     .filter(([id]) => !standings.find(s => s.participantId === id))
-    .sort((a, b) => b[1].round - a[1].round);
+    .sort((a, b) => b[1] - a[1]);
 
   let place = 3;
   for (const [participantId] of remaining) {

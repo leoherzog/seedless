@@ -65,6 +65,15 @@ function generateMatchupOrder(n) {
 }
 
 /**
+ * Replace each round's match objects with their ids.
+ * @param {Object[]} rounds - Rounds holding a matches array
+ * @returns {Object[]} Rounds holding a matchIds array
+ */
+export function toMatchIds(rounds) {
+  return rounds.map(({ matches, ...round }) => ({ ...round, matchIds: matches.map(m => m.id) }));
+}
+
+/**
  * Get round name based on position from finals
  * @param {number} roundNumber - Current round number (1-indexed)
  * @param {number} totalRounds - Total number of rounds

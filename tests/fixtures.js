@@ -261,23 +261,39 @@ export function createTeamAssignments(participants, teamSize = 2) {
 }
 
 /**
- * Record a 2-0 result for every playable match until none remain. Each pass
+ * Record a result on a match, then advance the bracket past it.
+ * @param {{bracket: Object, matches: Map}} tournament
+ * @param {Function} advance - The bracket module's advance
+ * @param {string} matchId - Match to decide
+ * @param {string} winnerId - Winning participant or team
+ * @param {number[]} [scores]
+ * @returns {boolean} True once the tournament is complete
+ */
+export function report(tournament, advance, matchId, winnerId, scores = [2, 0]) {
+  Object.assign(tournament.matches.get(matchId), { scores, winnerId });
+  return advance(tournament, matchId);
+}
+
+/**
+ * Report a 2-0 result for every playable match until none remain. Each pass
  * records at least one result or stops, so a finite bracket always terminates.
- * @param {Object} bracket - Bracket with a matches Map
- * @param {Function} record - recordMatchResult(bracket, matchId, scores, winnerId, reportedBy)
+ * @param {{bracket: Object, matches: Map}} tournament
+ * @param {Function} advance - The bracket module's advance
  * @param {Function} pick - Chooses the winner of a match
  * @param {Function} [onRecord] - Called with each match after its result is recorded
+ * @returns {boolean} True once the tournament is complete
  */
-export function playToCompletion(bracket, record, pick = (m) => m.participants[0], onRecord) {
+export function playToCompletion(tournament, advance, pick = (m) => m.participants[0], onRecord) {
+  let complete = false;
   let progressed = true;
   while (progressed) {
     progressed = false;
-    for (const m of bracket.matches.values()) {
+    for (const m of tournament.matches.values()) {
       if (m.isBye || m.winnerId || !m.participants[0] || !m.participants[1]) continue;
-      const w = pick(m);
-      record(bracket, m.id, [2, 0], w, w);
+      complete = report(tournament, advance, m.id, pick(m));
       onRecord?.(m);
       progressed = true;
     }
   }
+  return complete;
 }
