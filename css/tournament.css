@@ -1,20 +1,16 @@
 /**
  * Seedless Tournament Styles
- * Extends PicoCSS with tournament-specific styling
+ * Extends PicoCSS with tournament-specific styling. Load after Pico so equal-specificity rules win.
  */
 
-/* Root variables */
 :root {
-  --seedless-accent: var(--pico-color-jade-500);
-  --seedless-winner: var(--pico-color-green-500);
-  --seedless-loser: var(--pico-color-red-500);
-  --seedless-pending: var(--pico-color-grey-500);
-  --seedless-gold: var(--pico-color-amber-350);
-  --seedless-silver: var(--pico-color-grey-350);
-  --seedless-bronze: var(--pico-color-pumpkin-500);
-  --seedless-warning: var(--pico-color-amber-500);
-  --bracket-line-color: var(--pico-muted-border-color);
-  --bracket-line-width: 2px;
+  --seedless-accent: #00895a;
+  --seedless-winner: #398712;
+  --seedless-loser: #d93526;
+  --seedless-gold: #c79400;
+  --seedless-silver: #9e9e9e;
+  --seedless-bronze: #ad6400;
+  --seedless-warning: #977000;
 }
 
 /* Navigation adjustments */
@@ -61,7 +57,6 @@ nav #connection-status {
   50% { opacity: 0.4; }
 }
 
-/* Home view */
 #home-view hgroup {
   text-align: center;
   margin-bottom: 2rem;
@@ -73,7 +68,6 @@ nav #connection-status {
 
 /* Lobby view */
 #participant-list {
-  list-style: none;
   padding: 0;
   margin: 0;
 }
@@ -120,22 +114,21 @@ nav #connection-status {
   margin: 0;
 }
 
-#participant-list .admin-badge {
-  background: var(--pico-primary);
-  color: var(--pico-primary-inverse);
+#participant-list :is(.admin-badge, .manual-badge) {
   font-size: 0.65rem;
   padding: 0.15em 0.4em;
-  border-radius: 0.25rem;
+  border-radius: var(--pico-border-radius);
   text-transform: uppercase;
+}
+
+#participant-list .admin-badge {
+  background: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
 }
 
 #participant-list .manual-badge {
   background: var(--pico-muted-color);
   color: var(--pico-background-color);
-  font-size: 0.65rem;
-  padding: 0.15em 0.4em;
-  border-radius: 0.25rem;
-  text-transform: uppercase;
 }
 
 #participant-list .seed-badge {
@@ -148,7 +141,6 @@ nav #connection-status {
   text-align: center;
 }
 
-/* Add offline player form (admin only) */
 #add-participant-footer {
   margin-top: 1rem;
   padding-top: 0.75rem;
@@ -157,7 +149,6 @@ nav #connection-status {
 
 #add-participant-footer details summary {
   font-size: 0.9rem;
-  cursor: pointer;
   padding: 0.5rem 0;
 }
 
@@ -172,10 +163,6 @@ nav #connection-status {
 
 #add-participant-footer [role="group"] {
   margin-bottom: 0.25rem;
-}
-
-#add-participant-footer [role="group"] input {
-  flex: 1;
 }
 
 #add-participant-footer [role="group"] button {
@@ -195,14 +182,12 @@ nav #connection-status {
   opacity: 0.5;
 }
 
-/* Tournament type selection */
 #tournament-config details summary {
   padding: 0.5rem;
 }
 
 #tournament-config details summary label {
   margin-bottom: 0;
-  cursor: pointer;
 }
 
 #tournament-config details[open] summary {
@@ -216,13 +201,11 @@ nav #connection-status {
   margin-bottom: 0.5rem;
 }
 
-/* Share link section */
 #share-link {
   font-family: monospace;
   font-size: 0.85rem;
 }
 
-/* Bracket view */
 .bracket-header {
   display: flex;
   justify-content: space-between;
@@ -237,10 +220,7 @@ nav #connection-status {
 }
 
 #bracket-tabs ul {
-  display: flex;
   gap: 0.5rem;
-  list-style: none;
-  padding: 0;
   margin: 0;
 }
 
@@ -248,12 +228,6 @@ nav #connection-status {
   padding: 0.5rem 1rem;
 }
 
-#bracket-tabs button[aria-current="true"] {
-  background: var(--pico-primary);
-  color: var(--pico-primary-inverse);
-}
-
-/* Bracket container */
 #bracket-container {
   display: flex;
   gap: 1.5rem;
@@ -281,7 +255,6 @@ nav #connection-status {
 }
 
 .match-card header {
-  background: var(--pico-card-sectioning-background-color);
   padding: 0.3rem 0.5rem;
   font-size: 0.75rem;
   display: flex;
@@ -313,7 +286,7 @@ nav #connection-status {
   font-weight: 500;
 }
 
-.match-card .participant .name.tbd {
+.match-card .tbd {
   color: var(--pico-muted-color);
   font-style: italic;
 }
@@ -351,31 +324,24 @@ nav #connection-status {
   background: none;
 }
 
-.match-card .status-badge {
+.status-badge {
   font-size: 0.65rem;
   padding: 0.1em 0.3em;
   border-radius: 0.2rem;
   text-transform: uppercase;
+  color: white;
 }
 
-.match-card .status-badge.live {
+.status-badge.live {
   background: var(--seedless-accent);
-  color: white;
 }
 
-.match-card .status-badge.complete {
+.status-badge.complete {
   background: var(--seedless-winner);
-  color: white;
 }
 
-.match-card .status-badge.pending {
+.status-badge.pending {
   background: var(--pico-muted-color);
-  color: white;
-}
-
-/* Bracket connector lines (CSS only for single elim) */
-.bracket-round:not(:last-child) .match-card {
-  position: relative;
 }
 
 /* Button that reads as an inline link, e.g. even-split suggestions */
@@ -391,9 +357,9 @@ button.inline-link:focus-visible {
   outline-offset: 2px;
 }
 
-/* Standings panel */
 #standings-panel {
   margin-top: 1rem;
+  max-width: 500px;
 }
 
 #standings-table {
@@ -411,7 +377,6 @@ button.inline-link:focus-visible {
   text-align: right;
 }
 
-/* Results view */
 #results-view article {
   max-width: 500px;
   margin: 2rem auto;
@@ -434,23 +399,23 @@ button.inline-link:focus-visible {
 
 #final-standings .place.first {
   background: var(--seedless-gold);
-  color: var(--pico-color-amber-950);
+  color: #161003;
   font-size: 1.2rem;
   font-weight: 600;
 }
 
 #final-standings .place.second {
   background: var(--seedless-silver);
-  color: var(--pico-color-grey-950);
+  color: #111111;
 }
 
 #final-standings .place.third {
   background: var(--seedless-bronze);
-  color: var(--pico-color-pumpkin-950);
+  color: #180f04;
 }
 
-/* Score modal */
-#score-modal article {
+#score-modal article,
+#race-result-modal article {
   max-width: 400px;
 }
 
@@ -464,7 +429,6 @@ button.inline-link:focus-visible {
   font-weight: 600;
 }
 
-/* Toast notifications */
 #toast-container {
   position: fixed;
   bottom: 1rem;
@@ -530,7 +494,6 @@ button.inline-link:focus-visible {
   animation: slideOut 0.3s ease forwards;
 }
 
-/* Responsive adjustments */
 @media (max-width: 768px) {
   #bracket-container {
     flex-direction: column;
@@ -565,13 +528,6 @@ body.is-admin #participant-panel {
 
 body:not(.is-admin) #admin-panel {
   display: none;
-}
-
-/* ===== Points Race / Mario Kart Styles ===== */
-
-/* Race result modal */
-#race-result-modal article {
-  max-width: 400px;
 }
 
 .race-instructions {
@@ -648,7 +604,6 @@ body:not(.is-admin) #admin-panel {
   font-weight: 500;
 }
 
-/* Games grid layout */
 .games-header {
   display: flex;
   justify-content: space-between;
@@ -671,12 +626,10 @@ body:not(.is-admin) #admin-panel {
 
 /* Game card - uses PicoCSS <article> styling for background/border/radius */
 .game-card {
-  /* Base card styling provided by PicoCSS <article> */
   overflow: hidden;
 }
 
 .game-card header {
-  background: var(--pico-card-sectioning-background-color);
   padding: 0.5rem 0.75rem;
   display: flex;
   justify-content: space-between;
@@ -734,10 +687,6 @@ body:not(.is-admin) #admin-panel {
   font-style: italic;
 }
 
-.game-card.complete {
-  border-color: var(--seedless-winner);
-}
-
 .game-card.complete header {
   background: color-mix(in srgb, var(--seedless-winner) 15%, var(--pico-card-sectioning-background-color));
 }
@@ -751,11 +700,6 @@ body:not(.is-admin) #admin-panel {
 .game-card footer button {
   padding: 0.4rem 0.8rem;
   font-size: 0.8rem;
-}
-
-/* Enhanced standings table for Points Race */
-#standings-panel {
-  max-width: 500px;
 }
 
 #standings-table th:nth-child(4),
@@ -774,9 +718,6 @@ body:not(.is-admin) #admin-panel {
   color: var(--seedless-accent);
 }
 
-/* ===== Doubles / Team Mode Styles ===== */
-
-/* Team assignment controls */
 #team-assignment-controls {
   display: flex;
   gap: 0.5rem;
@@ -789,7 +730,6 @@ body:not(.is-admin) #admin-panel {
   min-width: 140px;
 }
 
-/* Team assignment status */
 #team-assignment-status {
   margin-bottom: 1rem;
 }
@@ -811,7 +751,6 @@ body:not(.is-admin) #admin-panel {
   color: var(--seedless-warning);
 }
 
-/* Team assignment grid */
 .team-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -846,13 +785,11 @@ body:not(.is-admin) #admin-panel {
   gap: 0.5rem;
 }
 
-.team-box h5 i {
+.team-box h5 .fa-check {
   color: var(--seedless-winner);
 }
 
-/* Team members list */
 .team-members {
-  list-style: none;
   padding: 0;
   margin: 0;
 }
@@ -895,14 +832,12 @@ body:not(.is-admin) #admin-panel {
   background: transparent;
   border: none;
   color: var(--pico-muted-color);
-  cursor: pointer;
 }
 
 .team-members .remove-from-team:hover {
   color: var(--seedless-loser);
 }
 
-/* Unassigned participants */
 #unassigned-participants {
   margin-top: 1rem;
   padding-top: 1rem;
@@ -919,7 +854,6 @@ body:not(.is-admin) #admin-panel {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  list-style: none;
   padding: 0;
   margin: 0;
   min-height: 40px;
@@ -931,6 +865,7 @@ body:not(.is-admin) #admin-panel {
 }
 
 #unassigned-list li {
+  list-style: none;
   padding: 0.4rem 0.75rem;
   background: var(--pico-card-sectioning-background-color);
   border: 1px solid var(--pico-muted-border-color);
@@ -949,11 +884,12 @@ body:not(.is-admin) #admin-panel {
   transform: scale(0.98);
 }
 
-/* Team match cards */
 .match-card.team-match .participant.team {
+  position: relative;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.2rem;
+  padding-right: 2.5rem;
 }
 
 .match-card.team-match .team-name {
@@ -965,9 +901,6 @@ body:not(.is-admin) #admin-panel {
   font-size: 0.75rem;
   color: var(--pico-muted-color);
   display: block;
-  padding: 0;
-  margin: 0;
-  background: none;
 }
 
 .match-card.team-match .participant .score {
@@ -977,12 +910,6 @@ body:not(.is-admin) #admin-panel {
   transform: translateY(-50%);
 }
 
-.match-card.team-match .participant {
-  position: relative;
-  padding-right: 2.5rem;
-}
-
-/* Responsive adjustments for team assignment */
 @media (max-width: 576px) {
   .team-grid {
     grid-template-columns: 1fr;
@@ -991,13 +918,7 @@ body:not(.is-admin) #admin-panel {
   #team-assignment-controls {
     flex-direction: column;
   }
-
-  #team-assignment-controls button {
-    width: 100%;
-  }
 }
-
-/* ===== Tournament History Styles ===== */
 
 .tournament-history {
   margin-top: 2rem;
@@ -1030,25 +951,6 @@ body:not(.is-admin) #admin-panel {
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  cursor: pointer;
-  list-style: none;
-}
-
-.history-entry summary::-webkit-details-marker {
-  display: none;
-}
-
-.history-entry summary::before {
-  content: '\f054';
-  font-family: 'Font Awesome 6 Free';
-  font-weight: 900;
-  font-size: 0.7rem;
-  color: var(--pico-muted-color);
-  transition: transform 0.2s;
-}
-
-.history-entry[open] summary::before {
-  transform: rotate(90deg);
 }
 
 .history-entry .history-icon {

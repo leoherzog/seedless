@@ -16,13 +16,11 @@
   <meta name="theme-color" content="#373c44" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#c2c7d0" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/tournament.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.colors.min.css">
+  <link rel="stylesheet" href="css/tournament.css">
   <script async src="https://kit.fontawesome.com/837d39454a.js" crossorigin="anonymous"></script>
 </head>
 <body>
-  <!-- Navigation -->
   <nav class="container">
     <ul>
       <li><a href="/" id="home-link"><strong><span class="fa-solid fa-seedling">🌱</span> Seedless</strong></a></li>
@@ -43,7 +41,6 @@
   </nav>
 
   <main class="container">
-    <!-- Home View (no room) -->
     <section id="home-view" data-view="home">
       <hgroup>
         <h1>Seedless</h1>
@@ -100,10 +97,8 @@
       </div>
     </section>
 
-    <!-- Lobby View -->
     <section id="lobby-view" data-view="lobby" hidden>
       <div class="grid">
-        <!-- Admin Panel (shown only to admin) -->
         <article id="admin-panel">
           <header>
             <span class="fa-solid fa-cog">⚙</span> Tournament Settings
@@ -229,14 +224,10 @@
                 </button>
               </div>
               <div id="team-assignment-status"></div>
-              <div id="team-assignment-grid" class="team-grid">
-                <!-- Dynamically populated with team boxes -->
-              </div>
+              <div id="team-assignment-grid" class="team-grid"></div>
               <div id="unassigned-participants">
                 <h5>Unassigned Participants</h5>
-                <ul id="unassigned-list" role="list">
-                  <!-- Participants not yet in a team -->
-                </ul>
+                <ul id="unassigned-list" role="list"></ul>
               </div>
             </fieldset>
 
@@ -246,7 +237,6 @@
           </form>
         </article>
 
-        <!-- Participant Panel (shown only to non-admin) -->
         <article id="participant-panel">
           <header>
             <span class="fa-solid fa-hourglass-half">⏳</span> Waiting for Tournament
@@ -274,16 +264,12 @@
           </button>
         </article>
 
-        <!-- Participants List -->
         <article id="participants-panel">
           <header>
             <span class="fa-solid fa-users">👥</span> Participants (<span id="participant-count">0</span>)
           </header>
-          <ul id="participant-list" role="list">
-            <!-- Populated by JS -->
-          </ul>
+          <ul id="participant-list" role="list"></ul>
 
-          <!-- Add Offline Player (admin only) -->
           <div id="add-participant-footer" class="admin-only">
             <details>
               <summary><span class="fa-solid fa-user-plus">➕</span> Add Offline Player</summary>
@@ -305,9 +291,9 @@
           <footer>
             <details>
               <summary>Share Link</summary>
-              <div class="grid">
+              <div role="group">
                 <input type="text" id="share-link" readonly>
-                <button type="button" id="copy-link-btn" class="outline">
+                <button type="button" id="copy-link-btn" class="outline" aria-label="Copy link">
                   <span class="fa-solid fa-copy">📋</span>
                 </button>
               </div>
@@ -317,15 +303,12 @@
       </div>
     </section>
 
-    <!-- Results View -->
     <section id="results-view" data-view="results" hidden>
       <article>
         <header>
           <span class="fa-solid fa-crown">👑</span> Tournament Complete!
         </header>
-        <div id="final-standings">
-          <!-- Populated by JS -->
-        </div>
+        <div id="final-standings"></div>
         <footer>
           <button id="new-tournament-btn">
             <span class="fa-solid fa-rotate">↻</span> New Tournament
@@ -334,7 +317,6 @@
       </article>
     </section>
 
-    <!-- Bracket View -->
     <section id="bracket-view" data-view="bracket" hidden>
       <header class="bracket-header">
         <hgroup>
@@ -342,7 +324,6 @@
           <p id="bracket-status">In Progress</p>
         </hgroup>
 
-        <!-- For double elimination -->
         <nav id="bracket-tabs" hidden>
           <ul>
             <li><button aria-current="true" data-bracket="winners">Winners</button></li>
@@ -352,7 +333,6 @@
         </nav>
       </header>
 
-      <!-- Standings for Mario Kart mode -->
       <aside id="standings-panel" hidden>
         <h3><span class="fa-solid fa-ranking-star">⭐</span> Standings</h3>
         <table id="standings-table">
@@ -363,19 +343,14 @@
               <th>Points</th>
             </tr>
           </thead>
-          <tbody>
-            <!-- Populated by JS -->
-          </tbody>
+          <tbody></tbody>
         </table>
       </aside>
 
-      <div id="bracket-container">
-        <!-- Bracket rounds populated by JS -->
-      </div>
+      <div id="bracket-container"></div>
     </section>
   </main>
 
-  <!-- Score Reporting Modal -->
   <dialog id="score-modal">
     <article>
       <header>
@@ -421,7 +396,6 @@
     </article>
   </dialog>
 
-  <!-- Race Result Modal (Points Race) -->
   <dialog id="race-result-modal">
     <article>
       <header>
@@ -432,9 +406,7 @@
 
       <p class="race-instructions">Drag players to set their finishing positions:</p>
 
-      <ol id="race-ranking-list" class="race-ranking">
-        <!-- Populated by JS with draggable items -->
-      </ol>
+      <ol id="race-ranking-list" class="race-ranking"></ol>
 
       <input type="hidden" id="race-id" name="race-id">
 
@@ -447,7 +419,6 @@
     </article>
   </dialog>
 
-  <!-- Room Exists Confirmation Modal -->
   <dialog id="room-exists-modal">
     <article>
       <header>
@@ -467,10 +438,8 @@
     </article>
   </dialog>
 
-  <!-- Toast Container -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <!-- Main App Script -->
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
