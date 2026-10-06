@@ -7,15 +7,12 @@ import {
   sanitizeRoomSlug,
   formatRoomSlugInput,
   parseUrlState,
-  updateUrlState,
   navigateToRoom,
   navigateToHome,
   getRoomLink,
-  URL_PARAMS,
 } from "../js/state/url-state.js";
 
 function createMockWindow() {
-  const listeners = new Map();
   const dispatched = [];
 
   const window = {
@@ -40,18 +37,9 @@ function createMockWindow() {
         window.location.pathname = u.pathname;
       },
     },
-    addEventListener(type, handler) {
-      if (!listeners.has(type)) {
-        listeners.set(type, []);
-      }
-      listeners.get(type).push(handler);
-    },
     dispatchEvent(event) {
       dispatched.push(event);
-      const handlers = listeners.get(event.type) || [];
-      handlers.forEach(h => h(event));
     },
-    _listeners: listeners,
     _dispatched: dispatched,
   };
 
@@ -177,13 +165,13 @@ Deno.test('url-state behaviors', async (t) => {
     assertEquals(parseUrlState(), { roomId: 'abc' });
   });
 
-  await t.step('updateUrlState pushes and dispatches urlstatechange', () => {
-    windowMock.location.search = '?room=abc';
-    updateUrlState({ extra: 'x' });
+  await t.step('navigateToRoom pushes, keeps other params and dispatches urlstatechange', () => {
+    windowMock.location.search = '?room=abc&extra=x';
+    navigateToRoom('def');
 
     assertEquals(windowMock.history._pushes.length, 1);
     const query = getQuery(windowMock.history._pushes[0].url);
-    assertEquals(query.get(URL_PARAMS.ROOM), 'abc');
+    assertEquals(query.get('room'), 'def');
     assertEquals(query.get('extra'), 'x');
 
     assertEquals(windowMock._dispatched.at(-1).type, 'urlstatechange');

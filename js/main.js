@@ -139,7 +139,8 @@ function urlRoomId() {
  */
 function viewFor(roomId) {
   if (!roomId) return VIEWS.HOME;
-  const status = store.get('meta.status');
+  // The store fills only once the room connects, so until then the saved tournament decides.
+  const status = getRoom() ? store.get('meta.status') : loadTournament(roomId)?.meta?.status;
   return status === 'active' || status === 'complete' ? VIEWS.BRACKET : VIEWS.LOBBY;
 }
 

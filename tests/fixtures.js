@@ -5,23 +5,20 @@
 
 /**
  * Create a mock DOM element with the properties and methods the app touches
- * @param {string} tag - Element tag name
  * @param {Object} options - Initial property values
  * @returns {Object} Mock element
  */
-export function createMockElement(tag = 'div', options = {}) {
+export function createMockElement(options = {}) {
   const children = [];
   const eventListeners = new Map();
   const classList = new Set(options.classList || []);
 
   const element = {
-    tagName: tag.toUpperCase(),
     hidden: options.hidden ?? false,
     disabled: options.disabled ?? false,
     value: options.value ?? '',
     textContent: options.textContent ?? '',
     innerHTML: options.innerHTML ?? '',
-    checked: options.checked ?? false,
     dataset: options.dataset ?? {},
     id: options.id ?? '',
     children,
@@ -48,14 +45,6 @@ export function createMockElement(tag = 'div', options = {}) {
       eventListeners.get(type).push({ handler, options });
     },
 
-    removeEventListener: (type, handler) => {
-      const listeners = eventListeners.get(type);
-      if (listeners) {
-        const idx = listeners.findIndex(l => l.handler === handler);
-        if (idx >= 0) listeners.splice(idx, 1);
-      }
-    },
-
     dispatchEvent: (event) => {
       const listeners = eventListeners.get(event.type) || [];
       listeners.forEach(({ handler }) => handler(event));
@@ -74,9 +63,7 @@ export function createMockElement(tag = 'div', options = {}) {
     close: () => {},
     select: () => {},
     focus: () => {},
-    blur: () => {},
     scrollIntoView: () => {},
-    getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
   };
 
   return element;
@@ -101,10 +88,7 @@ function createMockDocument() {
 
     querySelectorAll: () => [],
 
-    createElement: (tag) => createMockElement(tag),
-
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    createElement: () => createMockElement(),
 
     _elements: elements,
     _addElement: (id, el) => {
@@ -121,21 +105,66 @@ function createMockDocument() {
  */
 export function installBracketViewDom() {
   const doc = createMockDocument();
-  doc._addElement('score-modal', createMockElement('dialog'));
-  doc._addElement('race-result-modal', createMockElement('dialog'));
-  doc._addElement('submit-score-btn', createMockElement('button'));
-  doc._addElement('submit-race-btn', createMockElement('button'));
-  doc._addElement('score1', createMockElement('input'));
-  doc._addElement('score2', createMockElement('input'));
-  doc._addElement('race-ranking-list', createMockElement('ol'));
+  doc._addElement('score-modal', createMockElement());
+  doc._addElement('race-result-modal', createMockElement());
+  doc._addElement('submit-score-btn', createMockElement());
+  doc._addElement('submit-race-btn', createMockElement());
+  doc._addElement('score1', createMockElement());
+  doc._addElement('score2', createMockElement());
+  doc._addElement('race-ranking-list', createMockElement());
   for (const id of ['bracket-tabs', 'bracket-title', 'bracket-status', 'standings-panel', 'bracket-container', 'final-standings']) {
-    doc._addElement(id, createMockElement('div'));
+    doc._addElement(id, createMockElement());
   }
-  doc._addElement('bracket-view', createMockElement('section', { hidden: false }));
-  doc._addElement('results-view', createMockElement('section', { hidden: true }));
-  doc._addElement('tournament-history', createMockElement('section', { hidden: true }));
+  doc._addElement('bracket-view', createMockElement({ hidden: false }));
+  doc._addElement('results-view', createMockElement({ hidden: true }));
+  doc._addElement('tournament-history', createMockElement({ hidden: true }));
   globalThis.document = doc;
   return doc;
+}
+
+/**
+ * A radio group mock whose value reads and checks its radios, like a RadioNodeList.
+ * Each radio sits in its own details, and the first is checked by default.
+ * @param {string[]} values - Radio values
+ * @returns {Object[]} The radios
+ */
+function createRadioGroup(values) {
+  const radios = values.map((value, i) => {
+    const details = { open: false };
+    return { value, checked: i === 0, defaultChecked: i === 0, closest: () => details };
+  });
+  return Object.defineProperty(radios, 'value', {
+    get: () => radios.find((r) => r.checked)?.value ?? '',
+    set: (value) => radios.forEach((r) => { r.checked = r.value === value; }),
+  });
+}
+
+/**
+ * A mock #tournament-config form whose controls start at their index.html defaults and return to them on reset.
+ * @returns {Object} Mock form
+ */
+function createSettingsForm() {
+  const form = createMockElement();
+  const inputs = {
+    'tournament-name': '', 'players-per-game': '4', 'games-per-player': '5', 'leftover-seats': 'smaller',
+    'points-table': 'standard', 'team-size': '2', 'doubles-bracket-type': 'single',
+  };
+  form.elements = {
+    type: createRadioGroup(['single', 'double', 'mariokart', 'doubles']),
+    seeding: createRadioGroup(['random', 'manual']),
+    ...Object.fromEntries(Object.entries(inputs).map(([name, value]) => [name, { name, value, defaultValue: value }])),
+  };
+  form.contains = (el) => Object.values(form.elements).flat().includes(el);
+  form.reset = () => {
+    for (const control of Object.values(form.elements)) {
+      if (Array.isArray(control)) {
+        control.forEach((r) => { r.checked = r.defaultChecked; });
+      } else {
+        control.value = control.defaultValue;
+      }
+    }
+  };
+  return form;
 }
 
 /**
@@ -144,8 +173,9 @@ export function installBracketViewDom() {
  */
 export function installLobbyDom() {
   const doc = createMockDocument();
+  doc._addElement('tournament-config', createSettingsForm());
   for (const id of [
-    'tournament-config', 'games-per-player', 'game-plan-summary', 'start-tournament-btn',
+    'games-per-player', 'game-plan-summary', 'start-tournament-btn',
     'auto-assign-teams-btn', 'clear-teams-btn', 'update-name-form', 'leave-tournament-btn', 'my-name',
     'participant-list', 'share-link', 'copy-link-btn', 'share-btn', 'add-manual-participant-form',
     'manual-participant-name', 'admin-panel', 'participant-panel', 'add-participant-footer',
@@ -153,7 +183,7 @@ export function installLobbyDom() {
     'team-assignment-fieldset', 'team-assignment-grid', 'unassigned-list', 'team-assignment-status',
     'toast-container',
   ]) {
-    doc._addElement(id, createMockElement('div'));
+    doc._addElement(id, createMockElement());
   }
   globalThis.document = doc;
   return doc;
@@ -161,10 +191,9 @@ export function installLobbyDom() {
 
 /**
  * Create a mock P2P room with the interface sync.js uses
- * @param {string} selfId - Local peer ID
  * @returns {Object} Mock room
  */
-export function createMockRoom(selfId = 'local-peer-id') {
+export function createMockRoom() {
   const actionHandlers = new Map();
   const broadcasts = [];
   const sentMessages = [];
@@ -173,20 +202,18 @@ export function createMockRoom(selfId = 'local-peer-id') {
   let peers = [];
 
   return {
-    selfId,
-
     onAction: (type, handler) => {
       actionHandlers.set(type, handler);
     },
 
     broadcast: (type, payload) => {
-      broadcasts.push({ type, payload, timestamp: Date.now() });
+      broadcasts.push({ type, payload });
     },
 
     sendTo: (type, payload, peerId) => {
       const peerIds = Array.isArray(peerId) ? peerId : [peerId];
       peerIds.forEach(pid => {
-        sentMessages.push({ type, payload, peerId: pid, timestamp: Date.now() });
+        sentMessages.push({ type, payload, peerId: pid });
       });
     },
 
@@ -200,15 +227,13 @@ export function createMockRoom(selfId = 'local-peer-id') {
 
     getPeers: () => peers,
 
-    leave: () => {
-      peers = [];
-    },
-
     _broadcasts: broadcasts,
     _sentMessages: sentMessages,
 
-    /** Deliver an action as if sent by fromPeerId; returns the handler's result. */
-    _simulateAction: (type, payload, fromPeerId) => actionHandlers.get(type)?.(payload, fromPeerId),
+    /** Deliver an action as if sent by fromPeerId. */
+    _simulateAction: (type, payload, fromPeerId) => {
+      actionHandlers.get(type)?.(payload, fromPeerId);
+    },
 
     _simulatePeerJoin: (peerId) => {
       peers.push(peerId);
@@ -281,7 +306,7 @@ export function createTeamAssignments(participants, teamSize = 2) {
 }
 
 /**
- * Record a result on a match, then advance the bracket past it.
+ * Record a result on a match, then advance the bracket.
  * @param {{bracket: Object, matches: Map}} tournament
  * @param {Function} advance - The bracket module's advance
  * @param {string} matchId - Match to decide
@@ -291,12 +316,12 @@ export function createTeamAssignments(participants, teamSize = 2) {
  */
 export function report(tournament, advance, matchId, winnerId, scores = [2, 0]) {
   Object.assign(tournament.matches.get(matchId), { scores, winnerId });
-  return advance(tournament, matchId);
+  return advance(tournament);
 }
 
 /**
- * Report a 2-0 result for every playable match until none remain. Each pass
- * records at least one result or stops, so a finite bracket always terminates.
+ * Report a 2-0 result for every playable match until none remain. A pass that
+ * decides no match ends the loop, so a stuck bracket fails its caller's asserts.
  * @param {{bracket: Object, matches: Map}} tournament
  * @param {Function} advance - The bracket module's advance
  * @param {Function} pick - Chooses the winner of a match
@@ -311,6 +336,7 @@ export function playToCompletion(tournament, advance, pick = (m) => m.participan
     for (const m of tournament.matches.values()) {
       if (m.isBye || m.winnerId || !m.participants[0] || !m.participants[1]) continue;
       complete = report(tournament, advance, m.id, pick(m));
+      if (!m.winnerId) continue;
       onRecord?.(m);
       progressed = true;
     }

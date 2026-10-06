@@ -1,5 +1,5 @@
 /**
- * Tests for the payload validators and match conflict rule in sync-validators.js.
+ * Tests for the payload validators in sync-validators.js.
  */
 
 import { assertEquals } from 'jsr:@std/assert';
@@ -8,9 +8,9 @@ import {
   isValidMatchId,
   isValidScores,
   isValidState,
-  shouldUpdateMatch,
   isValidMatchResultPayload,
   isValidMatchVerifyPayload,
+  isValidRaceResultPayload,
   isValidParticipantJoinPayload,
   isValidParticipantUpdatePayload
 } from '../js/network/sync-validators.js';
@@ -181,67 +181,42 @@ Deno.test('isValidState', async (t) => {
     assertEquals(isValidState({ matches: [['match1']] }), false);
     assertEquals(isValidState({ matches: [[123, {}]] }), false);
   });
+
+  await t.step('rejects a match that is not an object with participants and typed result fields', () => {
+    const match = (fields) => ({ matches: [['m1', { participants: ['a', 'b'], ...fields }]] });
+    assertEquals(isValidState({ matches: [['m1', null]] }), false);
+    assertEquals(isValidState({ matches: [['m1', {}]] }), false);
+    assertEquals(isValidState(match({ winnerId: 5 })), false);
+    assertEquals(isValidState(match({ scores: ['2', 0] })), false);
+    assertEquals(isValidState(match({ results: 'a' })), false);
+    assertEquals(isValidState(match({ reportedAt: '1' })), false);
+    assertEquals(isValidState(match({ version: NaN })), false);
+    assertEquals(isValidState(match({ verifiedBy: {} })), false);
+    assertEquals(isValidState(match({ winnerId: null, scores: [2, 1], reportedAt: 1, version: 2 })), true);
+  });
 });
 
-Deno.test('shouldUpdateMatch', async (t) => {
-  await t.step('accepts higher version', () => {
-    const incoming = { version: 2, reportedAt: 1000 };
-    const existing = { version: 1, reportedAt: 2000 };
-    assertEquals(shouldUpdateMatch(incoming, existing, false), true);
+Deno.test('isValidRaceResultPayload', async (t) => {
+  const valid = { gameId: 'game1', results: [{ participantId: 'a' }, { participantId: 'b' }], reportedAt: 1000, version: 1 };
+
+  await t.step('accepts a valid payload, with or without version', () => {
+    assertEquals(isValidRaceResultPayload(valid), true);
+    assertEquals(isValidRaceResultPayload({ ...valid, version: undefined }), true);
   });
 
-  await t.step('accepts same version with newer timestamp', () => {
-    const incoming = { version: 1, reportedAt: 2000 };
-    const existing = { version: 1, reportedAt: 1000 };
-    assertEquals(shouldUpdateMatch(incoming, existing, false), true);
+  await t.step('rejects a missing or non-finite reportedAt', () => {
+    assertEquals(isValidRaceResultPayload({ ...valid, reportedAt: undefined }), false);
+    assertEquals(isValidRaceResultPayload({ ...valid, reportedAt: Infinity }), false);
+    assertEquals(isValidRaceResultPayload({ ...valid, reportedAt: '1000' }), false);
   });
 
-  await t.step('accepts admin update on unverified match', () => {
-    const incoming = { version: 0, reportedAt: 1000 };
-    const existing = { version: 1, reportedAt: 2000 }; // higher version than incoming
-    assertEquals(shouldUpdateMatch(incoming, existing, true), true);
-  });
-
-  await t.step('accepts admin update on verified match (admin can override)', () => {
-    const incoming = { version: 0, reportedAt: 1000 };
-    const existing = { version: 1, reportedAt: 2000, verifiedBy: 'admin1' };
-    assertEquals(shouldUpdateMatch(incoming, existing, true), true);
-  });
-
-  await t.step('rejects lower version', () => {
-    const incoming = { version: 1, reportedAt: 2000 };
-    const existing = { version: 2, reportedAt: 1000 };
-    assertEquals(shouldUpdateMatch(incoming, existing, false), false);
-  });
-
-  await t.step('rejects same version with older timestamp', () => {
-    const incoming = { version: 1, reportedAt: 1000 };
-    const existing = { version: 1, reportedAt: 2000 };
-    assertEquals(shouldUpdateMatch(incoming, existing, false), false);
-  });
-
-  await t.step('rejects equal version and timestamp', () => {
-    const incoming = { version: 1, reportedAt: 1000 };
-    const existing = { version: 1, reportedAt: 1000 };
-    assertEquals(shouldUpdateMatch(incoming, existing, false), false);
-  });
-
-  await t.step('handles missing version (defaults to 0)', () => {
-    const incoming = { reportedAt: 2000 };
-    const existing = { reportedAt: 1000 };
-    assertEquals(shouldUpdateMatch(incoming, existing, false), true);
-  });
-
-  await t.step('handles missing reportedAt (defaults to 0)', () => {
-    const incoming = { version: 1 };
-    const existing = { version: 1, reportedAt: 1000 };
-    assertEquals(shouldUpdateMatch(incoming, existing, false), false);
-  });
-
-  await t.step('Infinity reportedAt wins and NaN loses', () => {
-    const existing = { version: 1, reportedAt: 1000 };
-    assertEquals(shouldUpdateMatch({ version: 1, reportedAt: Infinity }, existing, false), true);
-    assertEquals(shouldUpdateMatch({ version: 1, reportedAt: NaN }, existing, false), false);
+  await t.step('rejects a bad gameId, results or version', () => {
+    assertEquals(isValidRaceResultPayload({ ...valid, gameId: 7 }), false);
+    assertEquals(isValidRaceResultPayload({ ...valid, results: 'a,b' }), false);
+    assertEquals(isValidRaceResultPayload({ ...valid, results: [null] }), false);
+    assertEquals(isValidRaceResultPayload({ ...valid, results: [{ participantId: 1 }] }), false);
+    assertEquals(isValidRaceResultPayload({ ...valid, version: 'x' }), false);
+    assertEquals(isValidRaceResultPayload(null), false);
   });
 });
 

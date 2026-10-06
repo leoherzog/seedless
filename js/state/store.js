@@ -4,6 +4,7 @@
  */
 
 import { getFinalStandings } from '../tournament/standings.js';
+import { isNewerResult, isRaceOrder } from '../utils/tournament-helpers.js';
 
 /**
  * @typedef {Object} Participant
@@ -342,6 +343,7 @@ class Store extends EventTarget {
    * Merge serialized remote state into local state.
    * `senderIsAdmin` must be true only when the caller has verified that the sending peer is the
    * room admin. Never derive it from remoteState.meta.adminId, because every peer's state carries it.
+   * Within one tournament only results merge; the caller re-derives seats and standings from them.
    * @param {Object} remoteState - Serialized remote state
    * @param {boolean} [senderIsAdmin=false] - True iff the sending peer is the verified admin
    */
@@ -350,16 +352,15 @@ class Store extends EventTarget {
     const localAdminId = localState.meta?.adminId;
     const remoteAdminId = remoteState.meta?.adminId;
 
+    // Only creating the room makes this user admin, so a snapshot naming us is never trusted.
+    const namesUs = !!remoteAdminId && remoteAdminId === localState.local.localUserId && !this.isAdmin();
     // Trust remote as admin if the caller verified the sender, or as our bootstrap snapshot when we have
     // no adminId and the remote names one; a matching adminId proves nothing, since every peer carries it.
-    const isRemoteAdmin = senderIsAdmin === true || (!localAdminId && !!remoteAdminId);
+    const isRemoteAdmin = !namesUs && (senderIsAdmin === true || (!localAdminId && !!remoteAdminId));
 
+    // A known adminId never changes.
     if (remoteState.meta && isRemoteAdmin) {
-      this._state.meta = { ...remoteState.meta };
-      // A trusted snapshot may correct a non-admin's adminId, but nothing changes the admin's own.
-      if (this.isAdmin() && localAdminId) {
-        this._state.meta.adminId = localAdminId;
-      }
+      this._state.meta = { ...remoteState.meta, adminId: localAdminId || remoteAdminId };
     }
 
     // Additions win: merge never removes a participant.
@@ -380,50 +381,31 @@ class Store extends EventTarget {
       }
     }
 
-    // Match ids repeat across tournaments, so matches merge only within the same
-    // tournament (bracket.startedAt); the admin's new tournament replaces them all.
+    // Match ids repeat across tournaments, so bracket.startedAt tells tournaments apart.
     const sameTournament = remoteState.bracket?.startedAt === localState.bracket?.startedAt;
 
-    if (remoteState.bracket && isRemoteAdmin) {
-      this._state.bracket = remoteState.bracket;
-    }
-
-    if (remoteState.matches && remoteState.bracket && isRemoteAdmin && !sameTournament) {
-      localState.matches = new Map(remoteState.matches);
+    if (remoteState.bracket && isRemoteAdmin && !sameTournament) {
+      localState.bracket = remoteState.bracket;
+      localState.matches = new Map(remoteState.matches ?? []);
+      localState.standings = new Map(remoteState.standings ?? []);
     } else if (remoteState.matches && sameTournament) {
+      const isRace = localState.bracket?.type === 'mariokart';
       for (const [id, remoteMatch] of remoteState.matches) {
         const localMatch = localState.matches.get(id);
-        if (!localMatch) {
-          localState.matches.set(id, remoteMatch);
-        } else {
-          // Admin verification always wins
-          if (remoteMatch.verifiedBy && !localMatch.verifiedBy) {
-            localState.matches.set(id, remoteMatch);
-          } else if (!remoteMatch.verifiedBy && localMatch.verifiedBy) {
-            // Keep local (admin verified)
-          } else {
-            // Ties go to the admin, whose bracket advancement carries no reportedAt.
-            const newer = (remoteMatch.reportedAt || 0) - (localMatch.reportedAt || 0);
-            if (newer > 0 || (newer === 0 && isRemoteAdmin)) {
-              localState.matches.set(id, remoteMatch);
-            }
-          }
+        if (localMatch && takesResult(remoteMatch, localMatch, isRemoteAdmin, isRace)) {
+          localState.matches.set(id, { ...localMatch, ...resultOf(remoteMatch, isRemoteAdmin, isRace) });
         }
       }
-    }
-
-    if (remoteState.standings && isRemoteAdmin) {
-      this._state.standings = new Map(remoteState.standings);
     }
 
     if (remoteState.teamAssignments && isRemoteAdmin) {
       this._state.teamAssignments = new Map(remoteState.teamAssignments);
     }
 
-    if (Array.isArray(remoteState.history)) {
+    if (Array.isArray(remoteState.history) && isRemoteAdmin) {
       const existingIds = new Set(localState.history.map(h => h.id));
       for (const entry of remoteState.history) {
-        if (!existingIds.has(entry.id)) {
+        if (typeof entry?.id === 'string' && !existingIds.has(entry.id)) {
           localState.history.push(entry);
           existingIds.add(entry.id);
         }
@@ -433,6 +415,40 @@ class Store extends EventTarget {
     this.emit('change', { path: '*' });
     return this;
   }
+}
+
+/**
+ * Whether a remote copy's result replaces the local one. Only the admin verifies, so only the
+ * admin's verified result beats an unverified one or replaces a verified one; otherwise the
+ * newer report wins. A Points Race result must list each racer once.
+ * @param {Object} remote - Remote match
+ * @param {Object} local - Local match
+ * @param {boolean} fromAdmin - Whether the sender is the trusted admin
+ * @param {boolean} isRace - Whether matches are Points Race games
+ * @returns {boolean}
+ */
+function takesResult(remote, local, fromAdmin, isRace) {
+  if (!remote.winnerId) return false;
+  if (isRace && !(remote.complete === true && isRaceOrder(local, remote.results))) return false;
+  const verified = fromAdmin && !!remote.verifiedBy;
+  if (local.verifiedBy) return verified && isNewerResult(remote, local);
+  return verified || isNewerResult(remote, local);
+}
+
+/**
+ * The result fields of a remote match; seats, byes and walkovers are re-derived, never merged.
+ * @param {Object} remote - Remote match
+ * @param {boolean} fromAdmin - Whether the sender is the trusted admin, the only source of verifiedBy
+ * @param {boolean} isRace - Whether matches are Points Race games
+ * @returns {Object}
+ */
+function resultOf(remote, fromAdmin, isRace) {
+  const { winnerId, reportedBy = null, reportedAt = null, version } = remote;
+  if (isRace) {
+    return { winnerId, reportedBy, reportedAt, version, results: remote.results, complete: true };
+  }
+  const verifiedBy = fromAdmin ? remote.verifiedBy ?? null : null;
+  return { winnerId, reportedBy, reportedAt, version, scores: remote.scores ?? [0, 0], verifiedBy };
 }
 
 export const store = new Store();

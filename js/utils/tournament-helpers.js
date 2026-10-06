@@ -96,6 +96,32 @@ export function seedParticipants(participants, mode) {
 }
 
 /**
+ * Whether one report of a result supersedes another: the higher version, then the later
+ * reportedAt, then the greater reporter id. Every peer orders any two reports the same way.
+ * @param {{version?: number, reportedAt?: number, reportedBy?: string}} incoming
+ * @param {{version?: number, reportedAt?: number, reportedBy?: string}} existing
+ * @returns {boolean}
+ */
+export function isNewerResult(incoming, existing) {
+  const key = (r) => [r.version || 0, r.reportedAt || 0, r.reportedBy ?? ''];
+  const [a, b] = [key(incoming), key(existing)];
+  const i = a.findIndex((v, idx) => v !== b[idx]);
+  return i >= 0 && a[i] > b[i];
+}
+
+/**
+ * Whether a finishing order lists each of a game's racers exactly once.
+ * @param {{participants: string[]}} game - Points Race game
+ * @param {*} results - Array of { participantId }, in finishing order
+ * @returns {boolean}
+ */
+export function isRaceOrder(game, results) {
+  if (!Array.isArray(results) || results.length !== game.participants.length) return false;
+  const ids = new Set(results.map((r) => r?.participantId));
+  return ids.size === results.length && game.participants.every((id) => ids.has(id));
+}
+
+/**
  * Whether a user plays in a match, directly or as a member of one of its teams.
  * @param {Object} match - Match whose participants are player or team ids
  * @param {string} userId - Persistent user id

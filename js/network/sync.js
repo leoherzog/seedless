@@ -10,22 +10,26 @@ import { showToast, showInfo } from '../components/toast.js';
 import { ActionTypes } from './room.js';
 import {
   isValidState,
-  shouldUpdateMatch,
   isValidMatchResultPayload,
   isValidMatchVerifyPayload,
   isValidParticipantJoinPayload,
-  isValidParticipantUpdatePayload
+  isValidParticipantUpdatePayload,
+  isValidRaceResultPayload,
 } from './sync-validators.js';
 import { advance as advanceSingle } from '../tournament/single-elimination.js';
 import { advance as advanceDouble } from '../tournament/double-elimination.js';
-import { recordRaceResult } from '../tournament/mario-kart.js';
-import { isInMatch } from '../utils/tournament-helpers.js';
+import { recordRaceResult, scoreRace } from '../tournament/mario-kart.js';
+import { isInMatch, isNewerResult } from '../utils/tournament-helpers.js';
 
 // Transient WebRTC peerId to persistent localUserId, which survives page refreshes.
 const peerIdToUserId = new Map();
 
 // Non-admins ignore match results until their first state response.
 let stateInitialized = false;
+
+// Peers whose identity claim lost to another connected peer holding the same id, retried when a
+// peer leaves. Each maps to its rejected p:join payload, or to null for an st:res admin claim.
+const deferredClaims = new Map();
 
 /**
  * @param {string} peerId - Sender's peer ID
@@ -43,14 +47,69 @@ const isFromAdmin = (peerId) => {
 };
 
 /**
- * Broadcast our p:join so peers can map our peerId to our persistent ID.
- * @param {Object} room - Room connection
+ * Whether a match has both players seated, one of them winnerId. Replay clears any other result.
+ * @param {Object} match - Bracket match
+ * @param {string} winnerId - Reported winner
+ * @returns {boolean}
  */
-function announceSelf(room) {
+const isSeated = (match, winnerId) => !match.participants.includes(null) && match.participants.includes(winnerId);
+
+/**
+ * Send our p:join so peers can map our peerId to our persistent ID.
+ * @param {Object} room - Room connection
+ * @param {string} [peerId] - The one peer to tell; every peer when omitted
+ */
+function announceSelf(room, peerId) {
   const name = store.get('local.name');
   const localUserId = store.get('local.localUserId');
-  if (name && localUserId) {
+  if (!name || !localUserId) return;
+  if (peerId) {
+    room.sendTo(ActionTypes.PARTICIPANT_JOIN, { name, localUserId }, peerId);
+  } else {
     room.broadcast(ActionTypes.PARTICIPANT_JOIN, { name, localUserId });
+  }
+}
+
+/**
+ * Decide whether an st:res claiming admin speaks for the admin, and map its sender if so. The
+ * admin trusts no claim, and a claim may neither name the local user nor change a known adminId.
+ * While another connected peer holds the mapping the claim waits in deferredClaims.
+ * @param {Object} room - Room connection
+ * @param {*} claimedId - The snapshot's meta.adminId
+ * @param {string} peerId - Sender's peer ID
+ * @returns {boolean} True when the sender is mapped to the admin
+ */
+function acceptAdminClaim(room, claimedId, peerId) {
+  const knownId = store.get('meta.adminId');
+  if (store.isAdmin() || typeof claimedId !== 'string' || claimedId === store.get('local.localUserId') ||
+      (knownId && claimedId !== knownId)) {
+    return false;
+  }
+
+  const peers = room.getPeers();
+  const holder = [...peerIdToUserId]
+    .find(([pid, uid]) => uid === claimedId && pid !== peerId && peers.includes(pid))?.[0];
+  if (holder) {
+    console.warn(`[Sync] Rejected admin mapping claim from ${peerId}: admin already active as ${holder}`);
+    deferredClaims.set(peerId, null);
+    return false;
+  }
+
+  peerIdToUserId.set(peerId, claimedId);
+  return true;
+}
+
+/**
+ * Send the full state, flagged as the admin's when it is.
+ * @param {Object} room - Room connection
+ * @param {string} [peerId] - The one peer to send to; every peer when omitted
+ */
+export function sendState(room, peerId) {
+  const payload = { state: store.serialize(), isAdmin: store.isAdmin() };
+  if (peerId) {
+    room.sendTo(ActionTypes.STATE_RESPONSE, payload, peerId);
+  } else {
+    room.broadcast(ActionTypes.STATE_RESPONSE, payload);
   }
 }
 
@@ -59,40 +118,24 @@ function announceSelf(room) {
  * @param {Object} room - Room connection from room.js
  */
 export function setupStateSync(room) {
-  room.onAction(ActionTypes.STATE_REQUEST, (payload, peerId) => {
-    room.sendTo(ActionTypes.STATE_RESPONSE, {
-      state: store.serialize(),
-      isAdmin: store.isAdmin(),
-    }, peerId);
-  });
+  // Asks a peer for its state, to catch up on results that have not reached us.
+  const requestState = (peerId) => room.sendTo(ActionTypes.STATE_REQUEST, {}, peerId);
+
+  room.onAction(ActionTypes.STATE_REQUEST, (payload, peerId) => sendState(room, peerId));
 
   room.onAction(ActionTypes.STATE_RESPONSE, (payload, peerId) => {
-    const { state: remoteState, isAdmin: isRemoteAdmin } = payload;
+    const { state: remoteState, isAdmin: claimsAdmin } = payload;
     if (!isValidState(remoteState)) {
       console.warn(`[Sync] Invalid state structure from ${peerId}`);
       return;
     }
 
-    const adminId = remoteState.meta?.adminId;
-    const currentPeers = room.getPeers();
-
-    // An isAdmin flag proves nothing alone. Map this peer to adminId only if no
-    // connected peer holds it yet (trust on first use) or this peer already does.
-    let senderIsAdmin = false;
-    if (isRemoteAdmin && adminId) {
-      const activeAdminPeer = [...peerIdToUserId.entries()]
-        .find(([pid, uid]) => uid === adminId && currentPeers.includes(pid))?.[0];
-      if (!activeAdminPeer || activeAdminPeer === peerId) {
-        peerIdToUserId.set(peerId, adminId);
-        senderIsAdmin = true;
-      } else {
-        console.warn(`[Sync] Rejected admin mapping claim from ${peerId}: admin already active as ${activeAdminPeer}`);
-      }
-    }
-
-    // Only a sender that passed the check above merges with admin authority.
+    // An isAdmin flag proves nothing alone; only a sender that passes the claim check merges as admin.
+    const senderIsAdmin = claimsAdmin === true && acceptAdminClaim(room, remoteState.meta?.adminId, peerId);
     store.merge(remoteState, senderIsAdmin);
     stateInitialized = true;
+
+    const currentPeers = room.getPeers();
 
     // isConnected reflects our own WebRTC peers, not the synced value, which may be stale.
     const myUserId = store.get('local.localUserId');
@@ -110,12 +153,22 @@ export function setupStateSync(room) {
     }
 
     // Retry our join in case the admin rejected the earlier one.
-    if (isRemoteAdmin && !store.isAdmin()) {
-      announceSelf(room);
+    if (claimsAdmin === true && !store.isAdmin()) {
+      announceSelf(room, peerId);
     }
+
+    // Merged results change the seats and standings that follow from them.
+    reconcile();
   });
 
-  room.onAction(ActionTypes.PARTICIPANT_JOIN, (payload, peerId) => {
+  room.onAction(ActionTypes.PARTICIPANT_JOIN, (payload, peerId) => handleJoin(payload, peerId));
+
+  /**
+   * Map a joining peer to its persistent ID, or to the manual player it claims by name.
+   * @param {Object} payload - p:join payload
+   * @param {string} peerId - Sender's peer ID
+   */
+  function handleJoin(payload, peerId) {
     if (!isValidParticipantJoinPayload(payload)) {
       console.warn(`[Sync] Invalid participant join payload from ${peerId}`);
       return;
@@ -146,6 +199,7 @@ export function setupStateSync(room) {
     const existingParticipant = store.getParticipant(localUserId);
     if (existingParticipant?.isConnected && existingParticipant.peerId && existingParticipant.peerId !== peerId) {
       console.warn(`[Sync] Rejected duplicate localUserId claim from ${peerId} (${localUserId} already connected)`);
+      deferredClaims.set(peerId, payload);
       return;
     }
 
@@ -176,7 +230,7 @@ export function setupStateSync(room) {
     } else {
       store.addParticipant({ id: localUserId, peerId, name });
     }
-  });
+  }
 
   room.onAction(ActionTypes.PARTICIPANT_UPDATE, (payload, peerId) => {
     if (!isValidParticipantUpdatePayload(payload)) {
@@ -227,8 +281,8 @@ export function setupStateSync(room) {
       return;
     }
 
-    // merge skips an archive whose id is already in history.
-    if (payload.archive) store.merge({ history: [payload.archive] });
+    // The sender is the verified admin; merge skips an archive whose id is already in history.
+    if (payload.archive) store.merge({ history: [payload.archive] }, true);
     store.resetForNewTournament();
 
     if (!store.isAdmin()) {
@@ -253,8 +307,10 @@ export function setupStateSync(room) {
       return;
     }
 
-    if (!match.participants.includes(winnerId)) {
-      console.warn(`[Sync] Winner ${winnerId} not in match participants: ${match.participants}`);
+    // A winner, opponent or sender not seated here usually means an earlier result has not reached us.
+    if (!isSeated(match, winnerId)) {
+      console.warn(`[Sync] Winner ${winnerId} not seated with an opponent in ${matchId}: ${match.participants}`);
+      requestState(peerId);
       return;
     }
 
@@ -263,6 +319,7 @@ export function setupStateSync(room) {
 
     if (!isInMatch(match, senderId, teams) && !isAdmin) {
       console.warn(`[Sync] Rejected match result from non-participant: ${senderId}`);
+      requestState(peerId);
       return;
     }
 
@@ -271,9 +328,10 @@ export function setupStateSync(room) {
       return;
     }
 
-    if (shouldUpdateMatch({ version, reportedAt }, match, isAdmin)) {
-      store.updateMatch(matchId, { scores, winnerId, reportedBy: senderId, reportedAt, version });
-      advanceWinner(matchId);
+    const result = { scores, winnerId, reportedBy: senderId, reportedAt, version };
+    if (isNewerResult(result, match)) {
+      store.updateMatch(matchId, result);
+      reconcile();
     }
   });
 
@@ -289,12 +347,24 @@ export function setupStateSync(room) {
     }
 
     const { matchId, scores, winnerId } = payload;
+    const match = store.getMatch(matchId);
+    if (!match) return;
+    // An unseated player means an earlier result has not reached us.
+    if (!isSeated(match, winnerId)) {
+      requestState(peerId);
+      return;
+    }
     store.updateMatch(matchId, { scores, winnerId, verifiedBy: senderOf(peerId) });
-    advanceWinner(matchId);
+    reconcile();
   });
 
   room.onAction(ActionTypes.RACE_RESULT, (payload, peerId) => {
-    const { gameId, results, reportedAt, version } = payload;
+    if (!isValidRaceResultPayload(payload)) {
+      console.warn(`[Sync] Invalid race result payload from ${peerId}`);
+      return;
+    }
+
+    const { gameId, results, reportedAt, version = 0 } = payload;
     const senderId = senderOf(peerId);
 
     const game = store.getMatch(gameId);
@@ -310,11 +380,10 @@ export function setupStateSync(room) {
       return;
     }
 
-    const incomingVersion = version || 0;
-    if (!shouldUpdateMatch({ version: incomingVersion, reportedAt }, game, isAdmin)) return;
+    if (!isNewerResult({ version, reportedAt, reportedBy: senderId }, game)) return;
 
     try {
-      applyRaceResult(gameId, results, senderId, reportedAt, incomingVersion);
+      applyRaceResult(gameId, results, senderId, reportedAt, version);
     } catch (e) {
       console.error('[Sync] Failed to apply race result:', e);
     }
@@ -327,7 +396,7 @@ export function setupStateSync(room) {
     }
 
     // Ask the new peer for its state, and announce ourselves so it maps our peerId and marks us connected.
-    room.sendTo(ActionTypes.STATE_REQUEST, {}, peerId);
+    requestState(peerId);
     announceSelf(room);
   });
 
@@ -337,33 +406,50 @@ export function setupStateSync(room) {
       store.updateParticipant(userId, { isConnected: false });
     }
     // Keep the mapping so a peer that reconnects is still recognized.
+
+    // A claim that lost to the departed peer can succeed now, so retry every waiting claim.
+    deferredClaims.delete(peerId);
+    const peers = room.getPeers();
+    for (const [pid, joinPayload] of [...deferredClaims]) {
+      deferredClaims.delete(pid);
+      if (!peers.includes(pid)) continue;
+      if (joinPayload) {
+        handleJoin(joinPayload, pid);
+      } else {
+        requestState(pid);
+      }
+    }
   });
 }
 
 /**
- * Advance the bracket past a match whose result is already in the store, and
- * mark the tournament complete once the champion is decided.
- * @param {string} matchId - Decided match ID
+ * Re-derive what follows from the stored results: bracket seats and walkovers, or Points Race
+ * scores and standings. An active or complete tournament is complete exactly when a champion
+ * is decided or every game is played.
  */
-export function advanceWinner(matchId) {
+export function reconcile() {
   const bracket = store.get('bracket');
-  const match = store.getMatch(matchId);
-  if (!match?.winnerId || !(bracket?.winners || bracket?.rounds)) return;
+  const matches = store.get('matches');
+  let complete;
+  if (bracket?.type === 'mariokart') {
+    complete = scoreRace({ ...bracket, matches, standings: store.get('standings') });
+    store.emit('change', { path: 'standings' });
+  } else if (bracket?.winners || bracket?.rounds) {
+    const advance = bracket.winners ? advanceDouble : advanceSingle;
+    complete = advance({ bracket, matches }, (id, fields) => store.updateMatch(id, fields));
+  } else {
+    return;
+  }
 
-  const advance = bracket.winners ? advanceDouble : advanceSingle;
-  const complete = advance(
-    { bracket, matches: store.get('matches') },
-    matchId,
-    (id, fields) => store.updateMatch(id, fields),
-  );
-  if (complete) {
-    store.set('meta.status', 'complete');
+  const status = store.get('meta.status');
+  const next = complete ? 'complete' : 'active';
+  if ((status === 'active' || status === 'complete') && status !== next) {
+    store.set('meta.status', next);
   }
 }
 
 /**
- * Apply a race result to the store's game and standings, and mark the tournament
- * complete after the last game.
+ * Apply a race result to the store's game and standings, then reconcile.
  * @param {string} gameId - Game ID
  * @param {Object[]} results - Array of { participantId }, in finishing order
  * @param {string} reportedBy - Reporter's persistent ID
@@ -372,11 +458,9 @@ export function advanceWinner(matchId) {
  */
 function applyRaceResult(gameId, results, reportedBy, reportedAt, version) {
   const race = { ...store.get('bracket'), matches: store.get('matches'), standings: store.get('standings') };
-  const complete = recordRaceResult(race, gameId, results, reportedBy, reportedAt);
+  recordRaceResult(race, gameId, results, reportedBy, reportedAt);
   store.updateMatch(gameId, { version });
-  if (complete) {
-    store.set('meta.status', 'complete');
-  }
+  reconcile();
 }
 
 /**
@@ -399,7 +483,7 @@ export function reportMatchResult(room, matchId, scores, winnerId) {
     reportedAt,
     version,
   });
-  advanceWinner(matchId);
+  reconcile();
 
   room?.broadcast(ActionTypes.MATCH_RESULT, {
     matchId,
@@ -443,4 +527,5 @@ export function reportRaceResult(room, gameId, results) {
 export function resetSyncState() {
   stateInitialized = false;
   peerIdToUserId.clear();
+  deferredClaims.clear();
 }

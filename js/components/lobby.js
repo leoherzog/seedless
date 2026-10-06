@@ -5,8 +5,8 @@
 
 import { store } from '../state/store.js';
 import { getRoomLink, navigateToHome } from '../state/url-state.js';
-import { getRoom } from '../network/room.js';
-import { startTournament } from '../network/sync.js';
+import { getRoom, ActionTypes } from '../network/room.js';
+import { startTournament, sendState } from '../network/sync.js';
 import { showSuccess, showError, showInfo } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { makeSortable } from '../utils/drag-drop.js';
@@ -27,6 +27,9 @@ const NUMBER_SETTINGS = {
   'team-size': 'teamSize',
 };
 
+// How long the admin's lobby edits settle before its state is sent to peers.
+const SHARE_DELAY_MS = 500;
+
 /**
  * Wire the lobby's DOM and store listeners. Call once; they live for the page.
  */
@@ -39,8 +42,26 @@ export function initLobby() {
   setupManualParticipantForm();
 
   store.on('change', updateLobbyUI);
+  store.on('change', shareLobbyEdits);
   store.on('participant:join', onParticipantJoin);
   store.on('participant:leave', onParticipantLeave);
+}
+
+let shareTimer;
+
+/**
+ * Settings and teams have no action of their own, so once the admin's lobby edits settle its
+ * full state goes to every peer.
+ * @param {{path: string}} change - Store change detail
+ */
+function shareLobbyEdits({ path }) {
+  if (!store.isAdmin() || store.get('meta.status') !== 'lobby') return;
+  if (!path?.startsWith('meta.') && path !== 'teamAssignments') return;
+  clearTimeout(shareTimer);
+  shareTimer = setTimeout(() => {
+    const room = getRoom();
+    if (room) sendState(room);
+  }, SHARE_DELAY_MS);
 }
 
 function setupAdminPanel() {
@@ -111,7 +132,7 @@ function setupParticipantPanel() {
     const localUserId = store.get('local.localUserId');
     if (localUserId) {
       store.updateParticipant(localUserId, { name: newName });
-      getRoom()?.broadcast('p:upd', { name: newName });
+      getRoom()?.broadcast(ActionTypes.PARTICIPANT_UPDATE, { name: newName });
       showSuccess('Name updated!');
       setNameLocked(true);
     }
@@ -215,7 +236,7 @@ function setupManualParticipantForm() {
 
     const participant = store.addManualParticipant(name);
 
-    getRoom()?.broadcast('p:join', {
+    getRoom()?.broadcast(ActionTypes.PARTICIPANT_JOIN, {
       name: participant.name,
       localUserId: participant.id,
       isManual: true,
@@ -245,9 +266,9 @@ function updateLobbyUI() {
     ? completeTeams < 2
     : participants.length < 2;
 
-  // Show the current name unless the user is editing it.
+  // Show the current name unless the user is typing in the field.
   const myNameInput = document.getElementById('my-name');
-  if (myNameInput.disabled || !myNameInput.value) {
+  if (myNameInput.disabled || document.activeElement !== myNameInput) {
     const localName = store.get('local.name') || '';
     myNameInput.value = localName;
     if (localName && !myNameInput.disabled) setNameLocked(true);
@@ -255,8 +276,43 @@ function updateLobbyUI() {
 
   document.getElementById('tournament-name-display').value = store.get('meta.name') || roomId || 'Tournament';
 
+  if (isAdmin) fillSettingsForm();
   updateGamePlanSummary(participants.length);
   renderParticipantList(participants);
+}
+
+/**
+ * Show the stored settings in the admin's form, which otherwise keeps its HTML defaults after a
+ * reload and the last room's choices after a room change. Skipped while focus is in the form,
+ * which then already shows what the admin wrote.
+ */
+function fillSettingsForm() {
+  const form = document.getElementById('tournament-config');
+  if (form.contains(document.activeElement)) return;
+
+  const { name, type, config = {} } = store.get('meta');
+  const pointsTable = Object.keys(CONFIG.pointsTables)
+    .find((key) => JSON.stringify(CONFIG.pointsTables[key]) === JSON.stringify(config.pointsTable));
+  const stored = {
+    'tournament-name': name,
+    type,
+    seeding: config.seedingMode,
+    'players-per-game': config.playersPerGame,
+    'games-per-player': config.gamesPerPlayer,
+    'leftover-seats': config.leftoverSeats,
+    'points-table': pointsTable,
+    'team-size': config.teamSize,
+    'doubles-bracket-type': config.bracketType,
+  };
+
+  form.reset();
+  for (const [key, value] of Object.entries(stored)) {
+    if (value !== undefined && value !== null) form.elements[key].value = value;
+  }
+  // The type <details> share a name, so opening the chosen one closes the rest.
+  for (const radio of form.elements.type) {
+    if (radio.checked) radio.closest('details').open = true;
+  }
 }
 
 /**
@@ -346,7 +402,7 @@ function removeParticipant(participantId) {
 
   if (confirm(`Remove ${participant.name} from the tournament?`)) {
     store.removeParticipant(participantId);
-    getRoom()?.broadcast('p:leave', { removedId: participantId });
+    getRoom()?.broadcast(ActionTypes.PARTICIPANT_LEAVE, { removedId: participantId });
   }
 }
 
@@ -427,7 +483,7 @@ function onDrop(e) {
     const seed = index + 1;
     store.updateParticipant(participantId, { seed });
     // The admin's p:upd may name another participant's id.
-    room?.broadcast('p:upd', { id: participantId, seed });
+    room?.broadcast(ActionTypes.PARTICIPANT_UPDATE, { id: participantId, seed });
   });
 }
 

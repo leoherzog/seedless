@@ -4,7 +4,7 @@
  */
 
 import { CONFIG } from '../../config.js';
-import { sortStandings, getPointsForPosition, shuffle } from '../utils/tournament-helpers.js';
+import { sortStandings, getPointsForPosition, shuffle, isRaceOrder } from '../utils/tournament-helpers.js';
 
 // Randomized schedules are retried within this budget; the fewest repeat pairings wins.
 const SCHEDULE_BUDGET_MS = 40;
@@ -234,12 +234,10 @@ function leastMet(candidates, field, met) {
 }
 
 /**
- * Record a game result into the game and the standings, both mutated in place.
- * Re-recording a game first reverses its previous contribution, so corrections never
- * double-count. Stand-ins hold a finishing position but score nothing.
+ * Record a game's finishing order, then rescore the race.
  * @param {{matches: Map, standings: Map, pointsTable: Array|string}} tournament
  * @param {string} gameId - Game ID
- * @param {Object[]} results - Array of { participantId }, in finishing order
+ * @param {Object[]} results - Array of { participantId }, in finishing order, naming each racer once
  * @param {string} reportedBy - Reporter ID
  * @param {number} [reportedAt] - Timestamp to persist for this result; defaults to now
  * @returns {boolean} True once every game is complete
@@ -249,59 +247,48 @@ export function recordRaceResult(tournament, gameId, results, reportedBy, report
   if (!game) {
     throw new Error(`Game not found: ${gameId}`);
   }
-
-  const participantSet = new Set(game.participants);
-  for (const r of results) {
-    if (!participantSet.has(r.participantId)) {
-      throw new Error(`Participant ${r.participantId} not in this game`);
-    }
+  if (!isRaceOrder(game, results)) {
+    throw new Error(`Results must list each racer in ${gameId} exactly once`);
   }
 
-  const previousResults = game.results;
-  if (previousResults) {
-    for (const prev of previousResults) {
-      if (prev.standIn) continue;
-      const standing = tournament.standings.get(prev.participantId);
-      if (standing) {
-        standing.points -= prev.points;
-        standing.gamesCompleted--;
-        if (prev.position === 1) {
-          standing.wins--;
-        }
-      }
-    }
-  }
-
-  const standIns = new Set(game.standIns || []);
-  game.results = results.map((r, idx) => {
-    if (standIns.has(r.participantId)) {
-      return { participantId: r.participantId, position: idx + 1, points: 0, standIn: true };
-    }
-    return {
-      participantId: r.participantId,
-      position: idx + 1,
-      points: getPointsForPosition(tournament.pointsTable, idx, results.length),
-    };
+  Object.assign(game, {
+    results: results.map(({ participantId }) => ({ participantId })),
+    reportedBy,
+    reportedAt,
+    complete: true,
   });
+  return scoreRace(tournament);
+}
 
-  game.winnerId = results[0]?.participantId;
-  game.reportedBy = reportedBy;
-  game.reportedAt = reportedAt;
-  game.complete = true;
+/**
+ * Score every complete game from its finishing order and total the standings, both in place.
+ * Stand-ins hold a finishing position but score nothing.
+ * @param {{matches: Map, standings: Map, pointsTable: Array|string}} tournament
+ * @returns {boolean} True once every game is complete
+ */
+export function scoreRace({ matches, standings, pointsTable }) {
+  for (const standing of standings.values()) {
+    Object.assign(standing, { points: 0, gamesCompleted: 0, wins: 0 });
+  }
 
-  for (const result of game.results) {
-    if (result.standIn) continue;
-    const standing = tournament.standings.get(result.participantId);
-    if (standing) {
+  for (const game of matches.values()) {
+    if (!game.complete) continue;
+    const standIns = new Set(game.standIns || []);
+    game.results = game.results.map(({ participantId }, idx) => standIns.has(participantId)
+      ? { participantId, position: idx + 1, points: 0, standIn: true }
+      : { participantId, position: idx + 1, points: getPointsForPosition(pointsTable, idx, game.results.length) });
+    game.winnerId = game.results[0].participantId;
+
+    for (const result of game.results) {
+      const standing = standings.get(result.participantId);
+      if (result.standIn || !standing) continue;
       standing.points += result.points;
       standing.gamesCompleted++;
-      if (result.position === 1) {
-        standing.wins++;
-      }
+      if (result.position === 1) standing.wins++;
     }
   }
 
-  return [...tournament.matches.values()].every(m => m.complete);
+  return [...matches.values()].every(m => m.complete);
 }
 
 /**

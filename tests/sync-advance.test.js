@@ -1,11 +1,12 @@
 /**
  * Bracket advancement through the production path: a tournament loaded into the
- * store as a peer receives it, with every result reported through sync.
+ * store as a peer receives it, with every result reported through sync, and
+ * edits that invalidate later results.
  */
 
 import { assertEquals } from 'jsr:@std/assert';
 import { store } from '../js/state/store.js';
-import { advanceWinner, reportMatchResult } from '../js/network/sync.js';
+import { reconcile, reportMatchResult } from '../js/network/sync.js';
 import { generateSingleEliminationBracket } from '../js/tournament/single-elimination.js';
 import { generateDoubleEliminationBracket, getStandings } from '../js/tournament/double-elimination.js';
 import { generateDoublesTournament } from '../js/tournament/doubles.js';
@@ -79,12 +80,56 @@ Deno.test('Double-elimination doubles through sync completes', () => {
   assertEquals(store.get('meta.status'), 'complete');
 });
 
-Deno.test('advanceWinner ignores an undecided match and a missing bracket', () => {
+Deno.test('reconcile leaves undecided matches alone and ignores a missing bracket', () => {
   loadFromNetwork(generateSingleEliminationBracket(createParticipants(4)));
-  advanceWinner('r1m0');
+  reconcile();
   assertEquals(store.getMatch('r2m0').participants, [null, null]);
 
+  store.updateMatch('r1m0', { winnerId: store.getMatch('r1m0').participants[0] });
   store.set('bracket', null);
-  advanceWinner('r1m0');
+  reconcile();
+  assertEquals(store.getMatch('r2m0').participants, [null, null]);
   assertEquals(store.get('meta.status'), 'active');
+});
+
+Deno.test('Editing a result after later matches are decided', async (t) => {
+  await t.step('single elimination clears the results the old winner went on to earn', () => {
+    loadFromNetwork(generateSingleEliminationBracket(createParticipants(4)));
+    playAll();
+    assertEquals(store.get('meta.status'), 'complete');
+    const champion = store.getMatch('r2m0').winnerId;
+    assertEquals(champion, 'player-1');
+
+    // The admin corrects r1m0: player-1 lost it.
+    reportMatchResult(null, 'r1m0', [0, 2], 'player-4');
+
+    const final = store.getMatch('r2m0');
+    assertEquals(final.participants, ['player-4', 'player-2']);
+    assertEquals(final.winnerId, null, 'a final won by a player no longer in it is cleared');
+    assertEquals(store.get('meta.status'), 'active', 'the tournament reopens');
+
+    reportMatchResult(null, 'r2m0', [2, 0], 'player-4');
+    assertEquals(store.get('meta.status'), 'complete');
+  });
+
+  await t.step('double elimination re-derives a walkover for the new loser', () => {
+    const participants = createParticipants(3);
+    loadFromNetwork(generateDoubleEliminationBracket(participants));
+    const played = store.getMatch('w1m1');
+    const [first, second] = played.participants;
+
+    reportMatchResult(null, 'w1m1', [2, 0], first);
+    reportMatchResult(null, 'w1m1', [0, 2], second);
+
+    const seated = [...store.get('matches').values()]
+      .filter((m) => m.bracket === 'losers')
+      .flatMap((m) => m.participants.filter(Boolean));
+    assertEquals(seated.includes(first), true, 'the new loser drops into the losers bracket');
+    assertEquals(seated.includes(second), false, 'the new winner is not also in the losers bracket');
+
+    playAll();
+    assertEquals(store.get('meta.status'), 'complete');
+    const standings = getStandings(store.get('bracket'), store.get('matches'), createParticipantMap(participants));
+    assertEquals(new Set(standings.map((s) => s.participantId)).size, 3);
+  });
 });

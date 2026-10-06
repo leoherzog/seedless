@@ -419,6 +419,11 @@ button.inline-link:focus-visible {
   font-weight: 600;
 }
 
+/* Pico's [type=button] margin outranks its own dialog footer reset. */
+dialog > article > footer [type="button"] {
+  margin-bottom: 0;
+}
+
 #toast-container {
   position: fixed;
   bottom: 1rem;

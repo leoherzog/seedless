@@ -490,20 +490,30 @@ Deno.test("History Serialization", async (t) => {
 });
 
 Deno.test("History Merge", async (t) => {
-  await t.step("adds new history entries from remote (union merge)", () => {
+  await t.step("adds new history entries from the admin (union merge)", () => {
     const store = new Store();
     store.deserialize({ history: [historyEntry("local-1")] });
 
-    store.merge({ history: [historyEntry("remote-1", 2000)] }, null);
+    store.merge({ history: [historyEntry("remote-1", 2000)] }, true);
 
     assertEquals(store.getHistory().length, 2);
+  });
+
+  await t.step("ignores history from a non-admin peer and entries without a string id", () => {
+    const store = new Store();
+    store.set("meta.adminId", "admin-1");
+
+    store.merge({ history: [historyEntry("forged")] }, false);
+    store.merge({ history: [null, { name: "No id" }] }, true);
+
+    assertEquals(store.getHistory(), []);
   });
 
   await t.step("deduplicates entries by id", () => {
     const store = new Store();
     store.deserialize({ history: [historyEntry("same-id")] });
 
-    store.merge({ history: [historyEntry("same-id")] }, null);
+    store.merge({ history: [historyEntry("same-id")] }, true);
 
     assertEquals(store.getHistory().length, 1, "Should not duplicate entries with same id");
   });
@@ -512,7 +522,7 @@ Deno.test("History Merge", async (t) => {
     const store = new Store();
     store.deserialize({ history: [historyEntry("local-1")] });
 
-    store.merge({ history: [] }, null);
+    store.merge({ history: [] }, true);
 
     const history = store.getHistory();
     assertEquals(history.length, 1);

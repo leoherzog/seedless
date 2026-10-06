@@ -14,7 +14,7 @@ A Cloudflare Worker that mints short-lived [Cloudflare Realtime TURN](https://de
    npx wrangler secret put TURN_KEY_API_TOKEN
    ```
 
-4. Set `network.turnCredentialsUrl` in the root `config.js` to your domain or the workers.dev URL that `wrangler deploy` prints.
+4. Set `network.turnCredentialsUrl` in the root `config.js` to `https://<your domain>`, or to the workers.dev URL that `wrangler deploy` prints.
 
 ## Behavior
 

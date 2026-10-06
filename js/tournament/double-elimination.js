@@ -3,7 +3,7 @@
  * major rounds, and grand finals with a reset match. Covers generation, advancement and standings.
  */
 
-import { buildKnockout, toMatchIds } from './bracket-utils.js';
+import { buildKnockout, toMatchIds, copyMatches, keepResult, writeReplay } from './bracket-utils.js';
 
 /**
  * Generate a seeded double-elimination bracket with round-1 byes advanced and dead losers slots marked.
@@ -181,78 +181,73 @@ function getWinnersRoundName(roundNumber, totalRounds) {
 }
 
 /**
- * Apply a decided match: advance its winner, drop its loser, open the reset when
- * the losers champion takes gf1, and walk over losers matches left without an opponent.
+ * Replay every result in bracket order: advance each winner, drop each winners-bracket loser,
+ * open the reset when the losers champion takes gf1, and walk over losers matches left without
+ * an opponent. A result whose players are no longer seated, as after an earlier result changed,
+ * is cleared. Only fields that change are written.
  * @param {{bracket: Object, matches: Map}} tournament
- * @param {string} matchId - Match whose winnerId is set
  * @param {Function} [update] - (id, fields) writer for a match; defaults to the Map entry
  * @returns {boolean} True once the champion is decided
  */
-export function advance({ bracket, matches }, matchId, update = (id, fields) => Object.assign(matches.get(id), fields)) {
-  const ctx = { bracket, matches, update };
+export function advance({ bracket, matches }, update = (id, fields) => Object.assign(matches.get(id), fields)) {
+  const replay = copyMatches(matches);
+  const winners = bracket.winners.rounds.map(r => r.matchIds);
+  const losers = bracket.losers.rounds.map(r => r.matchIds);
   const [gf1, gf2] = bracket.grandFinals;
-  const match = matches.get(matchId);
+  const seat = (id, slot, participantId) => { replay.get(id).participants[slot] = participantId; };
 
-  if (match.bracket === 'winners') {
-    const nextId = bracket.winners.rounds[match.round]?.matchIds[Math.floor(match.position / 2)];
-    if (nextId) {
-      fillSlot(ctx, nextId, match.position % 2, match.winnerId);
-    } else {
-      fillSlot(ctx, gf1, 0, match.winnerId);
-    }
-
-    const loserId = match.participants.find(p => p && p !== match.winnerId);
-    if (loserId) {
-      const { round, position, slot } = match.dropsTo;
-      // With two players there is no losers bracket, so the loser goes straight to grand finals.
-      if (round < 1) {
-        fillSlot(ctx, gf1, 1, loserId);
-      } else {
-        fillSlot(ctx, bracket.losers.rounds[round - 1].matchIds[position], slot, loserId);
-      }
-    }
-  } else if (match.bracket === 'losers') {
-    advanceInLosers(ctx, match);
-  } else if (matchId === gf1 && match.winnerId === match.participants[1]) {
-    update(gf2, { participants: [...match.participants], requiresPlay: true });
+  // Seats past winners round 1, walkovers and the reset all follow from results.
+  for (const id of [...winners.slice(1).flat(), ...losers.flat(), gf1, gf2]) {
+    const match = replay.get(id);
+    match.participants = [null, null];
+    if (match.deadSlots?.length) match.winnerId = null;
   }
+  replay.get(gf2).requiresPlay = false;
 
-  resolveLosersByes(ctx);
-  return championId(bracket, matches) !== null;
-}
-
-/**
- * Write a participant into one slot of a match.
- */
-function fillSlot({ matches, update }, id, slot, participantId) {
-  update(id, { participants: matches.get(id).participants.with(slot, participantId) });
-}
-
-/**
- * Advance a losers-bracket winner, or send the losers champion to grand finals.
- */
-function advanceInLosers(ctx, match) {
-  const round = ctx.bracket.losers.rounds[match.round];
-  if (round) {
-    const nextId = round.matchIds[match.isMinorRound ? match.position : Math.floor(match.position / 2)];
-    fillSlot(ctx, nextId, match.isMinorRound ? 0 : match.position % 2, match.winnerId);
-  } else {
-    fillSlot(ctx, ctx.bracket.grandFinals[0], 1, match.winnerId);
-  }
-}
-
-/**
- * Auto-advance each unresolved losers match whose only participant faces a dead slot.
- * Walkovers only feed later rounds, so one pass in round order resolves every cascade.
- */
-function resolveLosersByes(ctx) {
-  for (const id of ctx.bracket.losers.rounds.flatMap(r => r.matchIds)) {
-    const match = ctx.matches.get(id);
+  // Every match comes after the matches that seat it.
+  for (const id of [...winners.flat(), ...losers.flat(), gf1, gf2]) {
+    const match = replay.get(id);
     const present = match.participants.filter(Boolean);
-    if (match.winnerId || !match.deadSlots?.length || present.length !== 1) continue;
-    ctx.update(id, { winnerId: present[0] });
-    advanceInLosers(ctx, ctx.matches.get(id));
+    if (match.deadSlots?.length && present.length === 1) {
+      match.winnerId = present[0];
+    } else if (!keepResult(match)) {
+      continue;
+    }
+
+    if (match.bracket === 'winners') {
+      const nextId = winners[match.round]?.[Math.floor(match.position / 2)];
+      if (nextId) {
+        seat(nextId, match.position % 2, match.winnerId);
+      } else {
+        seat(gf1, 0, match.winnerId);
+      }
+      const loserId = match.participants.find(p => p && p !== match.winnerId);
+      if (loserId) {
+        const { round, position, slot } = match.dropsTo;
+        // With two players there is no losers bracket, so the loser goes straight to grand finals.
+        if (round < 1) {
+          seat(gf1, 1, loserId);
+        } else {
+          seat(losers[round - 1][position], slot, loserId);
+        }
+      }
+    } else if (match.bracket === 'losers') {
+      // A minor round's winner meets the next major round's drop-in; major round winners pair off.
+      const next = losers[match.round];
+      if (!next) {
+        seat(gf1, 1, match.winnerId);
+      } else if (match.isMinorRound) {
+        seat(next[match.position], 0, match.winnerId);
+      } else {
+        seat(next[Math.floor(match.position / 2)], match.position % 2, match.winnerId);
+      }
+    } else if (id === gf1 && match.winnerId === match.participants[1]) {
+      Object.assign(replay.get(gf2), { participants: [...match.participants], requiresPlay: true });
+    }
   }
+
+  writeReplay(matches, replay, update);
+  return championId(bracket, replay) !== null;
 }
 
 /**

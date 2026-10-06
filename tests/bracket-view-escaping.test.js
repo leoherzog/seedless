@@ -174,7 +174,7 @@ Deno.test('Bracket View XSS Escaping - Points Race game card', async (t) => {
       store.reset();
       const doc = installBracketViewDom();
       // The mock document resolves '#standings-table tbody' by this key.
-      doc._addElement('standings-table tbody', createMockElement('tbody'));
+      doc._addElement('standings-table tbody', createMockElement());
       initBracketView();
 
       store.set('participants', new Map([['p1', { id: 'p1', name: 'Alice' }], ['p2', { id: 'p2', name: 'Bob' }]]));
@@ -201,13 +201,10 @@ Deno.test('Bracket View XSS Escaping - Points Race game card', async (t) => {
 });
 
 Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
-  /** Complete a two-player bracket holding the given history entries, and return #tournament-history. */
-  function renderHistory(history) {
+  /** Complete a two-player bracket holding the given history entries from the admin. */
+  function completeWithHistory(history) {
     store.reset();
-    const doc = installBracketViewDom();
-    initBracketView();
-
-    store.merge({ history });
+    store.merge({ history }, true);
     store.set('participants', new Map([['p1', { id: 'p1', name: 'Alice' }], ['p2', { id: 'p2', name: 'Bob' }]]));
     store.setMatches(new Map([
       ['m1', { id: 'm1', position: 0, participants: ['p1', 'p2'], scores: [2, 0], winnerId: 'p1', isBye: false }],
@@ -215,6 +212,13 @@ Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
     store.set('bracket', { rounds: [{ number: 1, name: 'Final', matchIds: ['m1'] }] });
     store.set('meta.type', 'single');
     store.set('meta.status', 'complete');
+  }
+
+  /** Render a completed bracket with the given history on a fresh DOM, and return #tournament-history. */
+  function renderHistory(history) {
+    const doc = installBracketViewDom();
+    initBracketView();
+    completeWithHistory(history);
     return doc._elements.get('tournament-history');
   }
 
@@ -249,10 +253,12 @@ Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
     }
   });
 
-  await t.step('the section hides when a later tournament has no history', () => {
+  await t.step('the shown section hides when a later tournament has no history', () => {
     try {
-      renderHistory([{ id: 'h1', type: 'single', completedAt: 1, participantCount: 2 }]);
-      const section = renderHistory([]);
+      const section = renderHistory([{ id: 'h1', type: 'single', completedAt: 1, participantCount: 2 }]);
+      assertEquals(section.hidden, false);
+
+      completeWithHistory([]);
       assertEquals(section.hidden, true);
     } finally {
       cleanupBracketView();

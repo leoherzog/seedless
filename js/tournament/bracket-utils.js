@@ -1,5 +1,5 @@
 /**
- * Seeding, knockout round building and round naming shared by the bracket generators.
+ * Seeding, knockout round building, replay helpers and round naming shared by the bracket modules.
  */
 
 import { bySeed } from '../utils/tournament-helpers.js';
@@ -71,6 +71,48 @@ export function buildKnockout(participants, makeMatch, nameRound) {
  */
 export function toMatchIds(rounds) {
   return rounds.map(({ matches, ...round }) => ({ ...round, matchIds: matches.map(m => m.id) }));
+}
+
+/**
+ * Copy matches so a replay can reseat them without touching the stored ones.
+ * @param {Map} matches - Matches by id
+ * @returns {Map} Copies with their own participants arrays
+ */
+export function copyMatches(matches) {
+  return new Map([...matches].map(([id, m]) => [id, { ...m, participants: [...m.participants] }]));
+}
+
+/**
+ * Keep a replayed match's result only while its winner is seated with an opponent, or alone in a bye.
+ * A result that no longer stands, as after an earlier result changed, is cleared in place.
+ * @param {Object} match - Replayed copy
+ * @returns {boolean} True when the match has a standing result
+ */
+export function keepResult(match) {
+  if (!match.winnerId) return false;
+  const { participants } = match;
+  if ((match.isBye || !participants.includes(null)) && participants.includes(match.winnerId)) return true;
+  Object.assign(match, { winnerId: null, scores: [0, 0], verifiedBy: null });
+  return false;
+}
+
+// The fields a replay rewrites.
+const REPLAYED_FIELDS = ['participants', 'winnerId', 'scores', 'verifiedBy', 'requiresPlay'];
+
+/**
+ * Write each replayed field that differs from the stored match.
+ * @param {Map} matches - Stored matches
+ * @param {Map} replayed - Copies after the replay
+ * @param {Function} update - (id, fields) writer for a stored match
+ */
+export function writeReplay(matches, replayed, update) {
+  for (const [id, next] of replayed) {
+    const prev = matches.get(id);
+    const changed = REPLAYED_FIELDS.filter((key) => JSON.stringify(next[key]) !== JSON.stringify(prev[key]));
+    if (changed.length > 0) {
+      update(id, Object.fromEntries(changed.map((key) => [key, next[key]])));
+    }
+  }
 }
 
 /**

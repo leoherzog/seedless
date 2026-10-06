@@ -56,12 +56,12 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
   await t.step("merge(remote, true) grants admin authority over bracket/standings", () => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
-    store._state.bracket = { type: "single", rounds: [{ number: 1, matchIds: [] }] };
+    store._state.bracket = { type: "single", startedAt: 1, rounds: [{ number: 1, matchIds: [] }] };
     store._state.standings = new Map([["old", { participantId: "old", points: 1 }]]);
 
     const remoteState = {
       meta: { adminId: "admin-1", status: "complete" },
-      bracket: { type: "single", rounds: [{ number: 2, matchIds: [] }] },
+      bracket: { type: "single", startedAt: 2, rounds: [{ number: 2, matchIds: [] }] },
       standings: [["new", { participantId: "new", points: 99 }]],
     };
 
@@ -125,7 +125,7 @@ Deno.test("Store.merge - adminId protection", async (t) => {
     assertEquals(store.get("meta.status"), "active", "the rest of a trusted meta is adopted");
   });
 
-  await t.step("a non-admin keeps its known adminId unless a trusted snapshot corrects it", () => {
+  await t.step("a non-admin keeps its known adminId against any sender", () => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
 
@@ -133,7 +133,20 @@ Deno.test("Store.merge - adminId protection", async (t) => {
     assertEquals(store.get("meta.adminId"), "admin-1");
 
     store.merge(structuredClone(foreignMeta), true);
-    assertEquals(store.get("meta.adminId"), "other-admin");
+    assertEquals(store.get("meta.adminId"), "admin-1");
+  });
+
+  await t.step("a snapshot naming the local user as admin is ignored", () => {
+    for (const knownAdminId of ["admin-1", null]) {
+      const store = new Store();
+      store.set("local.localUserId", "victim");
+      store.set("meta.adminId", knownAdminId);
+
+      store.merge({ meta: { adminId: "victim", status: "active" } }, true);
+
+      assertEquals(store.get("meta.adminId"), knownAdminId);
+      assertEquals(store.get("meta.status"), "lobby");
+    }
   });
 });
 
@@ -176,19 +189,47 @@ Deno.test("Store.merge - matches belong to one tournament", async (t) => {
     assertEquals(store.getMatch("r1m0").winnerId, null);
   });
 
-  await t.step("within a tournament a reportedAt tie goes to the admin only", () => {
-    const empty = [["r2m0", { id: "r2m0", participants: [null, null], reportedAt: null }]];
-    const remote = {
+  await t.step("within a tournament only a newer result merges, never seats", () => {
+    const empty = [["r2m0", { id: "r2m0", participants: [null, null], winnerId: null, reportedAt: null }]];
+    const seated = { bracket: { type: "single", startedAt: 1, rounds: [] } };
+
+    const fromAdmin = storeWith(1, empty);
+    fromAdmin.merge({ ...seated, matches: [["r2m0", { id: "r2m0", participants: ["a", "b"], winnerId: null }]] }, true);
+    assertEquals(fromAdmin.getMatch("r2m0").participants, [null, null], "a stale or empty admin slot never overwrites a seat");
+
+    const fromPeer = storeWith(1, structuredClone(empty));
+    fromPeer.merge({ ...seated, matches: [["r2m0", { ...result("r2m0", "a", 500), participants: ["x", "y"], scores: [2, 1] }]] }, false);
+    const match = fromPeer.getMatch("r2m0");
+    assertEquals([match.winnerId, match.reportedAt, match.scores], ["a", 500, [2, 1]]);
+    assertEquals(match.participants, [null, null], "seats are re-derived, not merged");
+  });
+
+  await t.step("only the admin verifies, and unknown match ids are ignored", () => {
+    const local = [["r1m0", result("r1m0", "a", 900)]];
+    const verified = { bracket: { type: "single", startedAt: 1, rounds: [] }, matches: [
+      ["r1m0", { ...result("r1m0", "d", 100), verifiedBy: "admin-1" }],
+      ["bogus", { id: "bogus", participants: [], winnerId: "x", reportedAt: 9e15 }],
+    ] };
+
+    const fromPeer = storeWith(1, local);
+    fromPeer.merge(structuredClone(verified), false);
+    assertEquals(fromPeer.getMatch("r1m0").winnerId, "a", "a peer's verifiedBy carries no weight");
+    assertEquals(fromPeer.getMatch("bogus"), undefined);
+
+    const fromAdmin = storeWith(1, structuredClone(local));
+    fromAdmin.merge(structuredClone(verified), true);
+    assertEquals(fromAdmin.getMatch("r1m0").winnerId, "d", "the admin's verified result beats a newer report");
+    assertEquals(fromAdmin.getMatch("r1m0").verifiedBy, "admin-1");
+  });
+
+  await t.step("a peer's newer result cannot replace a verified one", () => {
+    const store = storeWith(1, [["r1m0", { ...result("r1m0", "a", 100), verifiedBy: "admin-1" }]]);
+
+    store.merge({
       bracket: { type: "single", startedAt: 1, rounds: [] },
-      matches: [["r2m0", { id: "r2m0", participants: ["a", "b"], reportedAt: null }]],
-    };
+      matches: [["r1m0", { ...result("r1m0", "d", 9e15), version: 99 }]],
+    }, false);
 
-    const fromPeer = storeWith(1, empty);
-    fromPeer.merge(remote, false);
-    assertEquals(fromPeer.getMatch("r2m0").participants, [null, null]);
-
-    const fromAdmin = storeWith(1, structuredClone(empty));
-    fromAdmin.merge(remote, true);
-    assertEquals(fromAdmin.getMatch("r2m0").participants, ["a", "b"], "the admin's slot fill arrives");
+    assertEquals(store.getMatch("r1m0").winnerId, "a");
   });
 });

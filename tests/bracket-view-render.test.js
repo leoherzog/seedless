@@ -18,7 +18,7 @@ const match = (id, participants, winnerId = null) =>
 function installTabbedDom() {
   const doc = installBracketViewDom();
   const buttons = ['winners', 'losers', 'finals'].map((bracket) => {
-    const btn = createMockElement('button', { dataset: { bracket } });
+    const btn = createMockElement({ dataset: { bracket } });
     const attributes = new Set();
     btn.setAttribute = (name) => attributes.add(name);
     btn.removeAttribute = (name) => attributes.delete(name);

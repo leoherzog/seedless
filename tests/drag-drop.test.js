@@ -124,10 +124,12 @@ Deno.test('getDragAfterElement', async (t) => {
 Deno.test('makeSortable', async (t) => {
   /** A list mock that records insertBefore calls, plus one li row. */
   function sortableList() {
-    const list = createMockDomElement('ol');
+    const list = createMockDomElement();
     list.inserted = [];
     list.insertBefore = (node, before) => list.inserted.push([node, before]);
-    const row = createMockDomElement('li');
+    const row = createMockDomElement();
+    list.rows = new Set([row]);
+    list.contains = (node) => list.rows.has(node);
     let moves = 0;
     const controller = new AbortController();
     makeSortable(list, { signal: controller.signal, onMove: () => moves++ });
@@ -146,6 +148,16 @@ Deno.test('makeSortable', async (t) => {
 
     drag('dragend');
     assert(!row.classList.contains('dragging'));
+  });
+
+  await t.step('ignores dragover once a re-render has detached the dragged row', () => {
+    const { list, row, drag, moves } = sortableList();
+    drag('dragstart', { target: { closest: () => row }, dataTransfer: {} });
+    list.rows.delete(row);
+
+    drag('dragover', { clientY: 10 });
+    assertEquals(list.inserted, []);
+    assertEquals(moves(), 0);
   });
 
   await t.step('ignores dragover with no row dragged from this list', () => {

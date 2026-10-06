@@ -3,7 +3,7 @@
  * Every programmatic change dispatches 'urlstatechange' on window.
  */
 
-export const URL_PARAMS = {
+const URL_PARAMS = {
   ROOM: 'room',
 };
 
@@ -22,7 +22,7 @@ const notifyUrlChange = () => window.dispatchEvent(new Event('urlstatechange'));
  * @param {Object} updates - Key-value pairs to update
  * @param {boolean} replace - Replace history instead of push
  */
-export function updateUrlState(updates, replace = false) {
+function updateUrlState(updates, replace = false) {
   const params = new URLSearchParams(window.location.search);
 
   for (const [key, value] of Object.entries(updates)) {

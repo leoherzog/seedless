@@ -1,9 +1,10 @@
 /**
  * Recording every game completes the race; re-recording a game replaces its
- * result instead of adding to it, and a passed-in reportedAt is kept.
+ * result instead of adding to it, an order that is not each racer once is
+ * rejected, and a passed-in reportedAt is kept.
  */
 
-import { assertEquals, assert } from "jsr:@std/assert";
+import { assertEquals, assert, assertThrows } from "jsr:@std/assert";
 import {
   generateMarioKartTournament,
   recordRaceResult,
@@ -174,7 +175,7 @@ Deno.test("Mario Kart correction: different result for same gameId replaces prio
     assertEquals(game.winnerId, b);
   });
 
-  await t.step("correction affecting fewer participants removes stale contribution for dropped participant", () => {
+  await t.step("rejects an order that repeats or omits a racer and keeps the standings", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -183,32 +184,20 @@ Deno.test("Mario Kart correction: different result for same gameId replaces prio
     });
 
     const gameId = tournament.matches.keys().next().value;
-    const game = tournament.matches.get(gameId);
-    const [a, b, c, d] = game.participants;
+    const [a, b, c, d] = tournament.matches.get(gameId).participants;
+    recordRaceResult(tournament, gameId, [a, b, c, d].map((participantId) => ({ participantId })), "player-1");
 
-    recordRaceResult(tournament, gameId, [
-      { participantId: a },
-      { participantId: b },
-      { participantId: c },
-      { participantId: d },
-    ], "player-1");
-
-    assertEquals(tournament.standings.get(d).points, 8);
-    assertEquals(tournament.standings.get(d).gamesCompleted, 1);
-
-    recordRaceResult(tournament, gameId, [
-      { participantId: a },
-      { participantId: b },
-      { participantId: c },
-    ], "player-1");
-
-    assertEquals(tournament.standings.get(d).points, 0);
-    assertEquals(tournament.standings.get(d).gamesCompleted, 0);
+    for (const order of [[a, a, a, a], [a, b, c]]) {
+      assertThrows(
+        () => recordRaceResult(tournament, gameId, order.map((participantId) => ({ participantId })), "player-1"),
+        Error,
+        "exactly once",
+      );
+    }
 
     assertEquals(tournament.standings.get(a).points, 15);
     assertEquals(tournament.standings.get(a).gamesCompleted, 1);
-    assertEquals(tournament.standings.get(c).points, 10);
-    assertEquals(tournament.standings.get(c).gamesCompleted, 1);
+    assertEquals(tournament.standings.get(d).points, 8);
   });
 });
 

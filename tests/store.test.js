@@ -137,13 +137,15 @@ Deno.test("Store.removeParticipant", async (t) => {
     assertEquals(store.getParticipant("user-1"), undefined);
   });
 
-  await t.step("emits participant:leave event", () => {
+  await t.step("emits participant:leave with the removed participant", () => {
     const store = new Store();
     store.addParticipant({ id: "user-1", name: "Alice" });
-    let emitted = false;
-    store.on("participant:leave", () => { emitted = true; });
+    const left = [];
+    store.on("participant:leave", (p) => left.push(p));
     store.removeParticipant("user-1");
-    assert(emitted, "participant:leave should be emitted");
+    assertEquals(left.length, 1);
+    assertEquals(left[0].id, "user-1");
+    assertEquals(left[0].name, "Alice");
   });
 
   await t.step("does nothing for non-existent participant", () => {
@@ -345,86 +347,46 @@ Deno.test("Store.merge - participant OR-Set", async (t) => {
 });
 
 Deno.test("Store.merge - match LWW with admin verification", async (t) => {
-  await t.step("verified match wins over unverified", () => {
+  /** A store holding m1 with the given result fields. */
+  function storeWithMatch(fields) {
     const store = new Store();
-    store.deserialize({
-      matches: [
-        ["m1", { id: "m1", winnerId: "p1", reportedAt: 2000, verifiedBy: null }],
-      ],
-    });
+    store.deserialize({ matches: [["m1", { id: "m1", participants: ["p1", "p2"], ...fields }]] });
+    return store;
+  }
 
-    const remoteState = {
-      matches: [
-        ["m1", { id: "m1", winnerId: "p2", reportedAt: 1000, verifiedBy: "admin" }],
-      ],
-    };
+  await t.step("the admin's verified match wins over a newer unverified one", () => {
+    const store = storeWithMatch({ winnerId: "p1", reportedAt: 2000, verifiedBy: null });
 
-    store.merge(remoteState, null);
+    store.merge({ matches: [["m1", { id: "m1", participants: ["p1", "p2"], winnerId: "p2", reportedAt: 1000, verifiedBy: "admin" }]] }, true);
 
-    // Verification beats a newer reportedAt.
     const match = store.getMatch("m1");
     assertEquals(match.winnerId, "p2");
     assertEquals(match.verifiedBy, "admin");
   });
 
   await t.step("keeps local verified over remote unverified", () => {
-    const store = new Store();
-    store.deserialize({
-      matches: [
-        ["m1", { id: "m1", winnerId: "p1", reportedAt: 1000, verifiedBy: "admin" }],
-      ],
-    });
+    const store = storeWithMatch({ winnerId: "p1", reportedAt: 1000, verifiedBy: "admin" });
 
-    const remoteState = {
-      matches: [
-        ["m1", { id: "m1", winnerId: "p2", reportedAt: 2000, verifiedBy: null }],
-      ],
-    };
+    store.merge({ matches: [["m1", { id: "m1", participants: ["p1", "p2"], winnerId: "p2", reportedAt: 2000, verifiedBy: null }]] }, true);
 
-    store.merge(remoteState, null);
-
-    const match = store.getMatch("m1");
-    assertEquals(match.winnerId, "p1");
+    assertEquals(store.getMatch("m1").winnerId, "p1");
   });
 
   await t.step("newer reportedAt wins when both unverified", () => {
-    const store = new Store();
-    store.deserialize({
-      matches: [
-        ["m1", { id: "m1", winnerId: "p1", reportedAt: 1000, verifiedBy: null }],
-      ],
-    });
+    const store = storeWithMatch({ winnerId: "p1", reportedAt: 1000, verifiedBy: null });
 
-    const remoteState = {
-      matches: [
-        ["m1", { id: "m1", winnerId: "p2", reportedAt: 2000, verifiedBy: null }],
-      ],
-    };
+    store.merge({ matches: [["m1", { id: "m1", participants: ["p1", "p2"], winnerId: "p2", reportedAt: 2000, verifiedBy: null }]] }, null);
 
-    store.merge(remoteState, null);
-
-    const match = store.getMatch("m1");
-    assertEquals(match.winnerId, "p2");
+    assertEquals(store.getMatch("m1").winnerId, "p2");
   });
 
-  await t.step("adds new matches from remote", () => {
-    const store = new Store();
-    store.deserialize({
-      matches: [
-        ["m1", { id: "m1", winnerId: "p1" }],
-      ],
-    });
+  await t.step("ignores match ids the local tournament lacks", () => {
+    const store = storeWithMatch({ winnerId: "p1" });
 
-    const remoteState = {
-      matches: [
-        ["m2", { id: "m2", winnerId: "p3" }],
-      ],
-    };
-
-    store.merge(remoteState, null);
+    store.merge({ matches: [["m2", { id: "m2", participants: ["p3", "p4"], winnerId: "p3" }]] }, null);
 
     assert(store.getMatch("m1") !== undefined);
-    assert(store.getMatch("m2") !== undefined);
+    assertEquals(store.getMatch("m2"), undefined);
   });
 });
 

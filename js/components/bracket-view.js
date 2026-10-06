@@ -5,7 +5,7 @@
 
 import { store } from '../state/store.js';
 import { getRoom, ActionTypes } from '../network/room.js';
-import { reportMatchResult, advanceWinner, reportRaceResult } from '../network/sync.js';
+import { reportMatchResult, reportRaceResult } from '../network/sync.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement, makeSortable } from '../utils/drag-drop.js';
@@ -132,8 +132,11 @@ function setupRaceResultModal(signal) {
 function updateBracketUI() {
   const status = store.get('meta.status');
   if (status !== 'active' && status !== 'complete') {
-    // Between tournaments, so the next double-elimination bracket opens on Winners.
+    // Between tournaments or rooms: the next double-elimination bracket opens on Winners,
+    // and the last bracket is not shown while a saved one connects.
     selectTab('winners');
+    document.getElementById('bracket-title').textContent = 'Tournament';
+    document.getElementById('bracket-container').innerHTML = '';
     return;
   }
   if (document.getElementById('bracket-view').hidden) return;
@@ -271,9 +274,9 @@ function renderMatchFooter(match, canPlay, isAdmin) {
 
   return `
       <footer>
-        ${canReport ? `<button class="report-btn" data-match="${id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
+        ${canReport ? `<button data-match="${id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
         ${needsVerify ? `<button class="verify-btn outline" data-match="${id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
-        ${canEdit ? `<button class="edit-btn outline" data-match="${id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
+        ${canEdit ? `<button class="outline" data-match="${id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
       </footer>
     `;
 }
@@ -341,7 +344,7 @@ function renderGameCard(game, { participants, localUserId, isAdmin }) {
 
       ${canReport ? `
         <footer>
-          <button class="report-race-btn" data-race="${escapeHtml(game.id)}">
+          <button data-race="${escapeHtml(game.id)}">
             <span class="fa-solid fa-flag-checkered"></span> Report Results
           </button>
         </footer>
@@ -415,9 +418,6 @@ function verifyMatch(matchId) {
   store.updateMatch(matchId, {
     verifiedBy: store.get('local.localUserId'),
   });
-
-  // In case the result was not advanced when it was reported.
-  advanceWinner(matchId);
 
   getRoom()?.broadcast(ActionTypes.MATCH_VERIFY, {
     matchId,

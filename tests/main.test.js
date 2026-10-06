@@ -89,11 +89,15 @@ Deno.test({
     const startedRoom = `main-test-started-${Date.now()}`;
     const freshRoom = `main-test-fresh-${Date.now()}`;
 
+    // A two-player final, unplayed.
+    const finalRound = { type: 'single', rounds: [{ number: 1, name: 'Finals', matchIds: ['r1m0'] }] };
+    const finalMatch = [['r1m0', { id: 'r1m0', round: 1, position: 0, participants: ['admin-user', 'bob'], scores: [0, 0], winnerId: null }]];
+
     saveTournament(startedRoom, {
       meta: { id: startedRoom, status: 'active', type: 'single', adminId: 'other-admin', config: {} },
       participants: [],
-      bracket: { type: 'single', rounds: [], startedAt: 1 },
-      matches: [],
+      bracket: { ...finalRound, startedAt: 1 },
+      matches: finalMatch,
     });
 
     try {
@@ -119,6 +123,26 @@ Deno.test({
         assertEquals($('room-code').textContent, '');
         assertEquals($('share-btn').hidden, true);
         assertEquals($('connection-status').hidden, true);
+      });
+
+      await t.step('a saved started room shows its bracket while the connection is pending', async () => {
+        const realFetch = globalThis.fetch;
+        let release;
+        globalThis.fetch = () => new Promise((resolve) => { release = () => resolve(new Response('', { status: 503 })); });
+        CONFIG.network.turnCredentialsUrl = 'https://turn.test';
+        try {
+          setUrl(`/?room=${startedRoom}`);
+          window.dispatchEvent(new Event('popstate'));
+          assertEquals(getRoom(), null);
+          assertEquals(visibleViews(), ['bracket']);
+        } finally {
+          release();
+          await settle();
+          globalThis.fetch = realFetch;
+          CONFIG.network.turnCredentialsUrl = '';
+          click('home-link');
+          await settle();
+        }
       });
 
       await t.step('joining a started room through the Join form lands on its bracket', async () => {
@@ -149,8 +173,8 @@ Deno.test({
             state: {
               meta: { id: freshRoom, status: 'active', type: 'single', adminId: 'admin-user', config: {} },
               participants: [['admin-user', { id: 'admin-user', name: 'Ada', peerId: 'admin-peer' }]],
-              bracket: { type: 'single', rounds: [], startedAt: 2 },
-              matches: [],
+              bracket: { ...finalRound, startedAt: 2 },
+              matches: finalMatch,
             },
           },
         }, 'admin-peer');

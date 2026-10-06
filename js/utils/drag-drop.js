@@ -34,7 +34,8 @@ export function makeSortable(list, { signal, onMove } = {}) {
 
   list.addEventListener('dragover', (e) => {
     e.preventDefault();
-    if (!dragged) return;
+    // A re-render can detach the dragged row, and its dragend then never reaches the list.
+    if (!dragged || !list.contains(dragged)) return;
     list.insertBefore(dragged, getDragAfterElement(list, e.clientY) ?? null);
     onMove?.();
   }, { signal });

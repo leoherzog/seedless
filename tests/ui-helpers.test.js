@@ -9,6 +9,8 @@ import {
   determineMatchStatus,
   sortStandings,
   isInMatch,
+  isNewerResult,
+  isRaceOrder,
 } from '../js/utils/tournament-helpers.js';
 
 Deno.test('getOrdinalSuffix', async (t) => {
@@ -195,5 +197,52 @@ Deno.test('isInMatch', async (t) => {
 
   await t.step('rejects everyone when doubles has no teams', () => {
     assertEquals(isInMatch({ participants: ['p1', 'p2'] }, 'p1', []), false);
+  });
+});
+
+Deno.test('isNewerResult', async (t) => {
+  await t.step('a higher version wins over a later reportedAt', () => {
+    assertEquals(isNewerResult({ version: 2, reportedAt: 1000 }, { version: 1, reportedAt: 2000 }), true);
+    assertEquals(isNewerResult({ version: 1, reportedAt: 2000 }, { version: 2, reportedAt: 1000 }), false);
+  });
+
+  await t.step('on equal versions the later reportedAt wins', () => {
+    assertEquals(isNewerResult({ version: 1, reportedAt: 2000 }, { version: 1, reportedAt: 1000 }), true);
+    assertEquals(isNewerResult({ version: 1, reportedAt: 1000 }, { version: 1, reportedAt: 2000 }), false);
+  });
+
+  await t.step('on equal clocks the greater reporter id wins, so both sides agree', () => {
+    const a = { version: 1, reportedAt: 1000, reportedBy: 'admin' };
+    const b = { version: 1, reportedAt: 1000, reportedBy: 'player' };
+    assertEquals(isNewerResult(b, a), true);
+    assertEquals(isNewerResult(a, b), false);
+    assertEquals(isNewerResult(a, { ...a }), false);
+  });
+
+  await t.step('missing version and reportedAt count as 0', () => {
+    assertEquals(isNewerResult({ reportedAt: 2000 }, { reportedAt: 1000 }), true);
+    assertEquals(isNewerResult({ version: 1 }, { version: 1, reportedAt: 1000 }), false);
+  });
+
+  await t.step('Infinity reportedAt wins and NaN loses', () => {
+    const existing = { version: 1, reportedAt: 1000 };
+    assertEquals(isNewerResult({ version: 1, reportedAt: Infinity }, existing), true);
+    assertEquals(isNewerResult({ version: 1, reportedAt: NaN }, existing), false);
+  });
+});
+
+Deno.test('isRaceOrder', async (t) => {
+  const game = { participants: ['a', 'b', 'c'] };
+
+  await t.step('accepts each racer exactly once, in any order', () => {
+    assertEquals(isRaceOrder(game, [{ participantId: 'c' }, { participantId: 'a' }, { participantId: 'b' }]), true);
+  });
+
+  await t.step('rejects repeats, omissions, strangers and non-arrays', () => {
+    assertEquals(isRaceOrder(game, [{ participantId: 'a' }, { participantId: 'a' }, { participantId: 'a' }]), false);
+    assertEquals(isRaceOrder(game, [{ participantId: 'a' }, { participantId: 'b' }]), false);
+    assertEquals(isRaceOrder(game, [{ participantId: 'a' }, { participantId: 'b' }, { participantId: 'x' }]), false);
+    assertEquals(isRaceOrder(game, [null, null, null]), false);
+    assertEquals(isRaceOrder(game, 'abc'), false);
   });
 });

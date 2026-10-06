@@ -167,7 +167,7 @@ Deno.test("advance", async (t) => {
     const writes = [];
 
     tournament.matches.get("r1m0").winnerId = "player-1";
-    advance(tournament, "r1m0", (id, fields) => writes.push([id, fields]));
+    advance(tournament, (id, fields) => writes.push([id, fields]));
 
     assertEquals(writes, [["r2m0", { participants: ["player-1", null] }]]);
     assertEquals(before, [null, null], "the existing array is never mutated");

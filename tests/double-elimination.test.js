@@ -137,7 +137,7 @@ Deno.test("advance - winners bracket", async (t) => {
     const written = [];
 
     tournament.matches.get("w1m0").winnerId = "player-1";
-    advance(tournament, "w1m0", (id, fields) => {
+    advance(tournament, (id, fields) => {
       written.push(id);
       Object.assign(tournament.matches.get(id), fields);
     });
@@ -148,25 +148,31 @@ Deno.test("advance - winners bracket", async (t) => {
 });
 
 Deno.test("advance - losers bracket", async (t) => {
-  await t.step("minor round winner advances to next round slot 0", () => {
+  /** Play winners round 1, dropping player-4 and player-3 into l1m0. */
+  function afterWinnersRound1() {
     const tournament = generateDoubleEliminationBracket(participants4);
-    const minorMatch = roundMatches(tournament.matches, tournament.bracket.losers.rounds[0])[0];
+    report(tournament, advance, "w1m0", "player-1");
+    report(tournament, advance, "w1m1", "player-2");
+    return tournament;
+  }
 
-    minorMatch.participants = ["player-1", "player-2"];
-    report(tournament, advance, minorMatch.id, "player-1");
+  await t.step("minor round winner advances to next round slot 0", () => {
+    const tournament = afterWinnersRound1();
+    assertEquals(tournament.matches.get("l1m0").participants, ["player-4", "player-3"]);
 
-    const nextMatch = roundMatches(tournament.matches, tournament.bracket.losers.rounds[1])[0];
-    assertEquals(nextMatch.participants[0], "player-1");
+    report(tournament, advance, "l1m0", "player-3");
+
+    assertEquals(tournament.matches.get("l2m0").participants[0], "player-3");
   });
 
   await t.step("losers finals winner advances to grand finals slot 1", () => {
-    const tournament = generateDoubleEliminationBracket(participants4);
-    const finalMatch = roundMatches(tournament.matches, tournament.bracket.losers.rounds.at(-1))[0];
+    const tournament = afterWinnersRound1();
+    report(tournament, advance, "l1m0", "player-3");
+    report(tournament, advance, "w2m0", "player-1");
 
-    finalMatch.participants = ["player-1", "player-2"];
-    report(tournament, advance, finalMatch.id, "player-1");
+    report(tournament, advance, "l2m0", "player-3");
 
-    assertEquals(tournament.matches.get("gf1").participants[1], "player-1");
+    assertEquals(tournament.matches.get("gf1").participants[1], "player-3");
   });
 });
 

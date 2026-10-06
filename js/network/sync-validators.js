@@ -1,6 +1,5 @@
 /**
- * Pure validators for peer payloads and the last-writer-wins rule for match
- * results. sync.js runs them before a payload reaches the store.
+ * Pure validators for peer payloads. sync.js runs them before a payload reaches the store.
  */
 
 import { CONFIG } from '../../config.js';
@@ -28,6 +27,23 @@ export function isValidScores(scores) {
     Number.isFinite(scores[1]) && scores[1] >= 0;
 }
 
+// A missing optional field is undefined or null.
+const optional = (value, check) => value === undefined || value === null || check(value);
+const isString = (value) => typeof value === 'string';
+
+/** A match or Points Race game: a participants array and well-typed result fields. */
+function isValidMatch(match) {
+  return typeof match === 'object' && match !== null &&
+    Array.isArray(match.participants) &&
+    optional(match.winnerId, isString) &&
+    optional(match.scores, isValidScores) &&
+    optional(match.results, Array.isArray) &&
+    optional(match.reportedBy, isString) &&
+    optional(match.reportedAt, Number.isFinite) &&
+    optional(match.version, Number.isFinite) &&
+    optional(match.verifiedBy, isString);
+}
+
 /** Serialized state shape. meta, participants and matches may be absent; when present, meta is an object and the others are [id, value] entry arrays. */
 export function isValidState(state) {
   if (!state || typeof state !== 'object') return false;
@@ -50,28 +66,11 @@ export function isValidState(state) {
     for (const entry of state.matches) {
       if (!Array.isArray(entry) || entry.length !== 2) return false;
       if (typeof entry[0] !== 'string') return false;
+      if (!isValidMatch(entry[1])) return false;
     }
   }
 
   return true;
-}
-
-/**
- * Last-writer-wins on a per-match logical clock, then on reportedAt; the admin always wins.
- * @param {{version?: number, reportedAt?: number}} incoming - Incoming result
- * @param {{version?: number, reportedAt?: number}} existing - Stored match
- * @param {boolean} isAdmin - Whether the reporter is admin
- * @returns {boolean} True if incoming should replace existing
- */
-export function shouldUpdateMatch(incoming, existing, isAdmin) {
-  const incomingVersion = incoming.version || 0;
-  const existingVersion = existing.version || 0;
-  const incomingReportedAt = incoming.reportedAt || 0;
-  const existingReportedAt = existing.reportedAt || 0;
-
-  return isAdmin ||
-    incomingVersion > existingVersion ||
-    (incomingVersion === existingVersion && incomingReportedAt > existingReportedAt);
 }
 
 /** m:verify payload: matchId, scores and a string winnerId. */
@@ -85,6 +84,16 @@ export function isValidMatchVerifyPayload(payload) {
 /** m:result payload: a verify payload plus a numeric reportedAt. */
 export function isValidMatchResultPayload(payload) {
   return isValidMatchVerifyPayload(payload) && typeof payload.reportedAt === 'number';
+}
+
+/** r:result payload: a game id, a finishing order of participant ids, a finite reportedAt and an optional version. */
+export function isValidRaceResultPayload(payload) {
+  return !!payload &&
+    isValidMatchId(payload.gameId) &&
+    Array.isArray(payload.results) &&
+    payload.results.every((r) => isString(r?.participantId)) &&
+    Number.isFinite(payload.reportedAt) &&
+    optional(payload.version, Number.isFinite);
 }
 
 /** p:join payload: a valid name and a non-empty string localUserId. */

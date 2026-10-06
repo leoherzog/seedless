@@ -31,11 +31,11 @@ js/
 │   └── url-state.js       # ?room= query parameter
 ├── network/
 │   ├── room.js            # Trystero wrapper, ActionTypes, TURN fetch
-│   ├── sync.js            # Action handlers, sender trust, advanceWinner
-│   └── sync-validators.js # Payload validators, match LWW rule
+│   ├── sync.js            # Action handlers, sender trust, reconcile
+│   └── sync-validators.js # Payload validators
 ├── tournament/
-│   ├── bracket-utils.js       # Seed order, knockout builder, round names
-│   ├── single-elimination.js  # Generation, advance(), standings
+│   ├── bracket-utils.js       # Seed order, knockout builder, replay helpers, round names
+│   ├── single-elimination.js  # Generation, advance() replay, standings
 │   ├── double-elimination.js  # Same, plus losers bracket and grand finals
 │   ├── doubles.js             # Teams through a single or double bracket
 │   ├── mario-kart.js          # Points Race scheduling and scoring
@@ -48,7 +48,7 @@ js/
     ├── html.js               # HTML escaping
     ├── drag-drop.js          # Sortable lists
     ├── random-names.js       # Default room slugs and player names
-    └── tournament-helpers.js # Ordinals, match status, points, seeding, membership
+    └── tournament-helpers.js # Ordinals, match status, points, seeding, membership, result order
 turn-worker/        # Cloudflare Worker that mints TURN credentials
 ```
 
@@ -58,7 +58,7 @@ turn-worker/        # Cloudflare Worker that mints TURN credentials
 
 The `matches` Map is the only copy of each match and Points Race game, and bracket rounds hold `matchIds`. `bracket.startedAt`, stamped at start, identifies the tournament. `meta.status` runs `lobby`, `active`, `complete`; inside a room `main.js` shows the lobby until `active`, then the bracket view.
 
-`advance()` in `single-elimination.js` and `double-elimination.js` is the only advancement engine, and doubles reuses it with teams as participants. `advanceWinner()` in `sync.js` picks one by bracket shape, writes through `store.updateMatch`, and sets `meta.status` to `complete` once the champion is decided. Points Race results go through `recordRaceResult()` in `mario-kart.js`.
+`advance()` in `single-elimination.js` and `double-elimination.js` is the only advancement engine, and doubles reuses it with teams as participants. It replays every result in bracket order, so seats, walkovers and the reset follow from results alone, and a result whose players are no longer seated is cleared. `scoreRace()` in `mario-kart.js` does the same for Points Race scores and standings. `reconcile()` in `sync.js` runs the right one after every result and merge, writes through `store.updateMatch`, and sets an active tournament's `meta.status` to `complete` exactly when it has a champion.
 
 ## Identity and Admin
 
@@ -70,28 +70,29 @@ The admin is the room's creator, and `connectToRoom()` in `main.js` restores adm
 
 `ActionTypes` in `room.js` names each action:
 
-- `st:req/st:res`: state request and full-state reply, exchanged with each new peer
+- `st:req/st:res`: state request and full-state reply, exchanged with each new peer; the admin also broadcasts `st:res` once its lobby edits settle
 - `p:join/p:upd`: participant announce and update; `p:join` maps the sender's `peerId`
 - `p:leave`: admin removal; voluntary leaves arrive as Trystero peer-leave events
 - `t:start/t:reset`: tournament start, and return to lobby carrying the archived history entry
 - `m:result/m:verify`: match report and admin verification
 - `r:result`: Points Race game result
 
-Messages travel as `{ payload }`. `room.js` drops non-object payloads, and handlers receive `(payload, peerId)`. `shouldUpdateMatch()` orders results by `version`, then `reportedAt`, and the admin always wins.
+Messages travel as `{ payload }`. `room.js` drops non-object payloads, and handlers receive `(payload, peerId)`. `isNewerResult()` orders reports by `version`, then `reportedAt`, then reporter id, the same way on every peer; the admin overrides a result only by verifying it. A result whose winner or sender is not seated locally makes the receiver request the sender's state.
 
 ## Security Invariants
 
 `sync.js` and `store.js` enforce these:
 
 - Admin only, meaning the sender's mapped id equals `meta.adminId`: `t:start`, `t:reset`, `m:verify`, `p:leave`, manual `p:join`, and a `p:upd` naming another participant, which otherwise applies to the sender.
-- An `st:res` with `isAdmin` maps its sender to `meta.adminId` only if no connected peer holds that mapping, or the sender already does. This is trust on first use: while the admin is offline, any peer claiming `isAdmin` is treated as admin.
-- `store.merge(remote, senderIsAdmin)` takes `meta`, `bracket`, `standings` and `teamAssignments` only from a verified admin, or as a bootstrap when local has no `adminId`. Never derive `senderIsAdmin` from `remote.meta.adminId`, which every peer carries. The local admin's own `adminId` never changes.
-- `p:join` rejects claims to `meta.adminId` and to ids connected from another peer.
+- An `st:res` with `isAdmin` maps its sender to the admin only if its `adminId` matches the known `meta.adminId` and no other connected peer holds that mapping. The admin trusts no claim, and a claim naming the local user is refused. Trust on first use remains: a joiner with no `adminId` yet accepts the first claim and adopts its `adminId`.
+- `store.merge(remote, senderIsAdmin)` takes `meta`, `teamAssignments`, history, and another tournament's bracket, matches and standings only from a verified admin, or as a bootstrap when local has no `adminId`. Never derive `senderIsAdmin` from `remote.meta.adminId`, which every peer carries. A known `adminId` never changes, and a snapshot naming the local user as admin is ignored.
+- Within one tournament any snapshot may carry newer results for existing matches, but never seats or new ids, and only the admin's carries `verifiedBy`. Replay clears a result whose players are not seated.
+- `p:join` rejects claims to `meta.adminId` and to ids connected from another peer, and retries the latter once that peer leaves.
 - `m:result` comes only from the match's players, their teammates, or the admin, and only the admin changes a verified match. Non-admins ignore it until their first `st:res`.
-- `r:result` comes only from the game's players or the admin.
-- `sync-validators.js` checks `st:res`, `p:join`, `p:upd`, `m:result` and `m:verify` payloads, and `p:upd` allows only listed fields.
+- `r:result` comes only from the game's players or the admin, and must list each racer once.
+- `sync-validators.js` checks `st:res` and its match entries, `p:join`, `p:upd`, `m:result`, `m:verify` and `r:result` payloads, and `p:upd` allows only listed fields.
 
-Merges never remove participants and resolve their fields by `updatedAt`. Within one tournament, matches prefer verified, then the later `reportedAt`, with ties going to the admin; a trusted snapshot of another tournament replaces them all. History entries union by `id`.
+Merges never remove participants and resolve their fields by `updatedAt`. Within one tournament a result merges when it is the admin's verified one or `isNewerResult()` ranks it higher, and a verified result yields only to a newer one the admin verified. A trusted snapshot of another tournament replaces all matches. History entries union by `id`.
 
 ## Configuration
 

@@ -1,8 +1,8 @@
 /**
- * Single-elimination brackets: generation, winner advancement and final standings.
+ * Single-elimination brackets: generation, advancement by replaying results, and final standings.
  */
 
-import { buildKnockout, getRoundName, toMatchIds } from './bracket-utils.js';
+import { buildKnockout, getRoundName, toMatchIds, copyMatches, keepResult, writeReplay } from './bracket-utils.js';
 
 /**
  * Generate a seeded single-elimination bracket with round-1 byes already advanced.
@@ -34,19 +34,31 @@ export function generateSingleEliminationBracket(participants) {
 }
 
 /**
- * Advance a decided match's winner into the next round.
+ * Replay every result in round order, seating each winner in the next round. A result whose
+ * players are no longer seated, as after an earlier result changed, is cleared. Only fields
+ * that change are written.
  * @param {{bracket: Object, matches: Map}} tournament
- * @param {string} matchId - Match whose winnerId is set
  * @param {Function} [update] - (id, fields) writer for a match; defaults to the Map entry
  * @returns {boolean} True once the final has a winner
  */
-export function advance({ bracket, matches }, matchId, update = (id, fields) => Object.assign(matches.get(id), fields)) {
-  const match = matches.get(matchId);
-  const nextId = bracket.rounds[match.round]?.matchIds[Math.floor(match.position / 2)];
-  if (nextId) {
-    update(nextId, { participants: matches.get(nextId).participants.with(match.position % 2, match.winnerId) });
+export function advance({ bracket, matches }, update = (id, fields) => Object.assign(matches.get(id), fields)) {
+  const replay = copyMatches(matches);
+  for (const id of bracket.rounds.slice(1).flatMap(r => r.matchIds)) {
+    replay.get(id).participants = [null, null];
   }
-  return !!finalMatch(bracket, matches).winnerId;
+
+  bracket.rounds.forEach((round, r) => {
+    for (const id of round.matchIds) {
+      const match = replay.get(id);
+      const nextId = bracket.rounds[r + 1]?.matchIds[Math.floor(match.position / 2)];
+      if (keepResult(match) && nextId) {
+        replay.get(nextId).participants[match.position % 2] = match.winnerId;
+      }
+    }
+  });
+
+  writeReplay(matches, replay, update);
+  return !!finalMatch(bracket, replay).winnerId;
 }
 
 /**

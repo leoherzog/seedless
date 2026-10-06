@@ -18,7 +18,7 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId, peers: ['admin-peer'] });
 
-    store.set('bracket', { type: 'known-good' });
+    store.set('bracket', { type: 'known-good', startedAt: 1 });
 
     // The real admin peer maps first: no admin peer is active yet.
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
@@ -31,7 +31,7 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
       state: {
         meta: { adminId, status: 'lobby' },
-        bracket: { type: 'evil-forged-bracket' },
+        bracket: { type: 'evil-forged-bracket', startedAt: 2 },
       },
       isAdmin: true,
     }, 'malicious-peer');
@@ -54,11 +54,11 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
     }, 'malicious-peer');
 
     // A peerId -> adminId mapping for malicious-peer would let this admin-only start through.
-    const bracket = generateSingleEliminationBracket(createParticipants(4));
+    const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
 
     mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, {
       bracket,
-      matches: Array.from(bracket.matches.entries()),
+      matches: Array.from(matches.entries()),
     }, 'malicious-peer');
 
     assertEquals(store.get('meta.status'), 'lobby');
@@ -69,11 +69,66 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
     const mockRoom = connectAs({ userId: 'user-1', adminId });
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
-      state: { meta: { adminId, status: 'lobby' }, bracket: { type: 'real' } },
+      state: { meta: { adminId, status: 'lobby' }, bracket: { type: 'real', startedAt: 1 } },
       isAdmin: true,
     }, 'admin-peer');
 
     assertEquals(store.get('bracket').type, 'real');
+  });
+
+  await t.step('a claim naming a different adminId is rejected', () => {
+    const mockRoom = connectAs({ userId: 'user-b', adminId: 'admin-a', peers: ['admin-peer', 'evil'] });
+    mapAdmin(mockRoom, 'admin-a');
+    store.set('meta.status', 'lobby');
+
+    mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
+      state: { meta: { adminId: 'invented-admin', status: 'lobby' } },
+      isAdmin: true,
+    }, 'evil');
+    assertEquals(store.get('meta.adminId'), 'admin-a');
+
+    // The claimant gets no authority, and the real admin keeps its own.
+    const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
+    const start = { bracket, matches: Array.from(matches.entries()) };
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, start, 'evil');
+    assertEquals(store.get('meta.status'), 'lobby');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, start, 'admin-peer');
+    assertEquals(store.get('meta.status'), 'active');
+  });
+
+  await t.step("the admin trusts no peer's admin claim, even one naming the admin", () => {
+    const adminId = 'admin-1';
+    const mockRoom = connectAs({ userId: adminId, adminId, peers: ['evil'] });
+    store.set('meta.name', 'Cup');
+    const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
+
+    mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
+      state: {
+        meta: { adminId, name: 'Hijacked', status: 'active' },
+        bracket: { ...bracket, startedAt: 1 },
+        matches: Array.from(matches.entries()),
+      },
+      isAdmin: true,
+    }, 'evil');
+
+    assertEquals(store.get('meta.name'), 'Cup');
+    assertEquals(store.get('meta.status'), 'lobby');
+    assertEquals(store.get('bracket'), null);
+
+    store.set('meta.status', 'active');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, {}, 'evil');
+    assertEquals(store.get('meta.status'), 'active');
+  });
+
+  await t.step("a snapshot naming the local user as admin plants nothing", () => {
+    const mockRoom = connectAs({ userId: 'victim', adminId: 'admin-1', peers: ['evil'] });
+
+    mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
+      state: { meta: { adminId: 'victim', status: 'active' } },
+      isAdmin: true,
+    }, 'evil');
+
+    assertEquals(store.get('meta.adminId'), 'admin-1');
   });
 });
 
@@ -151,11 +206,11 @@ Deno.test('MATCH_VERIFY invalid shape', async (t) => {
   /** Connect as a participant with an active 4-player bracket and the admin mapped. */
   function setupActiveBracket() {
     const mockRoom = connectAs({ userId: 'participant-1', adminId });
-    const bracket = generateSingleEliminationBracket(createParticipants(4));
+    const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
+    store.setMatches(matches);
     store.set('bracket', bracket);
-    store.deserialize({ matches: Array.from(bracket.matches.entries()) });
-    store.set('meta.status', 'active');
     mapAdmin(mockRoom, adminId);
+    store.set('meta.status', 'active');
     return mockRoom;
   }
 

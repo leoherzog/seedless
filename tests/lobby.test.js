@@ -1,13 +1,17 @@
 /**
  * Lobby rendering and controls against a mock DOM: peer-supplied ids are escaped,
- * the team panel and Start button follow the store, and drops respect full teams.
+ * the team panel, Start button and settings form follow the store, drops respect
+ * full teams, and the admin's settings reach peers.
  */
 
 import { assert, assertEquals } from 'jsr:@std/assert';
+import { CONFIG } from '../config.js';
 import { store } from '../js/state/store.js';
+import { joinRoom, leaveRoom, ActionTypes } from '../js/network/room.js';
 import { initLobby } from '../js/components/lobby.js';
 import { escapeHtml } from '../js/utils/html.js';
 import { createMockElement, installLobbyDom } from './fixtures.js';
+import { _getLastRoom } from './mocks/trystero-mock.js';
 
 const XSS_ID = '"><img src=x onerror=alert(1)>';
 
@@ -41,14 +45,14 @@ const targetWithin = (selector, element) => ({ closest: (s) => (s === selector ?
 /** Drag a participant's li within the team panel and drop it on a team box. */
 function dragToTeam(participantId, box) {
   const fieldset = $('team-assignment-fieldset');
-  const li = createMockElement('li', { dataset: { participantId } });
+  const li = createMockElement({ dataset: { participantId } });
   fieldset.dispatchEvent({ type: 'dragstart', target: targetWithin('li[data-participant-id]', li), dataTransfer: {} });
   fieldset.dispatchEvent({ type: 'drop', target: targetWithin('.team-box', box), preventDefault() {} });
 }
 
 /** A team box mock; a complete box holds none of the dragged items. */
 function teamBox(teamId, { complete = false } = {}) {
-  const box = createMockElement('div', { dataset: { teamId }, classList: complete ? ['team-box', 'complete'] : ['team-box'] });
+  const box = createMockElement({ dataset: { teamId }, classList: complete ? ['team-box', 'complete'] : ['team-box'] });
   box.contains = () => false;
   return box;
 }
@@ -192,6 +196,76 @@ Deno.test({
       assertEquals(store.get('meta.type'), 'doubles');
       assertEquals(details.open, true);
       assertEquals($('team-assignment-fieldset').hidden, false);
+    });
+
+    await t.step('the settings form shows the stored settings, and its defaults in a new room', () => {
+      adminLobby([], { type: 'mariokart' });
+      store.set('meta.name', 'Kart Cup');
+      store.set('meta.config.playersPerGame', 6);
+      store.set('meta.config.pointsTable', CONFIG.pointsTables.f1);
+
+      const { elements } = $('tournament-config');
+      assertEquals(elements.type.value, 'mariokart');
+      assertEquals(elements.type.find((radio) => radio.checked).closest('details').open, true);
+      assertEquals(elements['tournament-name'].value, 'Kart Cup');
+      assertEquals(elements['players-per-game'].value, 6);
+      assertEquals(elements['points-table'].value, 'f1');
+
+      adminLobby([]);
+      assertEquals(elements.type.value, 'single');
+      assertEquals(elements['tournament-name'].value, '');
+      assertEquals(elements['players-per-game'].value, '4');
+      assertEquals(elements['points-table'].value, 'standard');
+    });
+
+    await t.step('fields being edited keep what the user typed', () => {
+      adminLobby([]);
+      const tournamentName = $('tournament-config').elements['tournament-name'];
+      const myName = $('my-name');
+      // Locking the name field relabels its submit button, which the mock reaches by this selector.
+      doc._addElement('update-name-form button[type="submit"]', Object.assign(createMockElement(), { setAttribute() {} }));
+      store.set('local.name', 'Ada');
+      assertEquals([myName.value, myName.disabled], ['Ada', true]);
+
+      try {
+        tournamentName.value = 'Half-typ';
+        doc.activeElement = tournamentName;
+        store.set('meta.config.teamSize', 3);
+        assertEquals(tournamentName.value, 'Half-typ');
+
+        // Clearing the unlocked name field to retype it must not refill or lock it.
+        Object.assign(myName, { value: '', disabled: false });
+        doc.activeElement = myName;
+        store.set('meta.config.teamSize', 2);
+        assertEquals(myName.value, '');
+        assertEquals(myName.disabled, false);
+      } finally {
+        delete doc.activeElement;
+      }
+    });
+
+    await t.step("the admin's settings reach peers once edits settle", async () => {
+      const previousTurnUrl = CONFIG.network.turnCredentialsUrl;
+      CONFIG.network.turnCredentialsUrl = '';
+      try {
+        await joinRoom('lobby-settings');
+        const sent = () => _getLastRoom()._getSentMessages(ActionTypes.STATE_RESPONSE);
+        adminLobby([]);
+        const rename = (value) => $('tournament-config').dispatchEvent({ type: 'input', target: { name: 'tournament-name', value } });
+
+        rename('Cup');
+        rename('Cup Final');
+        assertEquals(sent().length, 0);
+
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        assertEquals(sent().length, 1);
+        assertEquals(sent()[0].targets, undefined, 'broadcast to every peer');
+        assertEquals(sent()[0].data.payload.isAdmin, true);
+        assertEquals(sent()[0].data.payload.state.meta.name, 'Cup Final');
+      } finally {
+        await leaveRoom();
+        CONFIG.network.turnCredentialsUrl = previousTurnUrl;
+      }
     });
   },
 });

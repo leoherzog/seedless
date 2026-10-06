@@ -31,7 +31,7 @@ export function connectAs({
   store.set('local.localUserId', userId);
   store.set('local.name', name);
   store.setAdmin(isAdmin);
-  const room = createMockRoom('local-peer');
+  const room = createMockRoom();
   room._setPeers(peers);
   setupStateSync(room);
   return room;

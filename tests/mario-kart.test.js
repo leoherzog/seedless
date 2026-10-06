@@ -140,7 +140,7 @@ Deno.test("recordRaceResult", async (t) => {
         { participantId: "non-existent", position: 1 },
       ], "player-1"),
       Error,
-      "not in this game"
+      "exactly once"
     );
   });
 
