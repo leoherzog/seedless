@@ -1,15 +1,14 @@
 /**
- * Shared test fixtures and helper functions
+ * Shared test fixtures: DOM and room mocks, participant builders and a bracket
+ * play-through helper. Imports no app modules, so any test can load it cheaply.
  */
 
-// ============================================
-// DOM Mocking Utilities
-// ============================================
+// Mock DOM
 
 /**
- * Create a mock DOM element with common properties/methods
+ * Create a mock DOM element with the properties and methods the app touches
  * @param {string} tag - Element tag name
- * @param {Object} options - Additional options
+ * @param {Object} options - Initial property values
  * @returns {Object} Mock element
  */
 export function createMockElement(tag = 'div', options = {}) {
@@ -42,7 +41,6 @@ export function createMockElement(tag = 'div', options = {}) {
         }
       },
       contains: (name) => classList.has(name),
-      _set: classList,
     },
 
     addEventListener: (type, handler, options) => {
@@ -65,48 +63,38 @@ export function createMockElement(tag = 'div', options = {}) {
       listeners.forEach(({ handler }) => handler(event));
     },
 
-    querySelector: (selector) => null,
-    querySelectorAll: (selector) => [],
-    closest: (selector) => null,
-    showModal: function() { this._isOpen = true; },
-    close: function() { this._isOpen = false; },
-    _isOpen: false,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    closest: () => null,
+    showModal: () => {},
+    close: () => {},
     select: () => {},
     focus: () => {},
     blur: () => {},
     getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
-
-    // Internal testing helpers
-    _eventListeners: eventListeners,
-    _triggerEvent: (type, eventData = {}) => {
-      const event = { type, target: element, preventDefault: () => {}, stopPropagation: () => {}, ...eventData };
-      element.dispatchEvent(event);
-    },
   };
 
   return element;
 }
 
 /**
- * Create a mock document with getElementById and other DOM APIs
+ * Create a mock document whose getElementById serves elements added with _addElement
  * @returns {Object} Mock document
  */
-export function createMockDocument() {
+function createMockDocument() {
   const elements = new Map();
-  const eventListeners = new Map();
 
   return {
     getElementById: (id) => elements.get(id) || null,
 
     querySelector: (selector) => {
-      // Simple selector support
       if (selector.startsWith('#')) {
         return elements.get(selector.slice(1)) || null;
       }
       return null;
     },
 
-    querySelectorAll: (selector) => [],
+    querySelectorAll: () => [],
 
     createElement: (tag) => createMockElement(tag),
 
@@ -119,34 +107,38 @@ export function createMockDocument() {
       },
     },
 
-    addEventListener: (type, handler) => {
-      if (!eventListeners.has(type)) {
-        eventListeners.set(type, []);
-      }
-      eventListeners.get(type).push(handler);
-    },
+    addEventListener: () => {},
+    removeEventListener: () => {},
 
-    removeEventListener: (type, handler) => {
-      const listeners = eventListeners.get(type);
-      if (listeners) {
-        const idx = listeners.indexOf(handler);
-        if (idx >= 0) listeners.splice(idx, 1);
-      }
-    },
-
-    // Testing helpers
     _elements: elements,
     _addElement: (id, el) => {
       el.id = id;
       elements.set(id, el);
       return el;
     },
-    _eventListeners: eventListeners,
   };
 }
 
 /**
- * Create a mock P2P room connection
+ * Install a mock document holding the elements initBracketView and a render pass need
+ * @returns {Object} The installed mock document
+ */
+export function installBracketViewDom() {
+  const doc = createMockDocument();
+  doc._addElement('score-modal', createMockElement('dialog'));
+  doc._addElement('submit-score-btn', createMockElement('button'));
+  doc._addElement('score1', createMockElement('input'));
+  doc._addElement('score2', createMockElement('input'));
+  for (const id of ['bracket-tabs', 'bracket-title', 'bracket-status', 'standings-panel', 'bracket-container']) {
+    doc._addElement(id, createMockElement('div'));
+  }
+  doc._addElement('bracket-view', createMockElement('section', { hidden: false }));
+  globalThis.document = doc;
+  return doc;
+}
+
+/**
+ * Create a mock P2P room with the interface sync.js uses
  * @param {string} selfId - Local peer ID
  * @returns {Object} Mock room
  */
@@ -154,14 +146,13 @@ export function createMockRoom(selfId = 'local-peer-id') {
   const actionHandlers = new Map();
   const broadcasts = [];
   const sentMessages = [];
-  const peerJoinHandlers = [];
-  const peerLeaveHandlers = [];
-  let peers = new Map();
+  const joinHandlers = [];
+  const leaveHandlers = [];
+  let peers = [];
 
   return {
     selfId,
 
-    // Action handling
     onAction: (type, handler) => {
       actionHandlers.set(type, handler);
     },
@@ -177,138 +168,51 @@ export function createMockRoom(selfId = 'local-peer-id') {
       });
     },
 
-    // Peer management
     onPeerJoin: (handler) => {
-      peerJoinHandlers.push(handler);
+      joinHandlers.push(handler);
     },
 
     onPeerLeave: (handler) => {
-      peerLeaveHandlers.push(handler);
+      leaveHandlers.push(handler);
     },
 
-    getPeers: () => Array.from(peers.keys()),
-    getPeerCount: () => peers.size,
+    getPeers: () => peers,
 
     leave: () => {
-      peers.clear();
+      peers = [];
     },
 
-    // Testing helpers
     _broadcasts: broadcasts,
     _sentMessages: sentMessages,
-    _actionHandlers: actionHandlers,
-    _peerJoinHandlers: peerJoinHandlers,
-    _peerLeaveHandlers: peerLeaveHandlers,
 
-    _simulateAction: (type, payload, fromPeerId) => {
-      const handler = actionHandlers.get(type);
-      if (handler) {
-        handler(payload, fromPeerId);
-      }
-    },
+    /** Deliver an action as if sent by fromPeerId; returns the handler's result. */
+    _simulateAction: (type, payload, fromPeerId) => actionHandlers.get(type)?.(payload, fromPeerId),
 
     _simulatePeerJoin: (peerId) => {
-      peers.set(peerId, {});
-      peerJoinHandlers.forEach(h => h(peerId));
+      peers.push(peerId);
+      joinHandlers.forEach(h => h(peerId));
     },
 
     _simulatePeerLeave: (peerId) => {
-      peers.delete(peerId);
-      peerLeaveHandlers.forEach(h => h(peerId));
+      peers = peers.filter(p => p !== peerId);
+      leaveHandlers.forEach(h => h(peerId));
     },
 
-    _clearBroadcasts: () => {
+    _setPeers: (ids) => {
+      peers = ids;
+    },
+
+    _clearMessages: () => {
       broadcasts.length = 0;
-    },
-
-    _clearSentMessages: () => {
       sentMessages.length = 0;
     },
   };
 }
 
-/**
- * Create a mock localStorage
- * @returns {Object} Mock localStorage
- */
-export function createMockLocalStorage() {
-  const storage = new Map();
-
-  return {
-    getItem: (key) => storage.get(key) ?? null,
-    setItem: (key, value) => storage.set(key, String(value)),
-    removeItem: (key) => storage.delete(key),
-    clear: () => storage.clear(),
-    key: (index) => [...storage.keys()][index] ?? null,
-    get length() { return storage.size; },
-
-    // Testing helper
-    _storage: storage,
-  };
-}
+// Test data
 
 /**
- * Create a mock navigator object
- * @param {Object} options - Navigator options
- * @returns {Object} Mock navigator
- */
-export function createMockNavigator(options = {}) {
-  return {
-    clipboard: options.clipboard ?? {
-      writeText: async (text) => {},
-      readText: async () => '',
-    },
-    share: options.share, // undefined by default (not all browsers support)
-  };
-}
-
-/**
- * Create mock window object for tests
- * @param {Object} options - Options
- * @returns {Object} Mock window
- */
-export function createMockWindow(options = {}) {
-  const eventListeners = new Map();
-
-  return {
-    seedlessRoom: options.room ?? null,
-    location: {
-      href: options.href ?? 'http://localhost/',
-      pathname: options.pathname ?? '/',
-      search: options.search ?? '',
-      hash: options.hash ?? '',
-    },
-    history: {
-      pushState: () => {},
-      replaceState: () => {},
-    },
-    addEventListener: (type, handler) => {
-      if (!eventListeners.has(type)) {
-        eventListeners.set(type, []);
-      }
-      eventListeners.get(type).push(handler);
-    },
-    removeEventListener: (type, handler) => {
-      const listeners = eventListeners.get(type);
-      if (listeners) {
-        const idx = listeners.indexOf(handler);
-        if (idx >= 0) listeners.splice(idx, 1);
-      }
-    },
-    _eventListeners: eventListeners,
-    _dispatchEvent: (event) => {
-      const listeners = eventListeners.get(event.type) || [];
-      listeners.forEach(h => h(event));
-    },
-  };
-}
-
-// ============================================
-// Test Data Fixtures
-// ============================================
-
-/**
- * Create an array of participants with sequential IDs and seeds
+ * Create participants with sequential IDs and seeds
  * @param {number} count - Number of participants to create
  * @returns {Object[]} Array of participant objects
  */
@@ -332,16 +236,13 @@ export function createParticipantMap(participants) {
   return new Map(participants.map(p => [p.id, p]));
 }
 
-// Pre-built participant sets for common test scenarios
 export const participants2 = createParticipants(2);
 export const participants3 = createParticipants(3);
 export const participants4 = createParticipants(4);
-export const participants5 = createParticipants(5);
 export const participants8 = createParticipants(8);
-export const participants16 = createParticipants(16);
 
 /**
- * Create team assignments for doubles tournaments
+ * Create team assignments for doubles tournaments, filling teams in order
  * @param {Object[]} participants - Array of participants
  * @param {number} teamSize - Number of players per team
  * @returns {Map} Map of participantId -> teamId
@@ -360,40 +261,23 @@ export function createTeamAssignments(participants, teamSize = 2) {
 }
 
 /**
- * Create incomplete team assignments (some participants unassigned)
- * @param {Object[]} participants - Array of participants
- * @param {number} assignCount - Number of participants to assign
- * @returns {Map} Map of participantId -> teamId
+ * Record a 2-0 result for every playable match until none remain. Each pass
+ * records at least one result or stops, so a finite bracket always terminates.
+ * @param {Object} bracket - Bracket with a matches Map
+ * @param {Function} record - recordMatchResult(bracket, matchId, scores, winnerId, reportedBy)
+ * @param {Function} pick - Chooses the winner of a match
+ * @param {Function} [onRecord] - Called with each match after its result is recorded
  */
-export function createPartialTeamAssignments(participants, assignCount) {
-  const assignments = new Map();
-  let teamNum = 1;
-  for (let i = 0; i < Math.min(assignCount, participants.length); i += 2) {
-    const teamId = `team-${teamNum}`;
-    assignments.set(participants[i].id, teamId);
-    if (i + 1 < assignCount) {
-      assignments.set(participants[i + 1].id, teamId);
+export function playToCompletion(bracket, record, pick = (m) => m.participants[0], onRecord) {
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const m of bracket.matches.values()) {
+      if (m.isBye || m.winnerId || !m.participants[0] || !m.participants[1]) continue;
+      const w = pick(m);
+      record(bracket, m.id, [2, 0], w, w);
+      onRecord?.(m);
+      progressed = true;
     }
-    teamNum++;
   }
-  return assignments;
-}
-
-/**
- * Standard points table for mario kart tests
- */
-export const standardPointsTable = [15, 12, 10, 8, 6, 4, 2, 1];
-
-/**
- * Simulate playing a match and returning result
- * @param {string} winnerId - ID of the winner
- * @param {string[]} participants - Array of participant IDs in the match
- * @returns {Object} Match result object
- */
-export function createMatchResult(winnerId, participants) {
-  return {
-    winnerId,
-    scores: participants[0] === winnerId ? [2, 0] : [0, 2],
-    reportedBy: winnerId,
-  };
 }

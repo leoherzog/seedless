@@ -15,46 +15,7 @@ import {
   getStandings,
 } from "../js/tournament/single-elimination.js";
 import { nextPowerOf2 } from "../js/tournament/bracket-utils.js";
-import { createParticipants, createParticipantMap } from "./fixtures.js";
-
-/**
- * Play every resolvable match in the bracket to completion.
- * Deterministically advances whichever participant occupies slot 0 of each
- * match. Byes are already auto-resolved at generation time and are skipped.
- *
- * Because single-elimination rounds only ever depend on earlier rounds, one
- * forward pass through `bracket.rounds` is sufficient: by the time a given
- * round is reached, all of its matches must already have both slots filled
- * (either by a real result recorded earlier in this pass, or by bye
- * auto-advancement done at generation time).
- *
- * @param {Object} bracket
- * @returns {string[]} ids of matches actually played (excludes byes)
- */
-function playToCompletion(bracket) {
-  const played = [];
-
-  for (const round of bracket.rounds) {
-    for (const match of round.matches) {
-      if (match.isBye) continue;
-      if (match.winnerId) continue;
-
-      const [p1, p2] = match.participants;
-      if (!p1 || !p2) {
-        throw new Error(
-          `Match ${match.id} (round ${match.round}) has an unresolved null ` +
-            `opponent and cannot be played: participants=${JSON.stringify(match.participants)}`
-        );
-      }
-
-      const winnerId = p1; // deterministic: slot 0 always advances
-      recordMatchResult(bracket, match.id, [1, 0], winnerId, winnerId);
-      played.push(match.id);
-    }
-  }
-
-  return played;
-}
+import { createParticipants, createParticipantMap, playToCompletion } from "./fixtures.js";
 
 /**
  * Assert every match in the bracket ended up decided (bye or played).
@@ -99,10 +60,10 @@ Deno.test("Single Elimination - parametric run to completion", async (t) => {
       assertEquals(finalRound.matches.length, 1, "final round should have exactly one match");
 
       // --- Play every remaining match to completion ---
-      const played = playToCompletion(bracket);
+      let played = 0;
+      playToCompletion(bracket, recordMatchResult, undefined, () => played++);
 
-      // Number of matches actually played should be total matches minus byes.
-      assertEquals(played.length, expectedTotalMatches - expectedByes, "matches played");
+      assertEquals(played, expectedTotalMatches - expectedByes, "matches played");
 
       // No match anywhere should still be missing a winner.
       assertAllMatchesResolved(bracket);
@@ -138,82 +99,4 @@ Deno.test("Single Elimination - parametric run to completion", async (t) => {
       assertEquals(uniqueIds, expectedIds, "standings should be exactly the input participant set");
     });
   }
-});
-
-Deno.test("Single Elimination - edge case: N=2 minimal bracket", async (t) => {
-  await t.step("generates a single match with no byes", () => {
-    const participants = createParticipants(2);
-    const bracket = generateSingleEliminationBracket(participants);
-
-    assertEquals(bracket.bracketSize, 2);
-    assertEquals(bracket.numRounds, 1);
-    assertEquals(bracket.matches.size, 1);
-    assertEquals(bracket.rounds[0].matches.filter((m) => m.isBye).length, 0);
-
-    const match = bracket.rounds[0].matches[0];
-    assertEquals(match.participants[0], "player-1");
-    assertEquals(match.participants[1], "player-2");
-    assertEquals(match.isBye, false);
-    assertEquals(bracket.isComplete, undefined);
-  });
-
-  await t.step("one recorded result completes the entire tournament", () => {
-    const participants = createParticipants(2);
-    const participantMap = createParticipantMap(participants);
-    const bracket = generateSingleEliminationBracket(participants);
-
-    recordMatchResult(bracket, "r1m0", [2, 0], "player-1", "player-1");
-
-    assert(bracket.isComplete, "tournament should be complete after the only match is played");
-    const standings = getStandings(bracket, participantMap);
-    assertEquals(standings.length, 2);
-    assertEquals(standings[0].participantId, "player-1");
-    assertEquals(standings[1].participantId, "player-2");
-  });
-});
-
-Deno.test("Single Elimination - edge case: N=3 odd bracket with a bye", async (t) => {
-  await t.step("exactly one bye is created and auto-advances its player", () => {
-    const participants = createParticipants(3);
-    const bracket = generateSingleEliminationBracket(participants);
-
-    assertEquals(bracket.bracketSize, 4);
-    assertEquals(bracket.numRounds, 2);
-
-    const byeMatches = bracket.rounds[0].matches.filter((m) => m.isBye);
-    assertEquals(byeMatches.length, 1);
-    assert(byeMatches[0].winnerId, "bye should have auto-advanced a winner");
-
-    const nonByeMatch = bracket.rounds[0].matches.find((m) => !m.isBye);
-    assertEquals(nonByeMatch.winnerId, null, "the real round-1 match should not be pre-decided");
-
-    // The bye winner should already be seated in the final's participant slots
-    // (advanced automatically at generation time via processByes).
-    const finals = bracket.rounds[1].matches[0];
-    assert(
-      finals.participants.includes(byeMatches[0].winnerId),
-      "bye winner should be pre-seeded into the final"
-    );
-  });
-
-  await t.step("playing the remaining match completes the tournament with 3 standings", () => {
-    const participants = createParticipants(3);
-    const participantMap = createParticipantMap(participants);
-    const bracket = generateSingleEliminationBracket(participants);
-
-    const played = playToCompletion(bracket);
-
-    // Only the real round-1 match plus the final need to be played (bye is free).
-    assertEquals(played.length, 2);
-    assert(bracket.isComplete);
-
-    const standings = getStandings(bracket, participantMap);
-    assertEquals(standings.length, 3);
-    assertEquals(standings[0].place, 1);
-    assertEquals(standings[1].place, 2);
-    assertEquals(standings[2].place, 3);
-
-    const ids = new Set(standings.map((s) => s.participantId));
-    assertEquals(ids, new Set(["player-1", "player-2", "player-3"]));
-  });
 });

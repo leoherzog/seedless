@@ -1,20 +1,5 @@
 /**
- * Regression tests for state merge + serialization scenarios.
- *
- * Covers:
- *  1. Fresh joiner bootstrap - a store with no known admin (meta.adminId === null)
- *     merging an admin's authoritative snapshot must adopt bracket, standings,
- *     AND teamAssignments (not just meta), so it doesn't end up "active" with
- *     an empty bracket.
- *  2. The boolean `senderIsAdmin` contract on merge(): true grants admin
- *     authority; false from a stale peer with a lower version must not
- *     clobber meta/bracket/standings; a strictly-higher-version non-admin
- *     meta is still let through by the monotonic version guard (but does NOT
- *     grant authority over bracket/standings/teamAssignments).
- *  3. serialize() includes meta.adminToken (local persistence secret);
- *     serializeForNetwork() strips it so it is never leaked to peers.
- *  4. merge() preserves the local adminToken across a meta replacement that
- *     doesn't carry one (e.g. a peer's serializeForNetwork() snapshot).
+ * Merge trust rules and the adminToken never leaving local storage.
  */
 
 import { assertEquals, assert } from "jsr:@std/assert";

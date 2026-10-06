@@ -1,20 +1,5 @@
 /**
- * Regression tests: Doubles (team-based) mode - parametric team formation and
- * run-to-completion.
- *
- * Doubles wraps the single/double elimination brackets with "teams" standing
- * in for participants. This suite locks in:
- *   - Team formation is correct for a range of participant counts: every
- *     participant assigned to a complete team ends up on exactly one team,
- *     team size matches the configured teamSize, and incomplete
- *     (leftover) groupings are excluded rather than corrupting the bracket.
- *   - The odd-participant edge case (a group that can't divide evenly into
- *     teams) leaves the leftover participant out of the generated bracket
- *     instead of crashing or producing a broken team.
- *   - The team bracket (both single and double elimination) generates
- *     correctly from the formed teams and, once every resolvable match is
- *     played, yields exactly one winning team and complete, gap-free
- *     standings covering every team.
+ * Team formation and run-to-completion for doubles brackets.
  */
 
 import { assertEquals, assert } from "jsr:@std/assert";
@@ -25,11 +10,7 @@ import {
   getStandings,
 } from "../js/tournament/doubles.js";
 import { nextPowerOf2 } from "../js/tournament/bracket-utils.js";
-import { createParticipants, createTeamAssignments } from "./fixtures.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import { createParticipants, createTeamAssignments, playToCompletion } from "./fixtures.js";
 
 /**
  * Assert that a set of formed teams is internally consistent:
@@ -46,56 +27,6 @@ function assertTeamsWellFormed(teams, teamSize) {
     }
   }
   return seen;
-}
-
-/**
- * Play a doubles single-elimination tournament to completion.
- * Single pass, slot-0-always-wins: single elimination rounds only depend on
- * earlier rounds, so one forward pass over `tournament.rounds` suffices.
- */
-function playSingleElimDoublesToCompletion(tournament) {
-  const played = [];
-  for (const round of tournament.rounds) {
-    for (const match of round.matches) {
-      if (match.isBye || match.winnerId) continue;
-      const [t1, t2] = match.participants;
-      if (!t1 || !t2) {
-        throw new Error(
-          `Match ${match.id} has an unresolved null team slot: ${JSON.stringify(match.participants)}`
-        );
-      }
-      recordMatchResult(tournament, match.id, [2, 0], t1, t1);
-      played.push(match.id);
-    }
-  }
-  return played;
-}
-
-/**
- * Play a doubles double-elimination tournament to completion.
- * Repeats passes over every match until no more progress can be made, since
- * losers-bracket drops and grand finals depend on results recorded in the
- * same pass. Slot 0 always wins (never forces a grand-finals reset).
- */
-function playDoubleElimDoublesToCompletion(tournament) {
-  let progressed = true;
-  let safety = 0;
-  const maxIterations = 200;
-
-  while (progressed && safety < maxIterations) {
-    progressed = false;
-    for (const match of tournament.matches.values()) {
-      if (match.isBye || match.winnerId) continue;
-      if (match.participants[0] && match.participants[1]) {
-        const winnerId = match.participants[0];
-        recordMatchResult(tournament, match.id, [2, 0], winnerId, winnerId);
-        progressed = true;
-      }
-    }
-    safety++;
-  }
-
-  return safety;
 }
 
 /**
@@ -120,10 +51,6 @@ function assertStandingsInvariants(standings, teams, championId) {
   const expectedIds = new Set(teams.map((t) => t.id));
   assertEquals(new Set(ids), expectedIds, "standings should be exactly the formed team set");
 }
-
-// ---------------------------------------------------------------------------
-// Team formation across a range of participant counts
-// ---------------------------------------------------------------------------
 
 const EVEN_COUNTS = [4, 6, 8, 16];
 const ODD_COUNTS = [5, 7, 9];
@@ -168,10 +95,6 @@ Deno.test("Doubles - odd participant counts leave the leftover player unassigned
   }
 });
 
-// ---------------------------------------------------------------------------
-// Single elimination doubles: parametric run to completion
-// ---------------------------------------------------------------------------
-
 Deno.test("Doubles - single elimination run to completion (even participant counts)", async (t) => {
   for (const n of EVEN_COUNTS) {
     await t.step(`N=${n}: bracket generates and completes with one champion team`, () => {
@@ -197,7 +120,7 @@ Deno.test("Doubles - single elimination run to completion (even participant coun
       const finalRound = tournament.rounds[tournament.rounds.length - 1];
       assertEquals(finalRound.matches.length, 1, "final round should have exactly one match");
 
-      playSingleElimDoublesToCompletion(tournament);
+      playToCompletion(tournament, recordMatchResult);
 
       assert(tournament.isComplete, "doubles tournament should report complete");
       const finals = finalRound.matches[0];
@@ -206,7 +129,7 @@ Deno.test("Doubles - single elimination run to completion (even participant coun
       const teamIds = new Set(tournament.teams.map((t) => t.id));
       assert(teamIds.has(finals.winnerId), "champion must be one of the formed teams");
 
-      const standings = getStandings(tournament, participants);
+      const standings = getStandings(tournament);
       assertStandingsInvariants(standings, tournament.teams, finals.winnerId);
     });
   }
@@ -234,67 +157,17 @@ Deno.test("Doubles - single elimination run to completion (odd participant count
         );
       }
 
-      playSingleElimDoublesToCompletion(tournament);
+      playToCompletion(tournament, recordMatchResult);
 
       assert(tournament.isComplete, "doubles tournament should complete despite the excluded leftover player");
       const finalRound = tournament.rounds[tournament.rounds.length - 1];
       const finals = finalRound.matches[0];
 
-      const standings = getStandings(tournament, participants);
+      const standings = getStandings(tournament);
       assertStandingsInvariants(standings, tournament.teams, finals.winnerId);
     });
   }
 });
-
-// ---------------------------------------------------------------------------
-// Minimal case: smallest possible doubles bracket (2 teams of 2)
-// ---------------------------------------------------------------------------
-
-Deno.test("Doubles - minimal case: 4 participants form 2 teams and play a single match", async (t) => {
-  await t.step("generates a 1-match, 1-round bracket with no byes", () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-
-    const tournament = generateDoublesTournament(participants, assignments, {
-      teamSize: 2,
-      bracketType: "single",
-    });
-
-    assertEquals(tournament.teams.length, 2);
-    assertEquals(tournament.bracketSize, 2);
-    assertEquals(tournament.numRounds, 1);
-    assertEquals(tournament.rounds[0].matches.length, 1);
-    assertEquals(tournament.rounds[0].matches[0].isBye, false);
-    assertEquals(tournament.isComplete, undefined);
-  });
-
-  await t.step("recording the one match completes the tournament", () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-
-    const tournament = generateDoublesTournament(participants, assignments, {
-      teamSize: 2,
-      bracketType: "single",
-    });
-
-    const match = tournament.rounds[0].matches[0];
-    const [teamAId, teamBId] = match.participants;
-
-    recordMatchResult(tournament, match.id, [2, 0], teamAId, teamAId);
-
-    assert(tournament.isComplete, "tournament should complete after its only match");
-    const standings = getStandings(tournament, participants);
-    assertEquals(standings.length, 2);
-    assertEquals(standings[0].participantId, teamAId);
-    assertEquals(standings[1].participantId, teamBId);
-    assert(standings[0].team, "champion standing should include team info");
-    assert(standings[1].team, "runner-up standing should include team info");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Double elimination doubles: the team bracket also reaches a single champion
-// ---------------------------------------------------------------------------
 
 Deno.test("Doubles - double elimination run to completion", async (t) => {
   const DOUBLE_ELIM_COUNTS = [6, 8]; // 3 teams (needs a bye) and 4 teams (clean power of 2)
@@ -316,7 +189,7 @@ Deno.test("Doubles - double elimination run to completion", async (t) => {
       assert(tournament.losers, "should have losers bracket");
       assert(tournament.grandFinals, "should have grand finals");
 
-      playDoubleElimDoublesToCompletion(tournament);
+      playToCompletion(tournament, recordMatchResult);
 
       assert(tournament.isComplete, "double-elimination doubles tournament should complete");
 
@@ -325,7 +198,7 @@ Deno.test("Doubles - double elimination run to completion", async (t) => {
       const teamIds = new Set(tournament.teams.map((t) => t.id));
       assert(teamIds.has(championId), "champion must be one of the formed teams");
 
-      const standings = getStandings(tournament, participants);
+      const standings = getStandings(tournament);
       assertStandingsInvariants(standings, tournament.teams, championId);
     });
   }

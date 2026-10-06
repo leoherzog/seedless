@@ -1,19 +1,5 @@
 /**
- * Regression tests for lobby manual/random seeding order
- *
- * Bug context: `onStartTournament` in js/components/lobby.js must order
- * participants by their (possibly drag-drop re-assigned) `seed` field when
- * seedingMode is 'manual' -- NOT by join/insertion order. Previously the
- * join order could leak through and silently override the admin's manual
- * arrangement.
- *
- * lobby.js does not export `onStartTournament` (it's a private DOM event
- * handler) and the function itself doesn't touch the DOM beyond dynamic
- * imports of tournament generators, so per the assignment we exercise the
- * exact seeding branch (mirrored from lobby.js lines ~580-597) against a
- * real Store, then feed the result into the real bracket generator to
- * confirm the manual arrangement -- not the join order -- drives the
- * resulting bracket.
+ * Manual seeding orders by drag-drop seed, not join order.
  */
 
 import { assertEquals, assert } from 'jsr:@std/assert';

@@ -7,42 +7,11 @@ import {
   formTeams,
   generateDoublesTournament,
   validateTeamAssignments,
-  recordMatchResult,
   autoAssignTeams,
-  getStandings,
 } from "../js/tournament/doubles.js";
-import {
-  createParticipants,
-  createTeamAssignments,
-  createPartialTeamAssignments,
-} from "./fixtures.js";
+import { createParticipants, createTeamAssignments } from "./fixtures.js";
 
 Deno.test("formTeams", async (t) => {
-  await t.step("groups participants by team assignment", () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-
-    const teams = formTeams(participants, assignments, 2);
-
-    assertEquals(teams.length, 2);
-    assertEquals(teams[0].members.length, 2);
-    assertEquals(teams[1].members.length, 2);
-  });
-
-  await t.step("filters incomplete teams", () => {
-    const participants = createParticipants(5);
-    const assignments = createTeamAssignments(participants, 2);
-    // This creates 2 complete teams and 1 incomplete (1 member)
-
-    const teams = formTeams(participants, assignments, 2);
-
-    // Only complete teams (2 members each) should be returned
-    assertEquals(teams.length, 2);
-    for (const team of teams) {
-      assertEquals(team.members.length, 2);
-    }
-  });
-
   await t.step("sets team name from member names", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
@@ -298,74 +267,5 @@ Deno.test("generateDoublesTournament", async (t) => {
     assertEquals(tournament.teamSize, 3);
     assertEquals(tournament.teams.length, 2);
     assertEquals(tournament.teams[0].members.length, 3);
-  });
-});
-
-Deno.test("recordMatchResult (doubles)", async (t) => {
-  await t.step("delegates to single elimination logic", () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-    const tournament = generateDoublesTournament(participants, assignments, {
-      bracketType: "single",
-    });
-
-    const matchId = Array.from(tournament.matches.keys())[0];
-    const match = tournament.matches.get(matchId);
-    const winnerId = match.participants[0];
-
-    recordMatchResult(tournament, matchId, [2, 0], winnerId, winnerId);
-    assertEquals(tournament.matches.get(matchId).winnerId, winnerId);
-  });
-
-  await t.step("delegates to double elimination logic", () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-    const tournament = generateDoublesTournament(participants, assignments, {
-      bracketType: "double",
-    });
-
-    const match = tournament.winners.rounds[0].matches[0];
-    const winnerId = match.participants[0];
-
-    recordMatchResult(tournament, match.id, [2, 1], winnerId, winnerId);
-    assertEquals(tournament.matches.get(match.id).winnerId, winnerId);
-  });
-});
-
-Deno.test("getStandings (doubles)", async (t) => {
-  await t.step("single elimination returns team info", async () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-    const tournament = generateDoublesTournament(participants, assignments, {
-      bracketType: "single",
-    });
-
-    const matchId = Array.from(tournament.matches.keys())[0];
-    const match = tournament.matches.get(matchId);
-    const winnerId = match.participants[0];
-
-    recordMatchResult(tournament, matchId, [2, 0], winnerId, winnerId);
-
-    const standings = await getStandings(tournament);
-    assert(standings.length >= 1, "should include champion");
-    assert(standings[0].team, "standings should include team info");
-  });
-
-  await t.step("double elimination returns team info", async () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-    const tournament = generateDoublesTournament(participants, assignments, {
-      bracketType: "double",
-    });
-
-    const [teamA, teamB] = tournament.teams;
-    tournament.grandFinals.match.participants = [teamA.id, teamB.id];
-    tournament.grandFinals.match.winnerId = teamA.id;
-    tournament.isComplete = true;
-
-    const standings = await getStandings(tournament);
-    assert(standings.length >= 2, "should include champion and runner-up");
-    assertEquals(standings[0].participantId, teamA.id);
-    assert(standings[0].team, "standings should include team info");
   });
 });

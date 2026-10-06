@@ -19,9 +19,15 @@ import {
 import { generateDoublesTournament } from "../js/tournament/doubles.js";
 import { createParticipants, createTeamAssignments } from "./fixtures.js";
 
-// ============================================
-// Helper Functions
-// ============================================
+const historyEntry = (id, completedAt = 1000) => ({
+  id,
+  name: id,
+  type: "single",
+  winner: { id: "p1", name: "W" },
+  standings: [],
+  participantCount: 4,
+  completedAt,
+});
 
 /**
  * Setup complete single-elim tournament (4 players)
@@ -187,10 +193,6 @@ function createCompleteDoublesTournament(bracketType = "single") {
   return store;
 }
 
-// ============================================
-// Test Cases
-// ============================================
-
 Deno.test("archiveTournament - Single Elimination", async (t) => {
   await t.step("creates history entry with winner from finals", () => {
     const store = createCompleteSingleElimTournament();
@@ -312,8 +314,7 @@ Deno.test("archiveTournament - Mario Kart", async (t) => {
     assertExists(entry.standings[0].points, "Standings should include points");
   });
 
-  await t.step("handles ties by name (alphabetical fallback)", () => {
-    // Create tournament where players tie on points
+  await t.step("archives the first-inserted player when points tie", () => {
     const store = new Store();
     const participants = createParticipants(2);
     participants.forEach((p) => store.addParticipant(p));
@@ -336,9 +337,7 @@ Deno.test("archiveTournament - Mario Kart", async (t) => {
 
     const entry = store.archiveTournament();
 
-    // Should have a winner (implementation may vary on tie-breaking)
-    assertExists(entry, "Should create entry even with ties");
-    assertExists(entry.winner, "Should have a winner");
+    assertEquals(entry.winner.id, "player-1");
   });
 });
 
@@ -507,36 +506,20 @@ Deno.test("History Serialization", async (t) => {
 
   await t.step("history array restored from deserialize()", () => {
     const store = new Store();
-    const historyData = [
-      {
-        id: "test-1",
-        name: "Test Tournament",
-        type: "single",
-        winner: { id: "p1", name: "Winner" },
-        standings: [{ place: 1, name: "Winner" }],
-        participantCount: 4,
-        completedAt: Date.now(),
-      },
-    ];
-
-    store.deserialize({ history: historyData });
+    store.deserialize({ history: [historyEntry("test-1")] });
 
     const history = store.getHistory();
     assertEquals(history.length, 1);
     assertEquals(history[0].id, "test-1");
-    assertEquals(history[0].name, "Test Tournament");
+    assertEquals(history[0].name, "test-1");
   });
 
   await t.step("history survives full roundtrip", () => {
     const store1 = createCompleteSingleElimTournament();
     const entry = store1.archiveTournament();
 
-    // Serialize
-    const serialized = store1.serialize();
-
-    // Deserialize into new store
     const store2 = new Store();
-    store2.deserialize(serialized);
+    store2.deserialize(store1.serialize());
 
     const history = store2.getHistory();
     assertEquals(history.length, 1);
@@ -549,97 +532,27 @@ Deno.test("History Serialization", async (t) => {
 Deno.test("History Merge", async (t) => {
   await t.step("adds new history entries from remote (union merge)", () => {
     const store = new Store();
-    store.deserialize({
-      history: [
-        {
-          id: "local-1",
-          name: "Local Tournament",
-          type: "single",
-          winner: { id: "p1", name: "Winner" },
-          standings: [],
-          participantCount: 4,
-          completedAt: 1000,
-        },
-      ],
-    });
+    store.deserialize({ history: [historyEntry("local-1")] });
 
-    const remoteState = {
-      history: [
-        {
-          id: "remote-1",
-          name: "Remote Tournament",
-          type: "double",
-          winner: { id: "p2", name: "Remote Winner" },
-          standings: [],
-          participantCount: 8,
-          completedAt: 2000,
-        },
-      ],
-    };
+    store.merge({ history: [historyEntry("remote-1", 2000)] }, null);
 
-    store.merge(remoteState, null);
-
-    const history = store.getHistory();
-    assertEquals(history.length, 2);
+    assertEquals(store.getHistory().length, 2);
   });
 
   await t.step("deduplicates entries by id", () => {
     const store = new Store();
-    store.deserialize({
-      history: [
-        {
-          id: "same-id",
-          name: "Local Version",
-          type: "single",
-          winner: { id: "p1", name: "Winner" },
-          standings: [],
-          participantCount: 4,
-          completedAt: 1000,
-        },
-      ],
-    });
+    store.deserialize({ history: [historyEntry("same-id")] });
 
-    const remoteState = {
-      history: [
-        {
-          id: "same-id",
-          name: "Remote Version",
-          type: "single",
-          winner: { id: "p1", name: "Winner" },
-          standings: [],
-          participantCount: 4,
-          completedAt: 1000,
-        },
-      ],
-    };
+    store.merge({ history: [historyEntry("same-id")] }, null);
 
-    store.merge(remoteState, null);
-
-    const history = store.getHistory();
-    assertEquals(history.length, 1, "Should not duplicate entries with same id");
+    assertEquals(store.getHistory().length, 1, "Should not duplicate entries with same id");
   });
 
   await t.step("preserves local history entries", () => {
     const store = new Store();
-    store.deserialize({
-      history: [
-        {
-          id: "local-1",
-          name: "Local Tournament",
-          type: "single",
-          winner: { id: "p1", name: "Winner" },
-          standings: [],
-          participantCount: 4,
-          completedAt: 1000,
-        },
-      ],
-    });
+    store.deserialize({ history: [historyEntry("local-1")] });
 
-    const remoteState = {
-      history: [],
-    };
-
-    store.merge(remoteState, null);
+    store.merge({ history: [] }, null);
 
     const history = store.getHistory();
     assertEquals(history.length, 1);
@@ -648,44 +561,9 @@ Deno.test("History Merge", async (t) => {
 
   await t.step("sorts merged history by completedAt", () => {
     const store = new Store();
-    store.deserialize({
-      history: [
-        {
-          id: "middle",
-          name: "Middle",
-          type: "single",
-          winner: { id: "p1", name: "W" },
-          standings: [],
-          participantCount: 4,
-          completedAt: 2000,
-        },
-      ],
-    });
+    store.deserialize({ history: [historyEntry("middle", 2000)] });
 
-    const remoteState = {
-      history: [
-        {
-          id: "oldest",
-          name: "Oldest",
-          type: "single",
-          winner: { id: "p1", name: "W" },
-          standings: [],
-          participantCount: 4,
-          completedAt: 1000,
-        },
-        {
-          id: "newest",
-          name: "Newest",
-          type: "single",
-          winner: { id: "p1", name: "W" },
-          standings: [],
-          participantCount: 4,
-          completedAt: 3000,
-        },
-      ],
-    };
-
-    store.merge(remoteState, null);
+    store.merge({ history: [historyEntry("oldest", 1000), historyEntry("newest", 3000)] }, null);
 
     const history = store.getHistory();
     assertEquals(history.length, 3);

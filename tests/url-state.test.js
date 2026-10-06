@@ -1,19 +1,75 @@
 /**
- * Tests for url-state.js
- * Note: Only testing validation functions that don't require browser APIs
+ * Tests for url-state.js against a mock window installed before the module loads.
  */
 
 import { assertEquals, assert, assertFalse } from "jsr:@std/assert";
 
-// Mock window object for module that uses browser APIs at top level
-globalThis.window = globalThis.window || {
-  location: { search: "", pathname: "/" },
-  history: { pushState: () => {}, replaceState: () => {} },
-  addEventListener: () => {},
-  dispatchEvent: () => {},
-};
+function createMockWindow() {
+  const listeners = new Map();
+  const dispatched = [];
 
-const { isValidRoomSlug, sanitizeRoomSlug, formatRoomSlugInput } = await import("../js/state/url-state.js");
+  const window = {
+    location: {
+      search: '',
+      pathname: '/index.html',
+      origin: 'http://localhost',
+    },
+    history: {
+      _pushes: [],
+      _replaces: [],
+      pushState(state, _title, url) {
+        this._pushes.push({ state, url });
+        const u = new URL(url, window.location.origin);
+        window.location.search = u.search;
+        window.location.pathname = u.pathname;
+      },
+      replaceState(state, _title, url) {
+        this._replaces.push({ state, url });
+        const u = new URL(url, window.location.origin);
+        window.location.search = u.search;
+        window.location.pathname = u.pathname;
+      },
+    },
+    addEventListener(type, handler) {
+      if (!listeners.has(type)) {
+        listeners.set(type, []);
+      }
+      listeners.get(type).push(handler);
+    },
+    dispatchEvent(event) {
+      dispatched.push(event);
+      const handlers = listeners.get(event.type) || [];
+      handlers.forEach(h => h(event));
+    },
+    _listeners: listeners,
+    _dispatched: dispatched,
+  };
+
+  return window;
+}
+
+function getQuery(url) {
+  const u = new URL(url, 'http://localhost');
+  return u.searchParams;
+}
+
+// url-state.js registers its popstate listener on window at import time.
+const windowMock = createMockWindow();
+globalThis.window = windowMock;
+
+const {
+  isValidRoomSlug,
+  sanitizeRoomSlug,
+  formatRoomSlugInput,
+  parseUrlState,
+  updateUrlState,
+  navigateToRoom,
+  navigateToBracket,
+  navigateToHome,
+  getRoomLink,
+  URL_PARAMS,
+  VIEWS,
+} = await import("../js/state/url-state.js");
 
 Deno.test("isValidRoomSlug", async (t) => {
   // Valid slugs
@@ -210,5 +266,75 @@ Deno.test("isValidRoomSlug after sanitizeRoomSlug", async (t) => {
         );
       }
     }
+  });
+});
+
+Deno.test('url-state behaviors', async (t) => {
+  await t.step('parseUrlState reads params and defaults view', () => {
+    windowMock.location.search = '';
+    assertEquals(parseUrlState(), {
+      roomId: null,
+      view: VIEWS.HOME,
+      bracketType: null,
+    });
+
+    windowMock.location.search = '?room=abc&view=bracket&bracket=losers';
+    assertEquals(parseUrlState(), {
+      roomId: 'abc',
+      view: 'bracket',
+      bracketType: 'losers',
+    });
+  });
+
+  await t.step('updateUrlState pushes and dispatches urlstatechange', () => {
+    windowMock.location.search = '?room=abc&view=lobby';
+    updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.BRACKET, [URL_PARAMS.BRACKET]: 'winners' });
+
+    assertEquals(windowMock.history._pushes.length, 1);
+    const query = getQuery(windowMock.history._pushes[0].url);
+    assertEquals(query.get(URL_PARAMS.ROOM), 'abc');
+    assertEquals(query.get(URL_PARAMS.VIEW), 'bracket');
+    assertEquals(query.get(URL_PARAMS.BRACKET), 'winners');
+
+    const lastEvent = windowMock._dispatched.at(-1);
+    assertEquals(lastEvent.type, 'urlstatechange');
+    assertEquals(lastEvent.detail.view, 'bracket');
+  });
+
+  await t.step('navigate helpers set expected params', () => {
+    navigateToRoom('room-1');
+    let query = new URLSearchParams(windowMock.location.search);
+    assertEquals(query.get(URL_PARAMS.ROOM), 'room-1');
+    assertEquals(query.get(URL_PARAMS.VIEW), 'lobby');
+
+    navigateToBracket('losers');
+    query = new URLSearchParams(windowMock.location.search);
+    assertEquals(query.get(URL_PARAMS.VIEW), 'bracket');
+    assertEquals(query.get(URL_PARAMS.BRACKET), 'losers');
+
+    navigateToHome();
+    const homeQuery = new URLSearchParams(windowMock.location.search);
+    assertEquals(homeQuery.get(URL_PARAMS.ROOM), null);
+    assertEquals(homeQuery.get(URL_PARAMS.BRACKET), null);
+    assertEquals(homeQuery.get(URL_PARAMS.VIEW), 'home');
+    assertEquals(windowMock.history._replaces.length >= 1, true);
+  });
+
+  await t.step('getRoomLink builds a lobby URL', () => {
+    windowMock.location.origin = 'https://example.test';
+    windowMock.location.pathname = '/index.html';
+    const link = getRoomLink('share-room');
+    const url = new URL(link);
+    assertEquals(url.searchParams.get(URL_PARAMS.ROOM), 'share-room');
+    assertEquals(url.searchParams.get(URL_PARAMS.VIEW), 'lobby');
+  });
+
+  await t.step('popstate dispatches urlstatechange', () => {
+    const popEvent = { type: 'popstate', state: { urlState: { roomId: 'x', view: 'lobby', bracketType: null } } };
+    windowMock.dispatchEvent(popEvent);
+
+    const lastEvent = windowMock._dispatched.at(-1);
+    assertEquals(lastEvent.type, 'urlstatechange');
+    assertEquals(lastEvent.detail.roomId, 'x');
   });
 });

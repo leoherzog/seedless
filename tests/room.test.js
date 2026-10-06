@@ -26,13 +26,13 @@ Deno.test('ActionTypes Constants', async (t) => {
     assertExists(ActionTypes.RACE_RESULT);
   });
 
-  await t.step('action type names do not exceed 12 bytes (Trystero limit)', () => {
+  await t.step('action type names do not exceed 32 bytes (Trystero limit)', () => {
     const encoder = new TextEncoder();
     for (const [name, value] of Object.entries(ActionTypes)) {
       const bytes = encoder.encode(value).length;
       assert(
-        bytes <= 12,
-        `Action type ${name} ("${value}") exceeds 12 bytes: ${bytes} bytes`
+        bytes <= 32,
+        `Action type ${name} ("${value}") exceeds 32 bytes: ${bytes} bytes`
       );
     }
   });

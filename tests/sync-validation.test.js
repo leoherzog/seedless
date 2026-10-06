@@ -113,6 +113,7 @@ Deno.test('isValidState', async (t) => {
   await t.step('accepts minimal valid state', () => {
     assertEquals(isValidState({}), true);
     assertEquals(isValidState({ meta: {} }), true);
+    assertEquals(isValidState({ participants: [], matches: [] }), true);
   });
 
   await t.step('accepts state with valid meta', () => {
@@ -255,6 +256,12 @@ Deno.test('shouldUpdateMatch', async (t) => {
     // Same version, but 0 < 1000, so rejected
     assertEquals(shouldUpdateMatch(incoming, existing, false), false);
   });
+
+  await t.step('Infinity reportedAt wins and NaN loses', () => {
+    const existing = { version: 1, reportedAt: 1000 };
+    assertEquals(shouldUpdateMatch({ version: 1, reportedAt: Infinity }, existing, false), true);
+    assertEquals(shouldUpdateMatch({ version: 1, reportedAt: NaN }, existing, false), false);
+  });
 });
 
 Deno.test('isValidMatchResultPayload', async (t) => {
@@ -307,6 +314,12 @@ Deno.test('isValidMatchResultPayload', async (t) => {
       scores: [3, 2],
       winnerId: 'user1'
     }), false);
+  });
+
+  await t.step('rejects non-numeric reportedAt', () => {
+    const base = { matchId: 'r1m1', scores: [3, 2], winnerId: 'user1' };
+    assertEquals(isValidMatchResultPayload({ ...base, reportedAt: '2024-01-01' }), false);
+    assertEquals(isValidMatchResultPayload({ ...base, reportedAt: null }), false);
   });
 
   await t.step('rejects null payload', () => {

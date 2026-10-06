@@ -5,26 +5,16 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import { store } from '../js/state/store.js';
 import { initBracketView, cleanupBracketView } from '../js/components/bracket-view.js';
-import { createMockElement, createMockDocument } from './fixtures.js';
+import { createMockElement, installBracketViewDom } from './fixtures.js';
 
 function setup() {
   store.reset();
-  const mockDoc = createMockDocument();
-  mockDoc._addElement('score-modal', createMockElement('dialog'));
-  mockDoc._addElement('submit-score-btn', createMockElement('button'));
-  mockDoc._addElement('score1', createMockElement('input'));
-  mockDoc._addElement('score2', createMockElement('input'));
-  for (const id of ['bracket-tabs', 'bracket-title', 'bracket-status', 'standings-panel', 'bracket-container']) {
-    mockDoc._addElement(id, createMockElement('div'));
-  }
-  mockDoc._addElement('bracket-view', createMockElement('section', { hidden: false }));
+  const mockDoc = installBracketViewDom();
 
   const resultsView = createMockElement('section', { hidden: true });
   resultsView.scrollCount = 0;
   resultsView.scrollIntoView = () => { resultsView.scrollCount++; };
   mockDoc._addElement('results-view', resultsView);
-
-  globalThis.document = mockDoc;
   initBracketView();
 
   store.set('participants', new Map([

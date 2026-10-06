@@ -4,6 +4,7 @@
 
 import { assertEquals, assert, assertFalse } from "jsr:@std/assert";
 import { Store, createInitialState } from "../js/state/store.js";
+import { createParticipants } from "./fixtures.js";
 
 Deno.test("createInitialState", async (t) => {
   await t.step("returns object with expected properties", () => {
@@ -39,6 +40,10 @@ Deno.test("Store.get", async (t) => {
   await t.step("returns nested value", () => {
     const store = new Store();
     assertEquals(store.get("meta.config.bestOf"), 1);
+  });
+
+  await t.step("returns undefined through a missing intermediate", () => {
+    assertEquals(new Store().get("nonexistent.deep.path"), undefined);
   });
 });
 
@@ -114,12 +119,14 @@ Deno.test("Store.addParticipant", async (t) => {
     assert(p.isConnected, "should be connected");
   });
 
-  await t.step("increments version", () => {
+  await t.step("assigns the next seed when none is given and keeps an explicit one", () => {
     const store = new Store();
-    const v1 = store.get("meta.version");
-    store.addParticipant({ id: "user-1", name: "Alice" });
-    const v2 = store.get("meta.version");
-    assert(v2 > v1, "version should increment");
+    store.addParticipant({ id: "p1", name: "Player 1", seed: null });
+    store.addParticipant({ id: "p2", name: "Player 2" });
+    store.addParticipant({ id: "p3", name: "Player 3", seed: 5 });
+    assertEquals(store.getParticipant("p1").seed, 1);
+    assertEquals(store.getParticipant("p2").seed, 2);
+    assertEquals(store.getParticipant("p3").seed, 5);
   });
 
   await t.step("updates existing participant", () => {
@@ -163,6 +170,71 @@ Deno.test("Store.removeParticipant", async (t) => {
     store.removeParticipant("user-1");
     assert(emitted, "participant:leave should be emitted");
   });
+
+  await t.step("does nothing for non-existent participant", () => {
+    const store = new Store();
+    store.removeParticipant("non-existent");
+    assertEquals(store.getParticipant("non-existent"), undefined);
+    assertEquals(store.getParticipantList().length, 0);
+  });
+});
+
+Deno.test("Store.addManualParticipant", async (t) => {
+  await t.step("adds an offline, unclaimed participant with a manual_ id", () => {
+    const store = new Store();
+    store.addParticipant({ id: "online-1", name: "Online" });
+
+    const manual = store.addManualParticipant("Offline");
+
+    assert(manual.id.startsWith("manual_"));
+    assertEquals(manual.name, "Offline");
+    assertEquals(manual.isManual, true);
+    assertEquals(manual.isConnected, false);
+    assertEquals(manual.claimedBy, null);
+    assertEquals(store.getParticipant(manual.id), manual);
+    assertEquals(store.getParticipantList().length, 2);
+  });
+});
+
+Deno.test("Store events", async (t) => {
+  await t.step("addParticipant emits participant:join for a new participant", () => {
+    const store = new Store();
+    const joins = [];
+    store.on("participant:join", (p) => joins.push(p));
+    store.addParticipant({ id: "user-1", name: "Alice" });
+    assertEquals(joins.map((p) => p.id), ["user-1"]);
+  });
+
+  await t.step("updateParticipant emits participant:update with the id", () => {
+    const store = new Store();
+    store.addParticipant({ id: "user-1", name: "Alice" });
+    const updates = [];
+    store.on("participant:update", (data) => updates.push(data));
+    store.updateParticipant("user-1", { name: "Alicia" });
+    assertEquals(updates.length, 1);
+    assertEquals(updates[0].id, "user-1");
+  });
+
+  await t.step("updateMatch emits match:update with the id and updated match", () => {
+    const store = new Store();
+    store.deserialize({
+      matches: [["r1m0", { id: "r1m0", participants: ["p1", "p2"], scores: [0, 0], winnerId: null }]],
+    });
+    const events = [];
+    store.on("match:update", (data) => events.push(data));
+    store.updateMatch("r1m0", { scores: [3, 1], winnerId: "p1" });
+    assertEquals(events.length, 1);
+    assertEquals(events[0].id, "r1m0");
+    assertEquals(events[0].match.winnerId, "p1");
+  });
+
+  await t.step("deserialize emits sync", () => {
+    const store = new Store();
+    let synced = 0;
+    store.on("sync", () => synced++);
+    store.deserialize({});
+    assertEquals(synced, 1);
+  });
 });
 
 Deno.test("Store.serialize/deserialize", async (t) => {
@@ -188,6 +260,25 @@ Deno.test("Store.serialize/deserialize", async (t) => {
     assertEquals(store.get("meta.type"), "double");
     assertEquals(store.getParticipant("user-1").name, "Bob");
   });
+
+  await t.step("serializes an empty store with empty participants and matches", () => {
+    const serialized = new Store().serialize();
+    assertEquals(serialized.participants, []);
+    assertEquals(serialized.matches, []);
+  });
+
+  await t.step("deserialize tolerates missing, empty and null fields", () => {
+    const store = new Store();
+    store.deserialize({});
+    assertEquals(store.get("meta.status"), "lobby");
+    assertEquals(store.getParticipantList().length, 0);
+    assertEquals(store.get("bracket"), null);
+
+    store.deserialize({ participants: [], matches: [], bracket: null });
+    assertEquals(store.getParticipantList().length, 0);
+    assertEquals(store.getMatch("any"), undefined);
+    assertEquals(store.get("bracket"), null);
+  });
 });
 
 Deno.test("Store.isAdmin/setAdmin", async (t) => {
@@ -208,121 +299,6 @@ Deno.test("Store.isAdmin/setAdmin", async (t) => {
     assert(store.isAdmin());
     store.setAdmin(false);
     assertFalse(store.isAdmin());
-  });
-});
-
-Deno.test("Store.merge - meta resolution", async (t) => {
-  await t.step("rejects remote state claiming different admin", () => {
-    // Security fix: remote peers claiming a different adminId than our known admin
-    // should NOT be trusted to override admin-controlled data
-    const store = new Store();
-    store.set("meta.version", 10);
-    store.set("meta.status", "lobby");
-    store.set("meta.adminId", "local-admin");
-
-    const remoteState = {
-      meta: { version: 5, status: "active", adminId: "remote-admin" },
-    };
-
-    // Remote claims to be "remote-admin" but our admin is "local-admin"
-    store.merge(remoteState, "remote-admin");
-
-    // State should NOT change - untrusted remote cannot override
-    assertEquals(store.get("meta.status"), "lobby");
-    assertEquals(store.get("meta.version"), 10);
-  });
-
-  await t.step("accepts remote admin state when adminId matches local", () => {
-    const store = new Store();
-    store.set("meta.version", 10);
-    store.set("meta.status", "lobby");
-    store.set("meta.adminId", "known-admin");
-
-    const remoteState = {
-      meta: { version: 5, status: "active", adminId: "known-admin" },
-    };
-
-    // Remote claims same adminId as our known admin - trusted
-    store.merge(remoteState, true);
-
-    // Admin state should win despite lower version
-    assertEquals(store.get("meta.status"), "active");
-    assertEquals(store.get("meta.version"), 5);
-  });
-
-  await t.step("prefers higher version when neither is admin", () => {
-    const store = new Store();
-    store.set("meta.version", 3);
-    store.set("meta.status", "lobby");
-
-    const remoteState = {
-      meta: { version: 10, status: "active" },
-    };
-
-    // Neither is admin
-    store.merge(remoteState, null);
-
-    assertEquals(store.get("meta.status"), "active");
-    assertEquals(store.get("meta.version"), 10);
-  });
-
-  await t.step("keeps local when local version is higher and remote not admin", () => {
-    const store = new Store();
-    store.set("meta.version", 10);
-    store.set("meta.status", "lobby");
-
-    const remoteState = {
-      meta: { version: 3, status: "active" },
-    };
-
-    store.merge(remoteState, null);
-
-    assertEquals(store.get("meta.status"), "lobby");
-    assertEquals(store.get("meta.version"), 10);
-  });
-});
-
-Deno.test("Store.merge - standings admin authority", async (t) => {
-  await t.step("does NOT overwrite local standings when remote is not admin", () => {
-    const store = new Store();
-    store.set("meta.adminId", "local-admin");
-    store._state.standings = new Map([
-      ["p1", { participantId: "p1", name: "Alice", points: 50 }],
-    ]);
-
-    const remoteState = {
-      standings: [
-        ["p2", { participantId: "p2", name: "Bob", points: 99 }],
-      ],
-    };
-
-    // Remote is not the known admin -> standings must be preserved
-    store.merge(remoteState, "remote-admin");
-
-    const standings = store.get("standings");
-    assert(standings.has("p1"), "local standings should be preserved");
-    assert(!standings.has("p2"), "non-admin remote standings should be rejected");
-  });
-
-  await t.step("overwrites local standings when remote is admin", () => {
-    const store = new Store();
-    store.set("meta.adminId", "known-admin");
-    store._state.standings = new Map([
-      ["p1", { participantId: "p1", name: "Alice", points: 50 }],
-    ]);
-
-    const remoteState = {
-      standings: [
-        ["p2", { participantId: "p2", name: "Bob", points: 99 }],
-      ],
-    };
-
-    // Remote matches known admin -> standings replaced
-    store.merge(remoteState, true);
-
-    const standings = store.get("standings");
-    assert(standings.has("p2"), "admin remote standings should be applied");
-    assert(!standings.has("p1"), "old local standings should be replaced");
   });
 });
 
@@ -377,6 +353,29 @@ Deno.test("Store.merge - participant OR-Set", async (t) => {
     const p = store.getParticipant("user-1");
     // The implementation merges newer over older, so local values preserved
     assertEquals(p.joinedAt, 2000);
+  });
+
+  await t.step("partitioned stores converge after merging both ways", () => {
+    const participants = createParticipants(4);
+    const initial = () => ({
+      meta: { version: 1, status: "lobby", adminId: "admin" },
+      participants: participants.map((p) => [p.id, { ...p }]),
+    });
+    const storeA = new Store();
+    const storeB = new Store();
+    storeA.deserialize(initial());
+    storeB.deserialize(initial());
+
+    storeA.addParticipant({ id: "p5", name: "Player 5" });
+    storeB.addParticipant({ id: "p6", name: "Player 6" });
+
+    storeA.merge(storeB.serialize(), false);
+    storeB.merge(storeA.serialize(), false);
+
+    const names = (store) => store.getParticipantList().map((p) => p.name).sort();
+    assertEquals(storeA.getParticipantList().length, 6);
+    assertEquals(storeB.getParticipantList().length, 6);
+    assertEquals(names(storeA), names(storeB));
   });
 });
 

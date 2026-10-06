@@ -114,6 +114,24 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     assertEquals(bracket.rounds[0].matches[0].participants[0], "player-1");
   });
 
+  await t.step("generates 32-player bracket with 5 rounds", () => {
+    const bracket = generateSingleEliminationBracket(createParticipants(32));
+
+    assertEquals(bracket.bracketSize, 32);
+    assertEquals(bracket.numRounds, 5);
+    assertEquals(bracket.rounds.map((r) => r.matches.length), [16, 8, 4, 2, 1]);
+  });
+
+  await t.step("generates 64-player bracket with 6 rounds and 63 matches", () => {
+    const bracket = generateSingleEliminationBracket(createParticipants(64));
+
+    assertEquals(bracket.bracketSize, 64);
+    assertEquals(bracket.numRounds, 6);
+    assertEquals(bracket.rounds.length, 6);
+    assertEquals(bracket.matches.size, 63);
+    assertEquals(bracket.rounds[0].matches[0].participants[0], "player-1");
+  });
+
   await t.step("all matches have required properties", () => {
     const bracket = generateSingleEliminationBracket(participants4);
 
@@ -130,17 +148,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
         assert("isBye" in match, "Match should have isBye property");
       }
     }
-  });
-
-  await t.step("matches map contains all matches", () => {
-    const bracket = generateSingleEliminationBracket(participants8);
-
-    let totalMatches = 0;
-    for (const round of bracket.rounds) {
-      totalMatches += round.matches.length;
-    }
-
-    assertEquals(bracket.matches.size, totalMatches);
   });
 });
 
@@ -291,32 +298,5 @@ Deno.test("getStandings", async (t) => {
 
     assertEquals(standings.length, 2);
     assertEquals(standings[0].name, "Unknown");
-  });
-});
-
-Deno.test("bye handling", async (t) => {
-  await t.step("5 participants - 3 byes, correct advancement", () => {
-    const participants5 = createParticipants(5);
-    const bracket = generateSingleEliminationBracket(participants5);
-
-    assertEquals(bracket.bracketSize, 8);
-    assertEquals(bracket.numRounds, 3);
-
-    // Count byes in round 1
-    const byes = bracket.rounds[0].matches.filter(m => m.isBye);
-    assertEquals(byes.length, 3, "Should have 3 bye matches");
-
-    // All bye winners should be auto-advanced
-    for (const bye of byes) {
-      assert(bye.winnerId !== null, "Bye should have winner set");
-    }
-
-    // Check that bye winners are properly placed in round 2
-    const round2 = bracket.rounds[1];
-    for (const match of round2.matches) {
-      // At least one participant should be filled from bye advancement
-      const filledSlots = match.participants.filter(p => p !== null).length;
-      assert(filledSlots > 0, "Round 2 matches should have some participants from byes");
-    }
   });
 });

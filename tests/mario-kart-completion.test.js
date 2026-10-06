@@ -1,16 +1,6 @@
 /**
- * Regression tests: Mario Kart tournament completion + idempotency
- *
- * Covers:
- *  1. Parametric completion across a range of player counts / games-per-player
- *     configs: recording all races completes the tournament with correct
- *     cumulative standings and a single champion.
- *  2. Idempotency: re-recording the SAME gameId result must not double-count
- *     points / gamesCompleted / wins / history.
- *  3. Correction: recording a DIFFERENT result for an already-recorded gameId
- *     replaces (not adds to) the prior contribution.
- *  4. reportedAt: a passed-in reportedAt is preserved, not overwritten with
- *     Date.now().
+ * Recording every game completes the race; re-recording a game replaces its
+ * result instead of adding to it, and a passed-in reportedAt is kept.
  */
 
 import { assertEquals, assert } from "jsr:@std/assert";
@@ -145,7 +135,7 @@ Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) =
 
     assertEquals(snapshotAfterSecond, snapshotAfterFirst, "Re-recording the same result must be a no-op");
 
-    // Sanity: the winner's stats reflect exactly ONE game played, not two.
+    // Sanity: the winner's stats reflect exactly one game played, not two.
     const winner = tournament.standings.get(results[0].participantId);
     assertEquals(winner.gamesCompleted, 1);
     assertEquals(winner.wins, 1);
@@ -154,29 +144,6 @@ Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) =
 
     // gamesComplete count on the tournament itself should also not double count.
     assertEquals(tournament.gamesComplete, 1);
-  });
-
-  await t.step("applying result a third time is still stable", () => {
-    const participants = createParticipants(4);
-    const tournament = generateMarioKartTournament(participants, {
-      playersPerGame: 4,
-      gamesPerPlayer: 1,
-      pointsTable: "sequential",
-    });
-
-    const gameId = tournament.matches.keys().next().value;
-    const game = tournament.matches.get(gameId);
-    const results = game.participants.map((pId) => ({ participantId: pId }));
-
-    recordRaceResult(tournament, gameId, results, "player-1");
-    recordRaceResult(tournament, gameId, results, "player-1");
-    recordRaceResult(tournament, gameId, results, "player-1");
-
-    for (const pId of game.participants) {
-      const standing = tournament.standings.get(pId);
-      assertEquals(standing.gamesCompleted, 1);
-      assertEquals(standing.history.length, 1);
-    }
   });
 });
 

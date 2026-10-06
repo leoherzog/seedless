@@ -13,10 +13,6 @@
  *   - room.getPeers() -> Record<peerId, RTCPeerConnection-ish> (an OBJECT)
  *   - room.leave() -> Promise<void>
  *   - selfId is a top-level named export (string)
- *
- * The `_`-prefixed helpers below are the TEST-DRIVING HOOKS used by the suite
- * to simulate incoming messages, peer join/leave, and inspect sent traffic.
- * They are documented in contractNotes for the reconcile-phase test agents.
  */
 
 /**
