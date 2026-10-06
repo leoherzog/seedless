@@ -97,9 +97,9 @@
       </div>
     </section>
 
-    <section id="lobby-view" data-view="lobby" hidden>
+    <section data-view="lobby" hidden>
       <div class="grid">
-        <article id="admin-panel">
+        <article id="admin-panel" hidden>
           <header>
             <span class="fa-solid fa-cog">⚙</span> Tournament Settings
           </header>
@@ -264,13 +264,13 @@
           </button>
         </article>
 
-        <article id="participants-panel">
+        <article>
           <header>
             <span class="fa-solid fa-users">👥</span> Participants (<span id="participant-count">0</span>)
           </header>
           <ul id="participant-list" role="list"></ul>
 
-          <div id="add-participant-footer" class="admin-only">
+          <div id="add-participant-footer" hidden>
             <details>
               <summary><span class="fa-solid fa-user-plus">➕</span> Add Offline Player</summary>
               <form id="add-manual-participant-form">

@@ -7,7 +7,7 @@ import { store } from '../state/store.js';
 import { getRoomLink, navigateToHome } from '../state/url-state.js';
 import { getRoom } from '../network/room.js';
 import { startTournament } from '../network/sync.js';
-import { showSuccess, showError, showInfo, showToast } from './toast.js';
+import { showSuccess, showError, showInfo } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
 import { CONFIG } from '../../config.js';
@@ -20,6 +20,13 @@ import { bySeed, seedParticipants } from '../utils/tournament-helpers.js';
 // Upper bound of the games-per-player input
 const MAX_GAMES_PER_PLAYER = 20;
 
+// meta.config keys of the #tournament-config number inputs, by input name.
+const NUMBER_SETTINGS = {
+  'players-per-game': 'playersPerGame',
+  'games-per-player': 'gamesPerPlayer',
+  'team-size': 'teamSize',
+};
+
 /**
  * Wire the lobby's DOM and store listeners. Call once; they live for the page.
  */
@@ -29,253 +36,127 @@ export function initLobby() {
   setupParticipantList();
   setupShareLink();
   setupTeamAssignmentDelegation();
-  setupManualParticipantForm(); // Admin-only: add offline participants
+  setupManualParticipantForm();
 
   store.on('change', updateLobbyUI);
   store.on('participant:join', onParticipantJoin);
   store.on('participant:leave', onParticipantLeave);
 }
 
-/**
- * Setup admin panel event handlers
- */
 function setupAdminPanel() {
-  const configForm = document.getElementById('tournament-config');
-  const startBtn = document.getElementById('start-tournament-btn');
-
-  // Tournament type selection
-  const typeRadios = configForm.querySelectorAll('input[name="type"]');
-  typeRadios.forEach(radio => {
-    radio.addEventListener('change', (e) => {
-      store.set('meta.type', e.target.value);
-
-      // Open the corresponding details
-      const details = e.target.closest('details');
-      if (details) {
-        // Close others
-        configForm.querySelectorAll('details[name="tournament-type"]').forEach(d => {
-          if (d !== details) d.open = false;
-        });
-        details.open = true;
-      }
-
-      // Show/hide team assignment panel for doubles
-      updateTeamAssignmentPanel();
-    });
-  });
-
-  // Seeding mode selection
-  const seedingRadios = configForm.querySelectorAll('input[name="seeding"]');
-  seedingRadios.forEach(radio => {
-    radio.addEventListener('change', (e) => {
-      store.set('meta.config.seedingMode', e.target.value);
-      updateParticipantListSortable();
-    });
-  });
-
-  // Tournament name
-  const nameInput = document.getElementById('tournament-name');
-  nameInput.addEventListener('input', (e) => {
-    store.set('meta.name', e.target.value);
-  });
-
-  // Players per game (for Points Race)
-  const playersPerGameInput = document.getElementById('players-per-game');
-  if (playersPerGameInput) {
-    playersPerGameInput.addEventListener('input', (e) => {
-      const value = parseInt(e.target.value) || 4;
-      store.set('meta.config.playersPerGame', Math.min(12, Math.max(2, value)));
-    });
-  }
-
-  // Games per player (for Points Race)
   const gamesPerPlayerInput = document.getElementById('games-per-player');
-  if (gamesPerPlayerInput) {
-    gamesPerPlayerInput.addEventListener('input', (e) => {
-      const value = parseInt(e.target.value) || 5;
-      store.set('meta.config.gamesPerPlayer', Math.min(MAX_GAMES_PER_PLAYER, Math.max(1, value)));
-    });
-  }
+
+  // Radios and selects fire input too, so this one listener covers every setting.
+  document.getElementById('tournament-config').addEventListener('input', ({ target: el }) => {
+    switch (el.name) {
+      case 'type':
+        store.set('meta.type', el.value);
+        // The type <details> share a name, so opening one closes the others.
+        el.closest('details').open = true;
+        break;
+      case 'seeding':
+        store.set('meta.config.seedingMode', el.value);
+        break;
+      case 'tournament-name':
+        store.set('meta.name', el.value);
+        break;
+      case 'leftover-seats':
+        store.set('meta.config.leftoverSeats', el.value);
+        break;
+      case 'points-table':
+        store.set('meta.config.pointsTable', CONFIG.pointsTables[el.value]);
+        break;
+      case 'doubles-bracket-type':
+        store.set('meta.config.bracketType', el.value);
+        break;
+      case 'players-per-game':
+      case 'games-per-player':
+      case 'team-size':
+        store.set(`meta.config.${NUMBER_SETTINGS[el.name]}`,
+          Math.min(+el.max, Math.max(+el.min, parseInt(el.value) || +el.defaultValue)));
+        break;
+    }
+  });
 
   // Even-split suggestions apply their games-per-player count
-  const gamePlanSummary = document.getElementById('game-plan-summary');
-  if (gamePlanSummary && gamesPerPlayerInput) {
-    gamePlanSummary.addEventListener('click', (e) => {
-      const suggestion = e.target.closest('[data-games-per-player]');
-      if (!suggestion) return;
-      const value = Number(suggestion.dataset.gamesPerPlayer);
-      gamesPerPlayerInput.value = value;
-      store.set('meta.config.gamesPerPlayer', value);
-    });
-  }
+  document.getElementById('game-plan-summary').addEventListener('click', (e) => {
+    const suggestion = e.target.closest('[data-games-per-player]');
+    if (!suggestion) return;
+    const value = Number(suggestion.dataset.gamesPerPlayer);
+    gamesPerPlayerInput.value = value;
+    store.set('meta.config.gamesPerPlayer', value);
+  });
 
-  // Uneven split handling (for Points Race)
-  const leftoverSeatsSelect = document.getElementById('leftover-seats');
-  if (leftoverSeatsSelect) {
-    leftoverSeatsSelect.addEventListener('change', (e) => {
-      store.set('meta.config.leftoverSeats', e.target.value);
-    });
-  }
-
-  // Points table (for Points Race)
-  const pointsTableSelect = document.getElementById('points-table');
-  if (pointsTableSelect) {
-    pointsTableSelect.addEventListener('change', (e) => {
-      const tableKey = e.target.value;
-      store.set('meta.config.pointsTable', CONFIG.pointsTables[tableKey]);
-    });
-  }
-
-  // Start button
-  startBtn.addEventListener('click', onStartTournament);
-
-  // Team size input (for Doubles)
-  const teamSizeInput = document.getElementById('team-size');
-  if (teamSizeInput) {
-    teamSizeInput.addEventListener('input', (e) => {
-      const value = parseInt(e.target.value) || 2;
-      store.set('meta.config.teamSize', Math.min(4, Math.max(2, value)));
-      renderTeamAssignmentUI();
-    });
-  }
-
-  // Doubles bracket type
-  const doublesBracketType = document.getElementById('doubles-bracket-type');
-  if (doublesBracketType) {
-    doublesBracketType.addEventListener('change', (e) => {
-      store.set('meta.config.bracketType', e.target.value);
-    });
-  }
-
-  // Auto-assign teams button
-  const autoAssignBtn = document.getElementById('auto-assign-teams-btn');
-  if (autoAssignBtn) {
-    autoAssignBtn.addEventListener('click', onAutoAssignTeams);
-  }
-
-  // Clear teams button
-  const clearTeamsBtn = document.getElementById('clear-teams-btn');
-  if (clearTeamsBtn) {
-    clearTeamsBtn.addEventListener('click', onClearTeams);
-  }
+  document.getElementById('start-tournament-btn').addEventListener('click', onStartTournament);
+  document.getElementById('auto-assign-teams-btn').addEventListener('click', onAutoAssignTeams);
+  document.getElementById('clear-teams-btn').addEventListener('click', onClearTeams);
 }
 
-/**
- * Setup participant panel (non-admin view)
- */
 function setupParticipantPanel() {
-  const updateForm = document.getElementById('update-name-form');
-  const leaveBtn = document.getElementById('leave-tournament-btn');
   const nameInput = document.getElementById('my-name');
 
-  updateForm.addEventListener('submit', (e) => {
+  document.getElementById('update-name-form').addEventListener('submit', (e) => {
     e.preventDefault();
 
     // A disabled input means locked: the first click unlocks it for editing.
     if (nameInput.disabled) {
-      unlockNameInput();
+      setNameLocked(false);
       return;
     }
 
     const newName = nameInput.value.trim();
+    if (!newName) return;
 
-    if (newName) {
-      // Update local name
-      store.set('local.name', newName);
-
-      // Update participant in store
-      const localUserId = store.get('local.localUserId');
-      if (localUserId) {
-        store.updateParticipant(localUserId, { name: newName });
-
-        // Announce update to peers
-        const room = getRoom();
-        if (room) {
-          room.broadcast('p:upd', { name: newName });
-        }
-
-        showSuccess('Name updated!');
-
-        // Lock the input after successful update
-        lockNameInput();
-      }
+    store.set('local.name', newName);
+    const localUserId = store.get('local.localUserId');
+    if (localUserId) {
+      store.updateParticipant(localUserId, { name: newName });
+      getRoom()?.broadcast('p:upd', { name: newName });
+      showSuccess('Name updated!');
+      setNameLocked(true);
     }
   });
 
-  // Leave tournament button
-  if (leaveBtn) {
-    // navigateToHome triggers main.js's disconnect and cleanup.
-    leaveBtn.addEventListener('click', () => {
-      if (confirm('Are you sure you want to leave this tournament?')) {
-        navigateToHome();
-        showInfo('Left tournament');
-      }
-    });
+  // navigateToHome triggers main.js's disconnect and cleanup.
+  document.getElementById('leave-tournament-btn').addEventListener('click', () => {
+    if (confirm('Are you sure you want to leave this tournament?')) {
+      navigateToHome();
+      showInfo('Left tournament');
+    }
+  });
+}
+
+/**
+ * Lock #my-name behind an edit button, or unlock and focus it for editing.
+ * @param {boolean} locked
+ */
+function setNameLocked(locked) {
+  const nameInput = document.getElementById('my-name');
+  const submitBtn = document.querySelector('#update-name-form button[type="submit"]');
+  const label = locked ? 'Edit name' : 'Update name';
+  nameInput.disabled = locked;
+  submitBtn.innerHTML = `<span class="fa-solid ${locked ? 'fa-pen' : 'fa-check'}"></span>`;
+  submitBtn.setAttribute('aria-label', label);
+  submitBtn.setAttribute('data-tooltip', label);
+  if (!locked) {
+    nameInput.focus();
+    nameInput.select();
   }
 }
 
-/**
- * Make #my-name read-only, with the submit button offering to edit it.
- */
-function lockNameInput() {
-  const submitBtn = document.querySelector('#update-name-form button[type="submit"]');
-  document.getElementById('my-name').disabled = true;
-  submitBtn.innerHTML = '<span class="fa-solid fa-pen"></span>';
-  submitBtn.setAttribute('aria-label', 'Edit name');
-  submitBtn.setAttribute('data-tooltip', 'Edit name');
-}
-
-/**
- * Make #my-name editable and focus it, with the submit button saving it.
- */
-function unlockNameInput() {
-  const nameInput = document.getElementById('my-name');
-  const submitBtn = document.querySelector('#update-name-form button[type="submit"]');
-  nameInput.disabled = false;
-  submitBtn.innerHTML = '<span class="fa-solid fa-check"></span>';
-  submitBtn.setAttribute('aria-label', 'Update name');
-  submitBtn.setAttribute('data-tooltip', 'Update name');
-  nameInput.focus();
-  nameInput.select();
-}
-
-/**
- * Setup participant list with drag-and-drop for manual seeding
- */
 function setupParticipantList() {
   const list = document.getElementById('participant-list');
 
-  // Drag and drop for manual seeding
   list.addEventListener('dragstart', onDragStart);
   list.addEventListener('dragover', onDragOver);
   list.addEventListener('drop', onDrop);
   list.addEventListener('dragend', onDragEnd);
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-participant-btn');
+    if (btn) removeParticipant(btn.dataset.participantId);
+  });
 }
 
-/**
- * Update participant list sortable state
- */
-function updateParticipantListSortable() {
-  const list = document.getElementById('participant-list');
-  const seedingMode = store.get('meta.config.seedingMode');
-  const isAdmin = store.isAdmin();
-
-  if (isAdmin && seedingMode === 'manual') {
-    list.classList.add('sortable');
-    list.querySelectorAll('li').forEach(li => {
-      li.draggable = true;
-    });
-  } else {
-    list.classList.remove('sortable');
-    list.querySelectorAll('li').forEach(li => {
-      li.draggable = false;
-    });
-  }
-}
-
-/**
- * Setup share link functionality
- */
 function setupShareLink() {
   const shareInput = document.getElementById('share-link');
   const copyBtn = document.getElementById('copy-link-btn');
@@ -317,124 +198,67 @@ function setupShareLink() {
   });
 }
 
-/**
- * Setup manual participant form (admin only)
- */
 function setupManualParticipantForm() {
-  const form = document.getElementById('add-manual-participant-form');
-  if (!form) return;
+  const nameInput = document.getElementById('manual-participant-name');
 
-  form.addEventListener('submit', async (e) => {
+  document.getElementById('add-manual-participant-form').addEventListener('submit', (e) => {
     e.preventDefault();
 
-    // Only admin can add manual participants
     if (!store.isAdmin()) {
       showError('Only the admin can add offline players');
       return;
     }
 
-    const nameInput = document.getElementById('manual-participant-name');
     const name = nameInput.value.trim();
-
-    // Validate name
     if (!name) {
       showError('Please enter a player name');
       return;
     }
 
-    if (name.length > 32) {
-      showError('Name must be 32 characters or less');
-      return;
-    }
-
-    // Add manual participant
     const participant = store.addManualParticipant(name);
 
     // Broadcast to peers as a join with the isManual flag
-    const room = getRoom();
-    if (room) {
-      room.broadcast('p:join', {
-        name: participant.name,
-        localUserId: participant.id,
-        isManual: true,
-        joinedAt: participant.joinedAt,
-      });
-    }
+    getRoom()?.broadcast('p:join', {
+      name: participant.name,
+      localUserId: participant.id,
+      isManual: true,
+      joinedAt: participant.joinedAt,
+    });
 
-    // Clear input and show success
     nameInput.value = '';
-    showSuccess(`${name} added as offline player`);
-    updateLobbyUI();
   });
 }
 
-/**
- * Update lobby UI based on state
- */
 function updateLobbyUI() {
   const isAdmin = store.isAdmin();
   const participants = store.getParticipantList();
   const roomId = store.get('meta.id');
-  const tournamentName = store.get('meta.name');
 
-  // Update body class for admin styling
-  document.body.classList.toggle('is-admin', isAdmin);
-
-  // Show/hide admin vs participant panels
-  const adminPanel = document.getElementById('admin-panel');
-  const participantPanel = document.getElementById('participant-panel');
-  if (adminPanel) adminPanel.hidden = !isAdmin;
-  if (participantPanel) participantPanel.hidden = isAdmin;
-
-  // Update participant count
+  document.getElementById('admin-panel').hidden = !isAdmin;
+  document.getElementById('participant-panel').hidden = isAdmin;
+  document.getElementById('add-participant-footer').hidden = !isAdmin;
   document.getElementById('participant-count').textContent = participants.length;
 
-  // Update room display
-  const roomDisplay = document.getElementById('room-display');
-  const roomCode = document.getElementById('room-code');
-  if (roomId) {
-    roomDisplay.hidden = false;
-    roomCode.textContent = roomId;
-  } else {
-    roomDisplay.hidden = true;
-    roomCode.textContent = '';
-  }
+  document.getElementById('room-display').hidden = document.getElementById('share-btn').hidden = !roomId;
+  document.getElementById('room-code').textContent = roomId ?? '';
+  document.getElementById('share-link').value = roomId ? getRoomLink(roomId) : '';
 
-  // Update share link
-  const shareInput = document.getElementById('share-link');
-  const shareBtn = document.getElementById('share-btn');
-  if (roomId) {
-    shareInput.value = getRoomLink(roomId);
-    shareBtn.hidden = false;
-  } else {
-    shareInput.value = '';
-    shareBtn.hidden = true;
-  }
-
-  // Update start button state
-  const startBtn = document.getElementById('start-tournament-btn');
-  if (startBtn) {
-    startBtn.disabled = participants.length < 2;
-    startBtn.title = participants.length < 2 ? 'Need at least 2 participants' : '';
-  }
+  const completeTeams = updateTeamAssignmentPanel();
+  document.getElementById('start-tournament-btn').disabled = store.get('meta.type') === 'doubles'
+    ? completeTeams < 2
+    : participants.length < 2;
 
   // Show the current name unless the user is editing it.
   const myNameInput = document.getElementById('my-name');
   if (myNameInput.disabled || !myNameInput.value) {
     const localName = store.get('local.name') || '';
     myNameInput.value = localName;
-    if (localName && !myNameInput.disabled) lockNameInput();
+    if (localName && !myNameInput.disabled) setNameLocked(true);
   }
 
-  // Update tournament name display for non-admins
-  const tournamentNameDisplay = document.getElementById('tournament-name-display');
-  if (tournamentNameDisplay) {
-    tournamentNameDisplay.value = tournamentName || roomId || 'Tournament';
-  }
+  document.getElementById('tournament-name-display').value = store.get('meta.name') || roomId || 'Tournament';
 
   updateGamePlanSummary(participants.length);
-
-  // Render participant list
   renderParticipantList(participants);
 }
 
@@ -444,7 +268,6 @@ function updateLobbyUI() {
  */
 function updateGamePlanSummary(playerCount) {
   const summary = document.getElementById('game-plan-summary');
-  if (!summary) return;
 
   const config = store.get('meta.config') || {};
   const plan = planGames(playerCount, config);
@@ -486,26 +309,19 @@ function updateGamePlanSummary(playerCount) {
   summary.append(' games per player.');
 }
 
-/**
- * Render participant list
- */
 function renderParticipantList(participants) {
-  const list = document.getElementById('participant-list');
   const adminId = store.get('meta.adminId');
   const localUserId = store.get('local.localUserId');
-  const seedingMode = store.get('meta.config.seedingMode');
   const isAdmin = store.isAdmin();
+  const sortable = isAdmin && store.get('meta.config.seedingMode') === 'manual';
 
-  const sorted = participants.toSorted(bySeed);
-
-  list.innerHTML = sorted.map(p => {
-    // Show "Offline" badge for manual participants that haven't been claimed
+  document.getElementById('participant-list').innerHTML = participants.toSorted(bySeed).map(p => {
     const isUnclaimedManual = p.isManual && !p.claimedBy;
 
     return `
-    <li data-participant-id="${p.id}" draggable="${isAdmin && seedingMode === 'manual'}">
+    <li data-participant-id="${escapeHtml(p.id)}" draggable="${sortable}">
       <div class="participant-name">
-        ${isAdmin && seedingMode === 'manual' ? `<span class="seed-badge">${p.seed || '?'}</span>` : ''}
+        ${sortable ? `<span class="seed-badge">${escapeHtml(p.seed || '?')}</span>` : ''}
         <span>${escapeHtml(p.name)}</span>
         ${p.id === adminId ? '<span class="admin-badge">Admin</span>' : ''}
         ${isUnclaimedManual ? '<span class="manual-badge">Offline</span>' : ''}
@@ -517,7 +333,7 @@ function renderParticipantList(participants) {
         </span>
         ${isAdmin && p.id !== adminId ? `
           <button type="button" class="remove-participant-btn outline secondary"
-                  data-participant-id="${p.id}" title="Remove participant">
+                  data-participant-id="${escapeHtml(p.id)}" title="Remove participant">
             <span class="fa-solid fa-xmark"></span>
           </button>
         ` : ''}
@@ -525,107 +341,61 @@ function renderParticipantList(participants) {
     </li>
   `;
   }).join('');
-
-  // Add event listeners for remove buttons
-  if (isAdmin) {
-    list.querySelectorAll('.remove-participant-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const participantId = btn.dataset.participantId;
-        removeParticipant(participantId);
-      });
-    });
-  }
-
-  updateParticipantListSortable();
 }
 
-/**
- * Remove a participant (admin only)
- */
 function removeParticipant(participantId) {
   const participant = store.getParticipant(participantId);
   if (!participant) return;
 
   if (confirm(`Remove ${participant.name} from the tournament?`)) {
     store.removeParticipant(participantId);
-
-    // Broadcast removal
-    const room = getRoom();
-    if (room) {
-      room.broadcast('p:leave', { removedId: participantId });
-    }
-
-    showToast(`${participant.name} removed`, 'info');
+    getRoom()?.broadcast('p:leave', { removedId: participantId });
   }
 }
 
-/**
- * Handle participant join
- */
 function onParticipantJoin(participant) {
   showSuccess(`${participant.name} joined!`);
 }
 
-/**
- * Handle participant leave
- */
+// Only an admin removal deletes a participant; disconnects are toasted by main.js.
 function onParticipantLeave(participant) {
-  showInfo(`${participant.name} disconnected`);
+  showInfo(`${participant.name} removed`);
 }
 
-/**
- * Start tournament
- */
 function onStartTournament() {
-  // Only admin can start tournament
   if (!store.isAdmin()) {
     showError('Only the admin can start the tournament');
     return;
   }
 
   const participants = store.getParticipantList();
-  const tournamentType = store.get('meta.type');
-  const seedingMode = store.get('meta.config.seedingMode');
-
   if (participants.length < 2) {
     showError('Need at least 2 participants');
     return;
   }
 
+  const type = store.get('meta.type');
+  const config = store.get('meta.config');
+  const teamAssignments = store.getTeamAssignments();
+  if (type === 'doubles' && validateTeamAssignments(participants, teamAssignments, config.teamSize || 2).completeTeams < 2) {
+    showError('Need at least 2 complete teams to start');
+    return;
+  }
+
   // updateParticipant writes seeds onto these same objects, so the generators keep this order.
-  const seededParticipants = seedParticipants(participants, seedingMode);
-  seededParticipants.forEach((p, i) => store.updateParticipant(p.id, { seed: i + 1 }));
+  const seeded = seedParticipants(participants, config.seedingMode);
+  seeded.forEach((p, i) => store.updateParticipant(p.id, { seed: i + 1 }));
 
   try {
-    // Generate bracket based on type
     let bracket, matches;
-
-    if (tournamentType === 'single') {
-      ({ bracket, matches } = generateSingleEliminationBracket(seededParticipants));
-    } else if (tournamentType === 'double') {
-      ({ bracket, matches } = generateDoubleEliminationBracket(seededParticipants));
-    } else if (tournamentType === 'mariokart') {
-      const { matches: games, standings, ...race } = generateMarioKartTournament(seededParticipants, store.get('meta.config'));
-      bracket = race;
-      matches = games;
+    if (type === 'mariokart') {
+      let standings;
+      ({ matches, standings, ...bracket } = generateMarioKartTournament(seeded, config));
       store.set('standings', standings);
-    } else if (tournamentType === 'doubles') {
-      const teamAssignments = store.getTeamAssignments();
-      const teamSize = store.get('meta.config.teamSize') || 2;
-
-      // Validate team assignments
-      const validation = validateTeamAssignments(seededParticipants, teamAssignments, teamSize);
-
-      if (!validation.valid || validation.completeTeams < 2) {
-        showError('Need at least 2 complete teams to start');
-        return;
-      }
-
-      ({ bracket, matches } = generateDoublesTournament(seededParticipants, teamAssignments, {
-        ...store.get('meta.config'),
-        bracketType: store.get('meta.config.bracketType') || 'single',
-      }));
+    } else if (type === 'doubles') {
+      ({ bracket, matches } = generateDoublesTournament(seeded, teamAssignments, config));
+    } else {
+      ({ bracket, matches } = { single: generateSingleEliminationBracket, double: generateDoubleEliminationBracket }[type](seeded));
     }
 
     // startedAt tells a peer's stale matches from this tournament's on merge.
@@ -636,7 +406,6 @@ function onStartTournament() {
     store.set('bracket', bracket);
     store.set('meta.status', 'active');
 
-    // Broadcast to peers
     const room = getRoom();
     if (room) {
       startTournament(room, bracket, matches);
@@ -649,7 +418,6 @@ function onStartTournament() {
   }
 }
 
-// Drag and drop handlers
 let draggedItem = null;
 
 function onDragStart(e) {
@@ -675,22 +443,16 @@ function onDragOver(e) {
 
 function onDrop(e) {
   e.preventDefault();
-  if (draggedItem) {
-    // Update seeds based on new order
-    const list = document.getElementById('participant-list');
-    const items = list.querySelectorAll('li');
-    const room = getRoom();
-    items.forEach((item, index) => {
-      const participantId = item.dataset.participantId;
-      const newSeed = index + 1;
-      store.updateParticipant(participantId, { seed: newSeed });
-      // Broadcast seed change to peers (admin can specify target id)
-      if (room) {
-        room.broadcast('p:upd', { id: participantId, seed: newSeed });
-      }
-    });
-    updateLobbyUI();
-  }
+  if (!draggedItem) return;
+
+  const room = getRoom();
+  document.getElementById('participant-list').querySelectorAll('li').forEach((item, index) => {
+    const participantId = item.dataset.participantId;
+    const seed = index + 1;
+    store.updateParticipant(participantId, { seed });
+    // The admin's p:upd may name another participant's id.
+    room?.broadcast('p:upd', { id: participantId, seed });
+  });
 }
 
 function onDragEnd() {
@@ -700,39 +462,28 @@ function onDragEnd() {
   }
 }
 
-// --- Team Assignment Functions (Doubles Mode) ---
-
 /**
- * Show/hide team assignment panel based on tournament type
+ * Show the team panel in doubles mode and render it.
+ * @returns {number|undefined} Complete teams in doubles mode, otherwise undefined
  */
 function updateTeamAssignmentPanel() {
-  const type = store.get('meta.type');
-  const fieldset = document.getElementById('team-assignment-fieldset');
-  if (fieldset) {
-    fieldset.hidden = type !== 'doubles';
-    if (type === 'doubles') {
-      renderTeamAssignmentUI();
-    }
-  }
+  const isDoubles = store.get('meta.type') === 'doubles';
+  document.getElementById('team-assignment-fieldset').hidden = !isDoubles;
+  if (!isDoubles) return undefined;
+
+  renderTeamAssignmentUI();
+  return updateTeamValidationStatus();
 }
 
-/**
- * Render team assignment interface
- */
 function renderTeamAssignmentUI() {
   const participants = store.getParticipantList();
   const teamAssignments = store.getTeamAssignments();
   const teamSize = store.get('meta.config.teamSize') || 2;
-
-  // Calculate number of possible teams
   const maxTeams = Math.max(2, Math.ceil(participants.length / teamSize));
 
   const grid = document.getElementById('team-assignment-grid');
   const unassignedList = document.getElementById('unassigned-list');
 
-  if (!grid || !unassignedList) return;
-
-  // Group participants by team
   const teams = new Map();
   const unassigned = [];
 
@@ -746,7 +497,6 @@ function renderTeamAssignmentUI() {
     }
   }
 
-  // Render team boxes
   grid.innerHTML = '';
   for (let i = 1; i <= maxTeams; i++) {
     const teamId = `team-${i}`;
@@ -761,9 +511,9 @@ function renderTeamAssignmentUI() {
       <h5>Team ${i} ${isFull ? '<span class="fa-solid fa-check"></span>' : ''}</h5>
       <ul class="team-members">
         ${members.map(m => `
-          <li data-participant-id="${m.id}" draggable="true">
+          <li data-participant-id="${escapeHtml(m.id)}" draggable="true">
             <span>${escapeHtml(m.name)}</span>
-            <button type="button" class="remove-from-team" data-participant-id="${m.id}">
+            <button type="button" class="remove-from-team" data-participant-id="${escapeHtml(m.id)}">
               <span class="fa-solid fa-xmark"></span>
             </button>
           </li>
@@ -774,47 +524,32 @@ function renderTeamAssignmentUI() {
     grid.appendChild(teamBox);
   }
 
-  // Render unassigned
   unassignedList.innerHTML = unassigned.map(p => `
-    <li data-participant-id="${p.id}" draggable="true">
+    <li data-participant-id="${escapeHtml(p.id)}" draggable="true">
       ${escapeHtml(p.name)}
     </li>
   `).join('');
-
-  // Update validation status
-  updateTeamValidationStatus();
-
-  // Note: drag-and-drop handlers use event delegation set up in initLobby()
 }
 
 /**
- * Update team validation status display
+ * Show whether enough complete teams exist to start.
+ * @returns {number} Complete teams
  */
 function updateTeamValidationStatus() {
   const participants = store.getParticipantList();
-  const teamAssignments = store.getTeamAssignments();
   const teamSize = store.get('meta.config.teamSize') || 2;
-
-  const validation = validateTeamAssignments(participants, teamAssignments, teamSize);
+  const { valid, completeTeams } = validateTeamAssignments(participants, store.getTeamAssignments(), teamSize);
 
   const statusEl = document.getElementById('team-assignment-status');
-  if (statusEl) {
-    if (validation.valid && validation.completeTeams >= 2) {
-      statusEl.innerHTML = `<mark class="success"><span class="fa-solid fa-check"></span> ${validation.completeTeams} teams ready</mark>`;
-    } else if (validation.completeTeams >= 2) {
-      statusEl.innerHTML = `<mark class="warning"><span class="fa-solid fa-triangle-exclamation"></span> ${validation.completeTeams} teams ready, ${participants.length - (validation.completeTeams * teamSize)} unassigned</mark>`;
-    } else {
-      statusEl.innerHTML = `<mark class="warning"><span class="fa-solid fa-triangle-exclamation"></span> Need at least 2 complete teams</mark>`;
-    }
+  if (valid && completeTeams >= 2) {
+    statusEl.innerHTML = `<mark class="success"><span class="fa-solid fa-check"></span> ${completeTeams} teams ready</mark>`;
+  } else if (completeTeams >= 2) {
+    statusEl.innerHTML = `<mark class="warning"><span class="fa-solid fa-triangle-exclamation"></span> ${completeTeams} teams ready, ${participants.length - (completeTeams * teamSize)} unassigned</mark>`;
+  } else {
+    statusEl.innerHTML = `<mark class="warning"><span class="fa-solid fa-triangle-exclamation"></span> Need at least 2 complete teams</mark>`;
   }
 
-  // Update start button state for doubles mode
-  const startBtn = document.getElementById('start-tournament-btn');
-  const type = store.get('meta.type');
-  if (type === 'doubles' && startBtn) {
-    startBtn.disabled = validation.completeTeams < 2;
-    startBtn.title = validation.completeTeams < 2 ? 'Need at least 2 complete teams' : '';
-  }
+  return completeTeams;
 }
 
 /**
@@ -822,11 +557,12 @@ function updateTeamValidationStatus() {
  */
 function setupTeamAssignmentDelegation() {
   const fieldset = document.getElementById('team-assignment-fieldset');
-  if (!fieldset) return;
-
   let draggedEl = null;
 
-  // Drag start - delegated to fieldset
+  // A full team accepts a drop only from one of its own members.
+  const canDrop = (box) => !box.classList.contains('complete') || box.contains(draggedEl);
+  const clearDragOver = () => fieldset.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+
   fieldset.addEventListener('dragstart', (e) => {
     draggedEl = e.target.closest('li[data-participant-id]');
     if (draggedEl) {
@@ -835,38 +571,21 @@ function setupTeamAssignmentDelegation() {
     }
   });
 
-  // Drag over - delegated to fieldset
   fieldset.addEventListener('dragover', (e) => {
     e.preventDefault();
+    if (!draggedEl) return;
 
-    // Handle team box drag over
     const teamBox = e.target.closest('.team-box');
-    if (teamBox && draggedEl) {
-      const teamId = teamBox.dataset.teamId;
-      const teamSize = store.get('meta.config.teamSize') || 2;
-      const teamAssignments = store.getTeamAssignments();
-
-      // Count current members in this team (excluding the dragged one)
-      const draggedId = draggedEl.dataset.participantId;
-      let currentCount = 0;
-      for (const [pid, tid] of teamAssignments) {
-        if (tid === teamId && pid !== draggedId) currentCount++;
-      }
-
-      // Allow drop if team isn't full
-      if (currentCount < teamSize) {
-        teamBox.classList.add('drag-over');
-      }
+    if (teamBox && canDrop(teamBox)) {
+      teamBox.classList.add('drag-over');
     }
 
-    // Handle unassigned list drag over
     const unassignedList = e.target.closest('#unassigned-list');
-    if (unassignedList && draggedEl) {
+    if (unassignedList) {
       unassignedList.classList.add('drag-over');
     }
   });
 
-  // Drag leave - delegated to fieldset
   fieldset.addEventListener('dragleave', (e) => {
     const teamBox = e.target.closest('.team-box');
     if (teamBox) {
@@ -878,82 +597,47 @@ function setupTeamAssignmentDelegation() {
     }
   });
 
-  // Drop - delegated to fieldset
+  // An accepted drop re-renders the panel and detaches the dragged li, so its dragend
+  // never reaches the fieldset; clear draggedEl here instead.
   fieldset.addEventListener('drop', (e) => {
     e.preventDefault();
     if (!draggedEl) return;
 
     const participantId = draggedEl.dataset.participantId;
+    clearDragOver();
 
-    // Drop on team box
     const teamBox = e.target.closest('.team-box');
     if (teamBox) {
-      teamBox.classList.remove('drag-over');
-      const teamId = teamBox.dataset.teamId;
-      store.setTeamAssignment(participantId, teamId);
-      renderTeamAssignmentUI();
-      return;
-    }
-
-    // Drop on unassigned list
-    const unassignedList = e.target.closest('#unassigned-list');
-    if (unassignedList) {
-      unassignedList.classList.remove('drag-over');
-      store.removeTeamAssignment(participantId);
-      renderTeamAssignmentUI();
-    }
-  });
-
-  // Drag end - delegated to fieldset
-  fieldset.addEventListener('dragend', () => {
-    if (draggedEl) {
-      draggedEl.classList.remove('dragging');
+      if (!canDrop(teamBox)) return;
       draggedEl = null;
-    }
-    // Clean up any leftover drag-over states
-    fieldset.querySelectorAll('.team-box').forEach(box => box.classList.remove('drag-over'));
-    const unassignedList = fieldset.querySelector('#unassigned-list');
-    if (unassignedList) {
-      unassignedList.classList.remove('drag-over');
+      store.setTeamAssignment(participantId, teamBox.dataset.teamId);
+    } else if (e.target.closest('#unassigned-list')) {
+      draggedEl = null;
+      store.removeTeamAssignment(participantId);
     }
   });
 
-  // Click handler for remove buttons - delegated to fieldset
+  fieldset.addEventListener('dragend', () => {
+    draggedEl?.classList.remove('dragging');
+    draggedEl = null;
+    clearDragOver();
+  });
+
   fieldset.addEventListener('click', (e) => {
     const removeBtn = e.target.closest('.remove-from-team');
     if (removeBtn) {
-      e.stopPropagation();
-      const participantId = removeBtn.dataset.participantId;
-      store.removeTeamAssignment(participantId);
-      renderTeamAssignmentUI();
+      store.removeTeamAssignment(removeBtn.dataset.participantId);
     }
   });
 }
 
-/**
- * Auto-assign teams randomly
- */
 function onAutoAssignTeams() {
-  const participants = store.getParticipantList();
   const teamSize = store.get('meta.config.teamSize') || 2;
-
-  const assignments = autoAssignTeams(participants, teamSize);
-
-  // Clear and set all assignments
-  store.clearTeamAssignments();
-  for (const [participantId, teamId] of assignments) {
-    store.setTeamAssignment(participantId, teamId);
-  }
-
-  renderTeamAssignmentUI();
+  store.set('teamAssignments', autoAssignTeams(store.getParticipantList(), teamSize));
   showSuccess('Teams auto-assigned!');
 }
 
-/**
- * Clear all team assignments
- */
 function onClearTeams() {
   store.clearTeamAssignments();
-  renderTeamAssignmentUI();
   showInfo('Team assignments cleared');
 }

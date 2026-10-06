@@ -66,6 +66,12 @@ export function createMockElement(tag = 'div', options = {}) {
     querySelector: () => null,
     querySelectorAll: () => [],
     closest: () => null,
+    append: (...nodes) => children.push(...nodes),
+    appendChild: (child) => {
+      children.push(child);
+      return child;
+    },
+    remove: () => {},
     showModal: () => {},
     close: () => {},
     select: () => {},
@@ -98,15 +104,6 @@ function createMockDocument() {
 
     createElement: (tag) => createMockElement(tag),
 
-    body: {
-      classList: {
-        add: () => {},
-        remove: () => {},
-        toggle: () => {},
-        contains: () => false,
-      },
-    },
-
     addEventListener: () => {},
     removeEventListener: () => {},
 
@@ -133,6 +130,27 @@ export function installBracketViewDom() {
     doc._addElement(id, createMockElement('div'));
   }
   doc._addElement('bracket-view', createMockElement('section', { hidden: false }));
+  globalThis.document = doc;
+  return doc;
+}
+
+/**
+ * Install a mock document holding the elements initLobby and a lobby render pass need
+ * @returns {Object} The installed mock document
+ */
+export function installLobbyDom() {
+  const doc = createMockDocument();
+  for (const id of [
+    'tournament-config', 'games-per-player', 'game-plan-summary', 'start-tournament-btn',
+    'auto-assign-teams-btn', 'clear-teams-btn', 'update-name-form', 'leave-tournament-btn', 'my-name',
+    'participant-list', 'share-link', 'copy-link-btn', 'share-btn', 'add-manual-participant-form',
+    'manual-participant-name', 'admin-panel', 'participant-panel', 'add-participant-footer',
+    'participant-count', 'room-display', 'room-code', 'tournament-name-display',
+    'team-assignment-fieldset', 'team-assignment-grid', 'unassigned-list', 'team-assignment-status',
+    'toast-container',
+  ]) {
+    doc._addElement(id, createMockElement('div'));
+  }
   globalThis.document = doc;
   return doc;
 }

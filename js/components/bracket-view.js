@@ -621,7 +621,7 @@ function openRaceResultModal(gameId) {
     const p = participants.get(pid);
     const isStandIn = standIns.includes(pid);
     return `
-      <li data-participant-id="${pid}" draggable="true"${isStandIn ? ' data-stand-in' : ''}>
+      <li data-participant-id="${escapeHtml(pid)}" draggable="true"${isStandIn ? ' data-stand-in' : ''}>
         <span class="fa-solid fa-grip-vertical drag-handle"></span>
         <span class="participant-name">${escapeHtml(p?.name || 'Unknown')}</span>
         <span class="points-preview">${pointsPreviewText(isStandIn, pointsTable, idx, totalPlayers)}</span>
