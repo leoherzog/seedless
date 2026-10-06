@@ -1,16 +1,7 @@
 /**
- * Seedless TURN Credential Worker
- *
- * Mints short-lived Cloudflare Realtime TURN credentials for the client app.
- * The long-lived TURN key API token stays server-side as a Worker secret;
- * browsers only ever receive credentials that expire after TURN_TTL_SECONDS.
- *
- * GET / -> { iceServers: [...] }  (Cloudflare generate-ice-servers passthrough)
- *
- * Origin-locked: only browsers on an ALLOWED_ORIGINS page can read the
- * response (CORS). This stops other websites from using the endpoint; it is
- * not cryptographic protection against non-browser clients, which is why the
- * credentials are short-lived.
+ * Mints short-lived Cloudflare Realtime TURN credentials (GET / -> { iceServers }) so the TURN API
+ * token stays a Worker secret. Requests whose Origin is not in ALLOWED_ORIGINS get a 403; that
+ * stops other sites but not scripted clients, hence the short TURN_TTL_SECONDS.
  */
 
 const UPSTREAM = 'https://rtc.live.cloudflare.com/v1/turn/keys';
@@ -31,13 +22,6 @@ export default {
       'Access-Control-Allow-Origin': origin,
       'Vary': 'Origin',
     };
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: { ...cors, 'Access-Control-Allow-Methods': 'GET, OPTIONS' },
-      });
-    }
 
     if (request.method !== 'GET') {
       return Response.json({ error: 'method not allowed' }, { status: 405, headers: cors });

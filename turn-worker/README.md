@@ -9,6 +9,7 @@ A minimal Cloudflare Worker that mints short-lived [Cloudflare Realtime TURN](ht
 2. Edit `wrangler.jsonc`:
    - Set `TURN_KEY_ID` to your key ID.
    - Set `ALLOWED_ORIGINS` to your app's origin(s).
+   - Replace `routes` with your own custom domain, or delete it to deploy on workers.dev.
 
 3. Deploy and set the secret:
 
@@ -18,15 +19,7 @@ A minimal Cloudflare Worker that mints short-lived [Cloudflare Realtime TURN](ht
    npx wrangler secret put TURN_KEY_API_TOKEN   # paste the API token when prompted
    ```
 
-4. Point the client at the Worker: in the repo root `config.js`, set
-
-   ```js
-   network: {
-     turnCredentialsUrl: 'https://seedless-turn-mint.<your-subdomain>.workers.dev',
-   }
-   ```
-
-   (`wrangler deploy` prints the exact URL.)
+4. Point the client at the Worker: in the repo root `config.js`, set `network.turnCredentialsUrl` to your custom domain, or to the workers.dev URL that `wrangler deploy` prints.
 
 ## Behavior
 

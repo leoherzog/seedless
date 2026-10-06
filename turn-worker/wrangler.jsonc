@@ -2,12 +2,8 @@
   "name": "seedless-turn-mint",
   "main": "src/index.js",
   "compatibility_date": "2026-07-23",
-  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
-  },
-  "placement": {
-    "mode": "smart"
   },
   "routes": [
     { "pattern": "turn.tournament.thehopegang.com", "custom_domain": true }
