@@ -1,12 +1,12 @@
 /**
- * Peer-supplied names are HTML-escaped in rendered match cards.
+ * Peer-supplied fields are HTML-escaped in rendered match cards, game cards and tournament history.
  */
 
-import { assert } from 'jsr:@std/assert';
+import { assert, assertEquals } from 'jsr:@std/assert';
 import { store } from '../js/state/store.js';
 import { initBracketView, cleanupBracketView } from '../js/components/bracket-view.js';
 import { escapeHtml } from '../js/utils/html.js';
-import { installBracketViewDom } from './fixtures.js';
+import { createMockElement, installBracketViewDom } from './fixtures.js';
 
 const XSS_IMG = '<img src=x onerror=alert(1)>';
 const XSS_SCRIPT = '<script>alert(1)</script>';
@@ -162,6 +162,98 @@ Deno.test('Bracket View XSS Escaping - Doubles team match card', async (t) => {
 
       assert(html.includes('>Team Rocket<'), 'plain team name should render intact');
       assert(html.includes('>Alice<'), 'plain team member name should render intact');
+    } finally {
+      cleanupBracketView();
+    }
+  });
+});
+
+Deno.test('Bracket View XSS Escaping - Points Race game card', async (t) => {
+  await t.step('game id, number and result fields are escaped', () => {
+    try {
+      store.reset();
+      const doc = installBracketViewDom();
+      // The mock document resolves '#standings-table tbody' by this key.
+      doc._addElement('standings-table tbody', createMockElement('tbody'));
+      initBracketView();
+
+      store.set('participants', new Map([['p1', { id: 'p1', name: 'Alice' }], ['p2', { id: 'p2', name: 'Bob' }]]));
+      store.setAdmin(true);
+      store.setMatches(new Map([
+        ['g1', { id: XSS_IMG, gameNumber: XSS_SCRIPT, participants: ['p1', 'p2'], complete: false }],
+        ['g2', {
+          id: 'g2', gameNumber: 2, participants: ['p1', 'p2'], complete: true,
+          results: [{ participantId: 'p1', position: XSS_IMG, points: XSS_SCRIPT }, { participantId: 'p2', position: 2, points: 0 }],
+        }],
+      ]));
+      store.set('bracket', { type: 'mariokart', pointsTable: [3, 2, 1] });
+      store.set('meta.type', 'mariokart');
+      store.set('meta.status', 'active');
+
+      const html = doc._elements.get('bracket-container').innerHTML;
+      assert(html.includes(`data-race="${escapeHtml(XSS_IMG)}"`), 'the report button must carry the escaped id');
+      assert(!html.includes(XSS_IMG), 'raw <img onerror> must not appear in any game field');
+      assert(!html.includes(XSS_SCRIPT), 'raw <script> must not appear in any game field');
+    } finally {
+      cleanupBracketView();
+    }
+  });
+});
+
+Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
+  /** Complete a two-player bracket holding the given history entries, and return #tournament-history. */
+  function renderHistory(history) {
+    store.reset();
+    const doc = installBracketViewDom();
+    initBracketView();
+
+    store.merge({ history });
+    store.set('participants', new Map([['p1', { id: 'p1', name: 'Alice' }], ['p2', { id: 'p2', name: 'Bob' }]]));
+    store.setMatches(new Map([
+      ['m1', { id: 'm1', position: 0, participants: ['p1', 'p2'], scores: [2, 0], winnerId: 'p1', isBye: false }],
+    ]));
+    store.set('bracket', { rounds: [{ number: 1, name: 'Final', matchIds: ['m1'] }] });
+    store.set('meta.type', 'single');
+    store.set('meta.status', 'complete');
+    return doc._elements.get('tournament-history');
+  }
+
+  await t.step('peer-supplied entry fields are escaped and the type is never echoed', () => {
+    try {
+      const section = renderHistory([{
+        id: 'h1',
+        type: XSS_IMG,
+        completedAt: 1,
+        participantCount: XSS_SCRIPT,
+        winner: { name: 'Alice' },
+        standings: [{ place: XSS_SCRIPT, name: 'Alice', points: XSS_SCRIPT }],
+      }]);
+
+      assertEquals(section.hidden, false);
+      assert(!section.innerHTML.includes(XSS_SCRIPT), 'raw <script> must not appear in any history field');
+      assert(section.innerHTML.includes('&lt;script&gt;'), 'escaped history fields must appear');
+      assert(!section.innerHTML.includes(XSS_IMG), 'raw type must not appear');
+      assert(!section.innerHTML.includes(escapeHtml(XSS_IMG)), 'an unknown type is replaced, not echoed');
+      assert(section.innerHTML.includes('Tournament'), 'an unknown type falls back to a fixed label');
+    } finally {
+      cleanupBracketView();
+    }
+  });
+
+  await t.step('a type naming an Object.prototype key falls back to the fixed label', () => {
+    try {
+      const section = renderHistory([{ id: 'h1', type: 'constructor', completedAt: 1, participantCount: 2 }]);
+      assert(section.innerHTML.includes('<strong>Type:</strong> Tournament'));
+    } finally {
+      cleanupBracketView();
+    }
+  });
+
+  await t.step('the section hides when a later tournament has no history', () => {
+    try {
+      renderHistory([{ id: 'h1', type: 'single', completedAt: 1, participantCount: 2 }]);
+      const section = renderHistory([]);
+      assertEquals(section.hidden, true);
     } finally {
       cleanupBracketView();
     }

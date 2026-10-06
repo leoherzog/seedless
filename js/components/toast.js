@@ -1,29 +1,16 @@
 /**
- * Toast Notification Component
+ * Toast notifications shown in #toast-container for CONFIG.ui.toastDuration.
  */
 
 import { CONFIG } from '../../config.js';
 import { escapeHtml } from '../utils/html.js';
 
-// Lazy-initialized container reference
-let container = null;
-
-function getContainer() {
-  if (!container) {
-    container = document.getElementById('toast-container');
-  }
-  return container;
-}
-
 /**
- * Show a toast notification
+ * Show a toast notification.
  * @param {string} message - Message to display
  * @param {string} type - 'success' | 'error' | 'warning' | 'info'
- * @param {number} duration - Duration in ms (0 = permanent)
  */
-export function showToast(message, type = 'info', duration = CONFIG.ui.toastDuration) {
-  const toastContainer = getContainer();
-
+export function showToast(message, type = 'info') {
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
 
@@ -37,44 +24,23 @@ export function showToast(message, type = 'info', duration = CONFIG.ui.toastDura
     <span>${escapeHtml(message)}</span>
   `;
 
-  toastContainer.appendChild(toast);
+  document.getElementById('toast-container').appendChild(toast);
 
-  if (duration > 0) {
-    setTimeout(() => {
-      removeToast(toast);
-    }, duration);
-  }
-
-  return toast;
-}
-
-/**
- * Remove a toast
- */
-export function removeToast(toast) {
-  toast.classList.add('removing');
   setTimeout(() => {
-    toast.remove();
-  }, 300);
+    toast.classList.add('removing');
+    // Matches the .toast.removing slide-out animation.
+    setTimeout(() => toast.remove(), 300);
+  }, CONFIG.ui.toastDuration);
 }
 
-/**
- * Show success toast
- */
 export function showSuccess(message) {
-  return showToast(message, 'success');
+  showToast(message, 'success');
 }
 
-/**
- * Show error toast
- */
 export function showError(message) {
-  return showToast(message, 'error');
+  showToast(message, 'error');
 }
 
-/**
- * Show info toast
- */
 export function showInfo(message) {
-  return showToast(message, 'info');
+  showToast(message, 'info');
 }

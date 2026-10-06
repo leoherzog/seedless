@@ -1,9 +1,10 @@
 /**
- * Tests for Drag-Drop Helper Functions
+ * Tests for the drag-and-drop list helpers.
  */
 
-import { assertEquals } from 'jsr:@std/assert';
-import { getDragAfterElement } from '../js/utils/drag-drop.js';
+import { assert, assertEquals } from 'jsr:@std/assert';
+import { getDragAfterElement, makeSortable } from '../js/utils/drag-drop.js';
+import { createMockElement as createMockDomElement } from './fixtures.js';
 
 /**
  * Create a mock DOM element with getBoundingClientRect
@@ -35,63 +36,31 @@ function createMockContainer(elements) {
 }
 
 Deno.test('getDragAfterElement', async (t) => {
-  await t.step('returns first element when dragging above all', () => {
-    // Three elements at y=100, 200, 300 (each 50px tall)
-    const elements = [
-      createMockElement(100, 50, 'elem1'), // center at 125
-      createMockElement(200, 50, 'elem2'), // center at 225
-      createMockElement(300, 50, 'elem3'), // center at 325
-    ];
-    const container = createMockContainer(elements);
+  // Midpoints at y=125, 225 and 325.
+  const container = createMockContainer([
+    createMockElement(100, 50, 'elem1'),
+    createMockElement(200, 50, 'elem2'),
+    createMockElement(300, 50, 'elem3'),
+  ]);
 
-    // Dragging at y=50 (above all elements)
-    const result = getDragAfterElement(container, 50);
-    assertEquals(result.id, 'elem1');
+  await t.step('returns first element when dragging above all', () => {
+    assertEquals(getDragAfterElement(container, 50).id, 'elem1');
   });
 
   await t.step('returns second element when dragging between first and second', () => {
-    const elements = [
-      createMockElement(100, 50, 'elem1'), // center at 125
-      createMockElement(200, 50, 'elem2'), // center at 225
-      createMockElement(300, 50, 'elem3'), // center at 325
-    ];
-    const container = createMockContainer(elements);
-
-    // Dragging at y=160 (between elem1 and elem2, closer to elem2)
-    const result = getDragAfterElement(container, 160);
-    assertEquals(result.id, 'elem2');
+    assertEquals(getDragAfterElement(container, 160).id, 'elem2');
   });
 
   await t.step('returns third element when dragging between second and third', () => {
-    const elements = [
-      createMockElement(100, 50, 'elem1'),
-      createMockElement(200, 50, 'elem2'),
-      createMockElement(300, 50, 'elem3'),
-    ];
-    const container = createMockContainer(elements);
-
-    // Dragging at y=260 (between elem2 and elem3)
-    const result = getDragAfterElement(container, 260);
-    assertEquals(result.id, 'elem3');
+    assertEquals(getDragAfterElement(container, 260).id, 'elem3');
   });
 
   await t.step('returns undefined when dragging below all elements', () => {
-    const elements = [
-      createMockElement(100, 50, 'elem1'),
-      createMockElement(200, 50, 'elem2'),
-      createMockElement(300, 50, 'elem3'),
-    ];
-    const container = createMockContainer(elements);
-
-    // Dragging at y=400 (below all elements)
-    const result = getDragAfterElement(container, 400);
-    assertEquals(result, undefined);
+    assertEquals(getDragAfterElement(container, 400), undefined);
   });
 
   await t.step('returns undefined for empty container', () => {
-    const container = createMockContainer([]);
-    const result = getDragAfterElement(container, 100);
-    assertEquals(result, undefined);
+    assertEquals(getDragAfterElement(createMockContainer([]), 100), undefined);
   });
 
   await t.step('returns next element when dragging at exact center', () => {
@@ -101,10 +70,7 @@ Deno.test('getDragAfterElement', async (t) => {
     ];
     const container = createMockContainer(elements);
 
-    // Dragging at exactly y=125 (center of elem1)
-    // offset for elem1 = 0 (not < 0, so not selected)
-    // offset for elem2 = -100 (< 0 and > -Infinity, so selected)
-    // This means: insert before elem2 (i.e., after elem1)
+    // At exactly elem1's center, the row goes after elem1.
     const result = getDragAfterElement(container, 125);
     assertEquals(result.id, 'elem2');
   });
@@ -148,16 +114,6 @@ Deno.test('getDragAfterElement', async (t) => {
     assertEquals(result.id, 'elem2');
   });
 
-  await t.step('uses custom selector', () => {
-    // The selector is passed to querySelectorAll, our mock ignores it
-    // but we can verify the function accepts the parameter
-    const elements = [createMockElement(100, 50, 'elem1')];
-    const container = createMockContainer(elements);
-
-    const result = getDragAfterElement(container, 50, '.custom-class');
-    assertEquals(result.id, 'elem1');
-  });
-
   await t.step('handles elements with varying heights', () => {
     const elements = [
       createMockElement(0, 100, 'tall'),    // center at 50
@@ -169,5 +125,41 @@ Deno.test('getDragAfterElement', async (t) => {
     // Dragging at y=80 (below center of tall, above center of short)
     const result = getDragAfterElement(container, 80);
     assertEquals(result.id, 'short');
+  });
+});
+
+Deno.test('makeSortable', async (t) => {
+  /** A list mock that records insertBefore calls, plus one li row. */
+  function sortableList() {
+    const list = createMockDomElement('ol');
+    list.inserted = [];
+    list.insertBefore = (node, before) => list.inserted.push([node, before]);
+    const row = createMockDomElement('li');
+    let moves = 0;
+    const controller = new AbortController();
+    makeSortable(list, { signal: controller.signal, onMove: () => moves++ });
+    const drag = (type, extra = {}) => list.dispatchEvent({ type, preventDefault() {}, ...extra });
+    return { list, row, drag, moves: () => moves };
+  }
+
+  await t.step('moves the dragged row on dragover and reports each move', () => {
+    const { list, row, drag, moves } = sortableList();
+    drag('dragstart', { target: { closest: () => row }, dataTransfer: {} });
+    assert(row.classList.contains('dragging'));
+
+    drag('dragover', { clientY: 10 });
+    assertEquals(list.inserted, [[row, null]]);
+    assertEquals(moves(), 1);
+
+    drag('dragend');
+    assert(!row.classList.contains('dragging'));
+  });
+
+  await t.step('ignores dragover with no row dragged from this list', () => {
+    const { list, drag, moves } = sortableList();
+    drag('dragstart', { target: { closest: () => null }, dataTransfer: {} });
+    drag('dragover', { clientY: 10 });
+    assertEquals(list.inserted, []);
+    assertEquals(moves(), 0);
   });
 });

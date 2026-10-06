@@ -309,6 +309,7 @@
           <span class="fa-solid fa-crown">👑</span> Tournament Complete!
         </header>
         <div id="final-standings"></div>
+        <section id="tournament-history" class="tournament-history" hidden></section>
         <footer>
           <button id="new-tournament-btn">
             <span class="fa-solid fa-rotate">↻</span> New Tournament
@@ -341,6 +342,8 @@
               <th>#</th>
               <th>Player</th>
               <th>Points</th>
+              <th>Wins</th>
+              <th>Games</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -377,16 +380,14 @@
         <fieldset>
           <legend>Winner</legend>
           <label>
-            <input type="radio" name="winner" value="player1" required>
+            <input type="radio" name="winner" required>
             <span id="winner-player1">Player 1</span>
           </label>
           <label>
-            <input type="radio" name="winner" value="player2">
+            <input type="radio" name="winner">
             <span id="winner-player2">Player 2</span>
           </label>
         </fieldset>
-
-        <input type="hidden" id="match-id" name="match-id">
       </form>
 
       <footer>
@@ -409,8 +410,6 @@
       <p class="race-instructions">Drag players to set their finishing positions:</p>
 
       <ol id="race-ranking-list" class="race-ranking"></ol>
-
-      <input type="hidden" id="race-id" name="race-id">
 
       <footer>
         <form method="dialog" id="race-dialog-form">

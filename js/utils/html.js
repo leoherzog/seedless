@@ -1,9 +1,5 @@
-/**
- * HTML Utility Functions
- * Shared utilities for safe HTML manipulation
- */
+/** HTML escaping for template-literal rendering. */
 
-// Character map for HTML escaping (faster than DOM-based approach)
 const htmlEscapes = {
   '&': '&amp;',
   '<': '&lt;',

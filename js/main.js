@@ -20,7 +20,7 @@ import {
 } from './state/persistence.js';
 import { joinRoom, leaveRoom, getRoom, ActionTypes } from './network/room.js';
 import { setupStateSync, resetSyncState } from './network/sync.js';
-import { showSuccess, showError, showToast } from './components/toast.js';
+import { showSuccess, showError, showInfo } from './components/toast.js';
 import { initLobby } from './components/lobby.js';
 import { initBracketView } from './components/bracket-view.js';
 import { HOST_NAME, generateRoomSlug, generatePlayerName } from './utils/random-names.js';
@@ -336,7 +336,7 @@ async function connectToRoom(roomId, options = {}) {
       updatePeerCount();
       const participant = store.getParticipantByPeerId(peerId);
       if (participant) {
-        showToast(`${participant.name} disconnected`, 'info');
+        showInfo(`${participant.name} disconnected`);
       }
     });
 

@@ -1,169 +1,171 @@
 /**
- * Bracket View Component
- * Renders tournament bracket visualization
+ * Bracket view: renders the active tournament's bracket or Points Race games,
+ * the standings and results cards, and hosts the score and race-result modals.
  */
 
 import { store } from '../state/store.js';
-import { getRoom } from '../network/room.js';
+import { getRoom, ActionTypes } from '../network/room.js';
 import { reportMatchResult, advanceWinner, reportRaceResult } from '../network/sync.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
-import { getDragAfterElement } from '../utils/drag-drop.js';
+import { getDragAfterElement, makeSortable } from '../utils/drag-drop.js';
 import { formatOrdinal, determineMatchStatus, sortStandings, getPointsForPosition, isInMatch } from '../utils/tournament-helpers.js';
 import { getFinalStandings } from '../tournament/standings.js';
 
-// Track subscriptions for cleanup
-let bracketSubscriptions = [];
+// Podium class and icon, indexed by place - 1.
+const PODIUM = ['first', 'second', 'third'];
+const PODIUM_ICON = ['fa-trophy', 'fa-medal', 'fa-award'];
 
-// AbortController for DOM event listeners
-let bracketDomController = null;
+// Icon and label by tournament type. History entries come from peers, so their type is looked up, never echoed.
+const TYPE_INFO = new Map([
+  ['single', ['fa-sitemap', 'Single Elimination']],
+  ['double', ['fa-layer-group', 'Double Elimination']],
+  ['mariokart', ['fa-flag-checkered', 'Points Race']],
+  ['doubles', ['fa-users', 'Doubles']],
+]);
 
-// AbortController for drag-drop event listeners (cleaner than node cloning)
-let rankingDragController = null;
+// members is optional because history entries are merged from peers unvalidated.
+const memberNames = (team) => team.members?.map(m => escapeHtml(m.name)).join(' & ') ?? '';
+const teamLabel = (team) => `${escapeHtml(team.name)} <small>(${memberNames(team)})</small>`;
 
-/**
- * Initialize bracket view
- */
+let controller = null;
+
+/** Wire the view's DOM and store listeners; cleanupBracketView removes them. */
 export function initBracketView() {
-  // Clean up any existing subscriptions first
   cleanupBracketView();
+  controller = new AbortController();
+  const { signal } = controller;
 
-  // Create new AbortController for DOM listeners
-  bracketDomController = new AbortController();
+  setupBracketTabs(signal);
+  setupBracketContainer(signal);
+  setupScoreModal(signal);
+  setupRaceResultModal(signal);
 
-  setupBracketTabs();
-  setupScoreModal();
-  setupRaceResultModal();
-
-  // Listen for state changes and track subscriptions
-  bracketSubscriptions.push(store.on('change', updateBracketUI));
+  signal.addEventListener('abort', store.on('change', updateBracketUI));
 }
 
-/**
- * Clean up bracket view subscriptions and DOM event listeners
- */
 export function cleanupBracketView() {
-  bracketSubscriptions.forEach(unsubscribe => unsubscribe());
-  bracketSubscriptions = [];
-
-  // Abort all DOM event listeners
-  if (bracketDomController) {
-    bracketDomController.abort();
-    bracketDomController = null;
-  }
-
-  // Abort drag-drop listeners
-  if (rankingDragController) {
-    rankingDragController.abort();
-    rankingDragController = null;
-  }
+  controller?.abort();
+  controller = null;
 }
 
-/**
- * Setup bracket tabs (for double elimination)
- */
-function setupBracketTabs() {
-  const { signal } = bracketDomController;
-  const tabs = document.getElementById('bracket-tabs');
-  if (!tabs) return;
+function setupBracketTabs(signal) {
+  document.getElementById('bracket-tabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    selectTab(btn.dataset.bracket);
+    renderBracket();
+  }, { signal });
+}
 
-  const buttons = tabs.querySelectorAll('button');
-
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      buttons.forEach(b => b.removeAttribute('aria-current'));
+/** Mark the #bracket-tabs button for the named bracket as current. */
+function selectTab(name) {
+  for (const btn of document.querySelectorAll('#bracket-tabs button')) {
+    if (btn.dataset.bracket === name) {
       btn.setAttribute('aria-current', 'true');
-      renderBracket(btn.dataset.bracket);
-    }, { signal });
-  });
+    } else {
+      btn.removeAttribute('aria-current');
+    }
+  }
 }
 
-/**
- * Setup score reporting modal
- */
-function setupScoreModal() {
-  const { signal } = bracketDomController;
-  const submitBtn = document.getElementById('submit-score-btn');
+// The cards are re-rendered wholesale, so their buttons are handled by one delegated listener.
+function setupBracketContainer(signal) {
+  document.getElementById('bracket-container').addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.race) {
+      openRaceResultModal(btn.dataset.race);
+    } else if (btn.classList.contains('verify-btn')) {
+      verifyMatch(btn.dataset.match);
+    } else if (btn.dataset.match) {
+      openScoreModal(btn.dataset.match);
+    }
+  }, { signal });
+}
+
+function setupScoreModal(signal) {
   const score1Input = document.getElementById('score1');
   const score2Input = document.getElementById('score2');
 
-  // Auto-select winner based on scores
+  // Auto-select the winner from the scores.
   [score1Input, score2Input].forEach(input => {
     input.addEventListener('input', () => {
       const s1 = parseInt(score1Input.value, 10) || 0;
       const s2 = parseInt(score2Input.value, 10) || 0;
-      const form = document.getElementById('score-form');
-
-      if (s1 > s2) {
-        form.querySelector('input[value="player1"]').checked = true;
-      } else if (s2 > s1) {
-        form.querySelector('input[value="player2"]').checked = true;
+      if (s1 !== s2) {
+        document.getElementById('score-form').elements.winner[s1 > s2 ? 0 : 1].checked = true;
       }
     }, { signal });
   });
 
-  submitBtn.addEventListener('click', onSubmitScore, { signal });
+  document.getElementById('submit-score-btn').addEventListener('click', onSubmitScore, { signal });
 }
 
-/**
- * Update bracket UI
- */
+function setupRaceResultModal(signal) {
+  document.getElementById('submit-race-btn').addEventListener('click', onSubmitRaceResult, { signal });
+
+  const list = document.getElementById('race-ranking-list');
+  makeSortable(list, { signal, onMove: () => updatePointsPreviews(list) });
+
+  // Touch input fires no drag events, so reordering by touch is wired separately.
+  let touchItem = null;
+
+  list.addEventListener('touchstart', (e) => {
+    touchItem = e.target.closest('li');
+    touchItem?.classList.add('dragging');
+  }, { passive: true, signal });
+
+  list.addEventListener('touchmove', (e) => {
+    if (!touchItem) return;
+    e.preventDefault();
+    list.insertBefore(touchItem, getDragAfterElement(list, e.touches[0].clientY) ?? null);
+    updatePointsPreviews(list);
+  }, { passive: false, signal });
+
+  list.addEventListener('touchend', () => {
+    touchItem?.classList.remove('dragging');
+    touchItem = null;
+  }, { signal });
+}
+
 function updateBracketUI() {
   const status = store.get('meta.status');
-  const type = store.get('meta.type');
-  const bracketView = document.getElementById('bracket-view');
-
-  // Only update if bracket view is visible and tournament is active
-  if (bracketView?.hidden || (status !== 'active' && status !== 'complete')) {
+  if (status !== 'active' && status !== 'complete') {
+    // Between tournaments, so the next double-elimination bracket opens on Winners.
+    selectTab('winners');
     return;
   }
+  if (document.getElementById('bracket-view').hidden) return;
 
+  const type = store.get('meta.type');
   console.info('[Bracket] Updating bracket UI, status:', status, 'type:', type);
 
-  // Update title
   document.getElementById('bracket-title').textContent = store.get('meta.name') || 'Tournament';
-  const localName = store.get('local.name') || 'In Progress';
-  document.getElementById('bracket-status').textContent = status === 'complete' ? 'Complete' : localName;
-
-  // Show/hide tabs for double elimination (including doubles mode with double-elim bracket)
-  const tabs = document.getElementById('bracket-tabs');
-  const bracket = store.get('bracket');
-  const bracketType = bracket?.bracketType;
-  tabs.hidden = type !== 'double' && !(type === 'doubles' && bracketType === 'double');
-
-  // Show/hide standings for Mario Kart
-  const standingsPanel = document.getElementById('standings-panel');
-  standingsPanel.hidden = type !== 'mariokart';
+  document.getElementById('bracket-status').textContent = status === 'complete' ? 'Complete' : store.get('local.name') || 'In Progress';
+  document.getElementById('bracket-tabs').hidden = !store.get('bracket')?.winners;
+  document.getElementById('standings-panel').hidden = type !== 'mariokart';
 
   if (type === 'mariokart') {
     renderStandings();
   }
-
-  // Render bracket
   renderBracket();
 
   // The results card sits above the bracket and must appear as soon as the last result lands.
   const resultsView = document.getElementById('results-view');
-  if (resultsView) {
-    const justCompleted = resultsView.hidden && status === 'complete';
-    resultsView.hidden = status !== 'complete';
-    if (justCompleted) {
-      resultsView.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+  const justCompleted = resultsView.hidden && status === 'complete';
+  resultsView.hidden = status !== 'complete';
+  if (justCompleted) {
+    resultsView.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  // Render final standings when tournament is complete
   if (status === 'complete') {
     renderFinalStandings();
   }
 }
 
-/**
- * Render bracket based on type
- */
-function renderBracket(bracketFilter = null) {
+function renderBracket() {
   const container = document.getElementById('bracket-container');
-  const type = store.get('meta.type');
   const bracket = store.get('bracket');
 
   if (!bracket) {
@@ -171,119 +173,150 @@ function renderBracket(bracketFilter = null) {
     return;
   }
 
-  if (type === 'single') {
-    renderSingleEliminationBracket(container, bracket);
-  } else if (type === 'double') {
-    renderDoubleEliminationBracket(container, bracket, bracketFilter || 'winners');
-  } else if (type === 'mariokart') {
+  if (store.get('meta.type') === 'mariokart') {
     renderMarioKartRaces(container);
-  } else if (type === 'doubles') {
-    // Doubles can use either single or double elimination as underlying bracket
-    const bracketType = bracket.bracketType || 'single';
-    if (bracketType === 'double') {
-      renderDoubleEliminationBracket(container, bracket, bracketFilter || 'winners');
-    } else {
-      renderSingleEliminationBracket(container, bracket);
-    }
+  } else {
+    renderRounds(container, visibleRounds(bracket), bracket);
   }
 }
 
 /**
- * Render a list of bracket rounds into a container; each round's matchIds are read from the store
+ * The rounds to show: every round, or the selected tab's for a double-elimination bracket.
+ * @param {Object} bracket - Store bracket
+ * @returns {Object[]} Rounds with name and matchIds
  */
-function renderRounds(container, rounds, participants, localUserId) {
+function visibleRounds(bracket) {
+  if (!bracket.winners) return bracket.rounds || [];
+
+  const tab = document.querySelector('#bracket-tabs [aria-current]')?.dataset.bracket;
+  if (tab === 'losers') return bracket.losers?.rounds || [];
+  if (tab === 'finals') {
+    const [gf1, gf2] = bracket.grandFinals;
+    return [{ name: 'Grand Finals', matchIds: store.getMatch(gf2).requiresPlay ? [gf1, gf2] : [gf1] }];
+  }
+  return bracket.winners.rounds || [];
+}
+
+function renderRounds(container, rounds, bracket) {
+  const isTeam = store.get('meta.type') === 'doubles';
+  const teams = isTeam ? bracket.teams || [] : undefined;
+  const ctx = {
+    isTeam,
+    teams,
+    isAdmin: store.isAdmin(),
+    localUserId: store.get('local.localUserId'),
+    lookup: isTeam ? new Map(teams.map(t => [t.id, t])) : store.get('participants'),
+  };
+
   container.innerHTML = rounds.map(round => `
     <div class="bracket-round">
       <h4>${escapeHtml(round.name)}</h4>
-      ${round.matchIds.map(id => renderMatchCard(store.getMatch(id), participants, localUserId)).join('')}
+      ${round.matchIds.map(id => renderMatchCard(store.getMatch(id), ctx)).join('')}
     </div>
   `).join('');
-
-  addMatchCardHandlers(container);
 }
 
 /**
- * Render single elimination bracket
+ * Render a match card for players or, in doubles, teams.
+ * @param {Object} match - Match from the store
+ * @param {Object} ctx - Per-render context built by renderRounds
+ * @returns {string} Card HTML
  */
-function renderSingleEliminationBracket(container, bracket) {
-  const participants = store.get('participants');
-  const localUserId = store.get('local.localUserId');
+function renderMatchCard(match, ctx) {
+  const status = determineMatchStatus(match);
 
-  renderRounds(container, bracket.rounds, participants, localUserId);
+  const side = (i) => {
+    const id = match.participants[i];
+    const entry = ctx.lookup.get(id);
+    const result = !match.winnerId ? '' : match.winnerId === id ? 'winner' : 'loser';
+    return `
+        <div class="participant ${ctx.isTeam ? 'team' : ''} ${result}">
+          <span class="${ctx.isTeam ? 'team-name' : 'name'} ${entry ? '' : 'tbd'}">${escapeHtml(entry?.name || 'TBD')}</span>
+          ${ctx.isTeam && entry ? `<span class="team-members">${memberNames(entry)}</span>` : ''}
+          <span class="score">${escapeHtml(match.scores[i])}</span>
+        </div>`;
+  };
+
+  return `
+    <article class="match-card ${ctx.isTeam ? 'team-match' : ''} ${match.isBye ? 'bye' : ''}">
+      <header>
+        <small>Match ${escapeHtml(match.position + 1)}</small>
+        ${match.isBye ? '<mark>BYE</mark>' : `<span class="status-badge ${status}">${status}</span>`}
+      </header>
+
+      <div class="participants">
+        ${side(0)}
+        <div class="vs">vs</div>
+        ${side(1)}
+      </div>
+
+      ${renderMatchFooter(match, isInMatch(match, ctx.localUserId, ctx.teams), ctx.isAdmin)}
+    </article>
+  `;
 }
 
 /**
- * Render double elimination bracket
+ * Render the report, verify and edit buttons the local user may use on a match.
+ * @param {Object} match - Match from the store
+ * @param {boolean} canPlay - Whether the local user plays in the match
+ * @param {boolean} isAdmin - Whether the local user is the admin
+ * @returns {string} Footer HTML, or '' when no action applies
  */
-function renderDoubleEliminationBracket(container, bracket, filter) {
-  const participants = store.get('participants');
-  const localUserId = store.get('local.localUserId');
+function renderMatchFooter(match, canPlay, isAdmin) {
+  const canReport = !match.winnerId && !match.isBye &&
+    match.participants[0] && match.participants[1] && (canPlay || isAdmin);
+  const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
+  const canEdit = match.winnerId && isAdmin;
+  if (!canReport && !needsVerify && !canEdit) return '';
+  const id = escapeHtml(match.id);
 
-  let rounds;
-  if (filter === 'winners') {
-    rounds = bracket.winners?.rounds || [];
-  } else if (filter === 'losers') {
-    rounds = bracket.losers?.rounds || [];
-  } else if (filter === 'finals') {
-    const [gf1, gf2] = bracket.grandFinals;
-    rounds = [{
-      name: 'Grand Finals',
-      matchIds: store.getMatch(gf2).requiresPlay ? [gf1, gf2] : [gf1],
-    }];
-  }
-
-  renderRounds(container, rounds, participants, localUserId);
+  return `
+      <footer>
+        ${canReport ? `<button class="report-btn" data-match="${id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
+        ${needsVerify ? `<button class="verify-btn outline" data-match="${id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
+        ${canEdit ? `<button class="edit-btn outline" data-match="${id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
+      </footer>
+    `;
 }
 
-/**
- * Render Mario Kart / Points Race games
- */
 function renderMarioKartRaces(container) {
-  const matches = store.get('matches');
-  const participants = store.get('participants');
-  const localUserId = store.get('local.localUserId');
-  const isAdmin = store.isAdmin();
+  const games = [...store.get('matches').values()].sort((a, b) => a.gameNumber - b.gameNumber);
 
-  if (!matches || matches.size === 0) {
+  if (games.length === 0) {
     container.innerHTML = '<p>No games available</p>';
     return;
   }
 
-  // Sort games by game number
-  const gamesArray = Array.from(matches.values())
-    .sort((a, b) => a.gameNumber - b.gameNumber);
-
-  const gamesComplete = gamesArray.filter(g => g.complete).length;
+  const ctx = {
+    participants: store.get('participants'),
+    localUserId: store.get('local.localUserId'),
+    isAdmin: store.isAdmin(),
+  };
 
   container.innerHTML = `
     <div class="games-header">
       <span class="progress-text">
         <span class="fa-solid fa-flag-checkered"></span>
-        ${gamesComplete} / ${gamesArray.length} games complete
+        ${games.filter(g => g.complete).length} / ${games.length} games complete
       </span>
       ${store.get('meta.status') === 'complete' ? '<mark>Tournament Complete!</mark>' : ''}
     </div>
     <div class="games-grid">
-      ${gamesArray.map(game => renderGameCard(game, participants, localUserId, isAdmin)).join('')}
+      ${games.map(game => renderGameCard(game, ctx)).join('')}
     </div>
   `;
-
-  addRaceCardHandlers(container);
 }
 
-/**
- * Render a game card (Points Race)
- */
-function renderGameCard(game, participants, localUserId, isAdmin) {
-  // Allow reporting if: user is a participant, OR admin
+function renderGameCard(game, { participants, localUserId, isAdmin }) {
   const canReport = !game.complete && (game.participants.includes(localUserId) || isAdmin);
   const standIns = game.standIns || [];
   const standInTag = '<small class="stand-in" data-tooltip="Races for fun; scores nothing">stand-in</small>';
+  const nameOf = (pid) => escapeHtml(participants.get(pid)?.name || 'Unknown');
 
   return `
     <article class="game-card ${game.complete ? 'complete' : ''}">
       <header>
-        <span>Game ${game.gameNumber}</span>
+        <span>Game ${escapeHtml(game.gameNumber)}</span>
         <span class="status-badge ${game.complete ? 'complete' : 'pending'}">
           ${game.complete ? 'Complete' : 'Pending'}
         </span>
@@ -291,32 +324,25 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
 
       <div class="game-participants">
         ${game.complete && game.results
-          ? game.results.map((result, idx) => {
-              const p = participants.get(result.participantId);
-              const positionClass = idx === 0 ? 'first' : idx === 1 ? 'second' : idx === 2 ? 'third' : '';
-              return `
+          ? game.results.map((result, idx) => `
                 <div class="game-participant">
-                  <span class="position ${positionClass}">${formatOrdinal(result.position)}</span>
-                  <span class="name">${escapeHtml(p?.name || 'Unknown')}</span>
-                  ${result.standIn ? standInTag : `<span class="points">+${result.points}</span>`}
+                  <span class="position ${PODIUM[idx] ?? ''}">${escapeHtml(formatOrdinal(result.position))}</span>
+                  <span class="name">${nameOf(result.participantId)}</span>
+                  ${result.standIn ? standInTag : `<span class="points">+${escapeHtml(result.points)}</span>`}
                 </div>
-              `;
-            }).join('')
-          : game.participants.map(pid => {
-              const p = participants.get(pid);
-              return `
+              `).join('')
+          : game.participants.map(pid => `
                 <div class="game-participant">
-                  <span class="name">${escapeHtml(p?.name || 'Unknown')}</span>
+                  <span class="name">${nameOf(pid)}</span>
                   ${standIns.includes(pid) ? standInTag : ''}
                 </div>
-              `;
-            }).join('')
+              `).join('')
         }
       </div>
 
       ${canReport ? `
         <footer>
-          <button class="report-race-btn" data-race="${game.id}">
+          <button class="report-race-btn" data-race="${escapeHtml(game.id)}">
             <span class="fa-solid fa-flag-checkered"></span> Report Results
           </button>
         </footer>
@@ -325,240 +351,63 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
   `;
 }
 
-/**
- * Compute the report/verify/edit permissions and status for a match.
- * @param {Object} match - Match object
- * @param {Function} canReportPredicate - () => boolean, whether the local user may report
- * @param {boolean} isAdmin - Whether the local user is an admin
- * @returns {{canReport: boolean, needsVerify: boolean, canAdminEdit: boolean, status: string}}
- */
-function computeMatchActions(match, canReportPredicate, isAdmin) {
-  const canReport = !match.winnerId && !match.isBye &&
-    match.participants[0] && match.participants[1] &&
-    (canReportPredicate() || isAdmin);
-  const needsVerify = match.winnerId && !match.verifiedBy && isAdmin;
-  const canAdminEdit = match.winnerId && isAdmin;
-  const status = determineMatchStatus(match);
-
-  return { canReport, needsVerify, canAdminEdit, status };
-}
-
-/**
- * Render the footer (report/verify/edit buttons) for a match card.
- * @param {Object} match - Match object
- * @param {{canReport: boolean, needsVerify: boolean, canAdminEdit: boolean}} actions
- * @returns {string} Footer HTML (empty string if no actions)
- */
-function renderMatchFooter(match, actions) {
-  const { canReport, needsVerify, canAdminEdit } = actions;
-  if (!canReport && !needsVerify && !canAdminEdit) return '';
-  const id = escapeHtml(match.id);
-
-  return `
-        <footer>
-          ${canReport ? `<button class="report-btn" data-match="${id}"><span class="fa-solid fa-edit"></span> Report</button>` : ''}
-          ${needsVerify ? `<button class="verify-btn outline" data-match="${id}"><span class="fa-solid fa-check"></span> Verify</button>` : ''}
-          ${canAdminEdit ? `<button class="edit-btn outline" data-match="${id}"><span class="fa-solid fa-pen"></span> Edit</button>` : ''}
-        </footer>
-      `;
-}
-
-/**
- * Render a match card
- */
-function renderMatchCard(match, participants, localUserId) {
-  // Handle doubles mode differently
-  if (store.get('meta.type') === 'doubles') {
-    return renderTeamMatchCard(match, localUserId);
-  }
-
-  const p1 = participants.get(match.participants[0]);
-  const p2 = participants.get(match.participants[1]);
-
-  const isAdmin = store.isAdmin();
-
-  const actions = computeMatchActions(match, () => isInMatch(match, localUserId), isAdmin);
-  const { status } = actions;
-
-  return `
-    <article class="match-card ${match.isBye ? 'bye' : ''}">
-      <header>
-        <small>Match ${escapeHtml(match.position + 1)}</small>
-        ${match.isBye ? '<mark>BYE</mark>' : `<span class="status-badge ${status}">${status}</span>`}
-      </header>
-
-      <div class="participants">
-        <div class="participant ${match.winnerId === match.participants[0] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="name ${!p1 ? 'tbd' : ''}">${escapeHtml(p1?.name || 'TBD')}</span>
-          <span class="score">${escapeHtml(match.scores[0])}</span>
-        </div>
-        <div class="vs">vs</div>
-        <div class="participant ${match.winnerId === match.participants[1] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="name ${!p2 ? 'tbd' : ''}">${escapeHtml(p2?.name || 'TBD')}</span>
-          <span class="score">${escapeHtml(match.scores[1])}</span>
-        </div>
-      </div>
-
-      ${renderMatchFooter(match, actions)}
-    </article>
-  `;
-}
-
-/**
- * Render match card for doubles/team tournaments
- */
-function renderTeamMatchCard(match, localUserId) {
-  const bracket = store.get('bracket');
-  const teams = bracket?.teams || [];
-  const teamMap = new Map(teams.map(t => [t.id, t]));
-
-  const team1 = teamMap.get(match.participants[0]);
-  const team2 = teamMap.get(match.participants[1]);
-
-  const isAdmin = store.isAdmin();
-
-  const actions = computeMatchActions(match, () => isInMatch(match, localUserId, teams), isAdmin);
-  const { status } = actions;
-
-  return `
-    <article class="match-card team-match ${match.isBye ? 'bye' : ''}">
-      <header>
-        <small>Match ${escapeHtml(match.position + 1)}</small>
-        ${match.isBye ? '<mark>BYE</mark>' : `<span class="status-badge ${status}">${status}</span>`}
-      </header>
-
-      <div class="participants">
-        <div class="participant team ${match.winnerId === match.participants[0] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="team-name ${!team1 ? 'tbd' : ''}">${escapeHtml(team1?.name || 'TBD')}</span>
-          ${team1 ? `<span class="team-members">${team1.members.map(m => escapeHtml(m.name)).join(' & ')}</span>` : ''}
-          <span class="score">${escapeHtml(match.scores[0])}</span>
-        </div>
-        <div class="vs">vs</div>
-        <div class="participant team ${match.winnerId === match.participants[1] ? 'winner' : match.winnerId ? 'loser' : ''}">
-          <span class="team-name ${!team2 ? 'tbd' : ''}">${escapeHtml(team2?.name || 'TBD')}</span>
-          ${team2 ? `<span class="team-members">${team2.members.map(m => escapeHtml(m.name)).join(' & ')}</span>` : ''}
-          <span class="score">${escapeHtml(match.scores[1])}</span>
-        </div>
-      </div>
-
-      ${renderMatchFooter(match, actions)}
-    </article>
-  `;
-}
-
-/**
- * Add click handlers to match cards
- */
-function addMatchCardHandlers(container) {
-  container.querySelectorAll('.report-btn').forEach(btn => {
-    btn.addEventListener('click', () => openScoreModal(btn.dataset.match));
-  });
-
-  container.querySelectorAll('.verify-btn').forEach(btn => {
-    btn.addEventListener('click', () => verifyMatch(btn.dataset.match));
-  });
-
-  container.querySelectorAll('.edit-btn').forEach(btn => {
-    btn.addEventListener('click', () => openScoreModal(btn.dataset.match));
-  });
-}
-
-/**
- * Add click handlers to race cards
- */
-function addRaceCardHandlers(container) {
-  container.querySelectorAll('.report-race-btn').forEach(btn => {
-    btn.addEventListener('click', () => openRaceResultModal(btn.dataset.race));
-  });
-}
-
-/**
- * The team (doubles) or participant behind a match participant id.
- */
+/** The team (doubles) or participant behind a match participant id. */
 function getSide(id) {
   return store.get('meta.type') === 'doubles'
     ? store.get('bracket')?.teams?.find(t => t.id === id)
     : store.getParticipant(id);
 }
 
-/**
- * Open score modal for a match
- */
 function openScoreModal(matchId) {
   const match = store.getMatch(matchId);
   if (!match) return;
 
   const [p1Name, p2Name] = match.participants.map(id => getSide(id)?.name || 'Unknown');
-
-  // Update modal content
   document.getElementById('player1-name').textContent = p1Name;
   document.getElementById('player2-name').textContent = p2Name;
   document.getElementById('winner-player1').textContent = p1Name;
   document.getElementById('winner-player2').textContent = p2Name;
-  document.getElementById('match-id').value = matchId;
   document.getElementById('score1').value = match.scores[0];
   document.getElementById('score2').value = match.scores[1];
 
-  // Store participant IDs for submission (teamIds for doubles)
-  document.getElementById('score-form').dataset.p1 = match.participants[0];
-  document.getElementById('score-form').dataset.p2 = match.participants[1];
+  const form = document.getElementById('score-form');
+  form.dataset.matchId = matchId;
+  // Each winner radio carries its side's participant or team id.
+  form.elements.winner.forEach((radio, i) => {
+    radio.value = match.participants[i];
+    radio.checked = radio.value === match.winnerId;
+  });
 
-  // Pre-select winner radio if match already has a winner (for edit mode)
-  const winnerRadios = document.querySelectorAll('input[name="winner"]');
-  winnerRadios.forEach(radio => radio.checked = false);
-  if (match.winnerId === match.participants[0]) {
-    document.querySelector('input[name="winner"][value="player1"]').checked = true;
-  } else if (match.winnerId === match.participants[1]) {
-    document.querySelector('input[name="winner"][value="player2"]').checked = true;
-  }
-
-  // Open modal
   document.getElementById('score-modal').showModal();
 }
 
-/**
- * Submit score from modal
- */
 function onSubmitScore() {
   const form = document.getElementById('score-form');
-  const matchId = document.getElementById('match-id').value;
+  const winnerId = form.elements.winner.value;
   const score1 = parseInt(document.getElementById('score1').value, 10) || 0;
   const score2 = parseInt(document.getElementById('score2').value, 10) || 0;
-  const winnerRadio = form.querySelector('input[name="winner"]:checked');
 
-  if (!winnerRadio) {
+  if (!winnerId) {
     showError('Please select a winner');
     return;
   }
 
-  const winnerId = winnerRadio.value === 'player1' ? form.dataset.p1 : form.dataset.p2;
-
   try {
-    reportMatchResult(getRoom(), matchId, [score1, score2], winnerId);
-
-    // Close modal
+    reportMatchResult(getRoom(), form.dataset.matchId, [score1, score2], winnerId);
     document.getElementById('score-modal').close();
     showSuccess('Result reported!');
-
-    // Re-render bracket
-    updateBracketUI();
-
   } catch (e) {
     console.error('Failed to report result:', e);
     showError('Failed to report result');
   }
 }
 
-/**
- * Verify a match result (admin only)
- */
+/** Ask the admin to confirm a reported result, then mark it verified and broadcast that. */
 function verifyMatch(matchId) {
   const match = store.getMatch(matchId);
-  if (!match || !match.winnerId) return;
+  if (!match?.winnerId) return;
 
   const winnerName = getSide(match.winnerId)?.name || match.winnerId;
-
-  // Confirmation dialog to prevent accidental verification
   const scoresDisplay = match.scores ? match.scores.join(' - ') : 'N/A';
   if (!confirm(`Verify match result?\n\nWinner: ${winnerName}\nScores: ${scoresDisplay}`)) {
     return;
@@ -568,37 +417,18 @@ function verifyMatch(matchId) {
     verifiedBy: store.get('local.localUserId'),
   });
 
-  // Advance winner to next match (in case it wasn't advanced during initial report)
+  // In case the result was not advanced when it was reported.
   advanceWinner(matchId);
 
-  // Broadcast verification
-  const room = getRoom();
-  if (room) {
-    room.broadcast('m:verify', {
-      matchId,
-      scores: match.scores,
-      winnerId: match.winnerId,
-    });
-  }
+  getRoom()?.broadcast(ActionTypes.MATCH_VERIFY, {
+    matchId,
+    scores: match.scores,
+    winnerId: match.winnerId,
+  });
 
   showSuccess('Match verified!');
-  updateBracketUI();
 }
 
-/**
- * Setup race result modal handlers
- */
-function setupRaceResultModal() {
-  const { signal } = bracketDomController;
-  const submitBtn = document.getElementById('submit-race-btn');
-  if (submitBtn) {
-    submitBtn.addEventListener('click', onSubmitRaceResult, { signal });
-  }
-}
-
-/**
- * Open race result modal (Points Race)
- */
 function openRaceResultModal(gameId) {
   const game = store.getMatch(gameId);
   if (!game) {
@@ -607,169 +437,64 @@ function openRaceResultModal(gameId) {
   }
 
   const participants = store.get('participants');
-  const pointsTable = store.get('bracket').pointsTable;
-  const totalPlayers = game.participants.length;
   const standIns = game.standIns || [];
 
-  // Update modal header
   document.getElementById('race-info').textContent = `Game ${game.gameNumber}`;
-  document.getElementById('race-id').value = gameId;
 
-  // Populate ranking list with game participants
   const list = document.getElementById('race-ranking-list');
-  list.innerHTML = game.participants.map((pid, idx) => {
-    const p = participants.get(pid);
-    const isStandIn = standIns.includes(pid);
-    return `
-      <li data-participant-id="${escapeHtml(pid)}" draggable="true"${isStandIn ? ' data-stand-in' : ''}>
+  list.innerHTML = game.participants.map(pid => `
+      <li data-participant-id="${escapeHtml(pid)}" draggable="true"${standIns.includes(pid) ? ' data-stand-in' : ''}>
         <span class="fa-solid fa-grip-vertical drag-handle"></span>
-        <span class="participant-name">${escapeHtml(p?.name || 'Unknown')}</span>
-        <span class="points-preview">${pointsPreviewText(isStandIn, pointsTable, idx, totalPlayers)}</span>
+        <span class="participant-name">${escapeHtml(participants.get(pid)?.name || 'Unknown')}</span>
+        <span class="points-preview"></span>
       </li>
-    `;
-  }).join('');
+    `).join('');
+  updatePointsPreviews(list);
 
-  // Setup drag-and-drop (pass totalPlayers for sequential scoring)
-  setupRankingDragDrop(list, pointsTable, totalPlayers);
-
-  // Open modal
-  document.getElementById('race-result-modal').showModal();
+  const modal = document.getElementById('race-result-modal');
+  modal.dataset.gameId = gameId;
+  modal.showModal();
 }
 
-/**
- * Setup drag-and-drop for race ranking
- */
-function setupRankingDragDrop(list, pointsTable, totalPlayers) {
-  let draggedItem = null;
-
-  // Abort previous listeners if any (cleaner than node cloning)
-  if (rankingDragController) {
-    rankingDragController.abort();
-  }
-  rankingDragController = new AbortController();
-  const { signal } = rankingDragController;
-
-  list.addEventListener('dragstart', (e) => {
-    draggedItem = e.target.closest('li');
-    if (draggedItem) {
-      draggedItem.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    }
-  }, { signal });
-
-  list.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    const afterElement = getDragAfterElement(list, e.clientY);
-    if (draggedItem) {
-      if (afterElement) {
-        list.insertBefore(draggedItem, afterElement);
-      } else {
-        list.appendChild(draggedItem);
-      }
-      updatePointsPreviews(list, pointsTable, totalPlayers);
-    }
-  }, { signal });
-
-  list.addEventListener('dragend', () => {
-    if (draggedItem) {
-      draggedItem.classList.remove('dragging');
-      draggedItem = null;
-    }
-  }, { signal });
-
-  // Touch support for mobile
-  let touchItem = null;
-
-  list.addEventListener('touchstart', (e) => {
-    const li = e.target.closest('li');
-    if (li) {
-      touchItem = li;
-      li.classList.add('dragging');
-    }
-  }, { passive: true, signal });
-
-  list.addEventListener('touchmove', (e) => {
-    if (!touchItem) return;
-    e.preventDefault();
-    const y = e.touches[0].clientY;
-    const afterElement = getDragAfterElement(list, y);
-    if (afterElement) {
-      list.insertBefore(touchItem, afterElement);
-    } else {
-      list.appendChild(touchItem);
-    }
-    updatePointsPreviews(list, pointsTable, totalPlayers);
-  }, { passive: false, signal });
-
-  list.addEventListener('touchend', () => {
-    if (touchItem) {
-      touchItem.classList.remove('dragging');
-      touchItem = null;
-    }
-  }, { signal });
-}
-
-/**
- * Update points preview after reordering
- */
-function updatePointsPreviews(list, pointsTable, totalPlayers) {
+/** Label each ranking row with the points its current position scores. */
+function updatePointsPreviews(list) {
   const items = list.querySelectorAll('li');
+  const pointsTable = store.get('bracket.pointsTable');
   items.forEach((item, idx) => {
-    const pointsEl = item.querySelector('.points-preview');
-    if (pointsEl) {
-      pointsEl.textContent = pointsPreviewText('standIn' in item.dataset, pointsTable, idx, totalPlayers);
-    }
+    // Stand-ins take a finishing position but score nothing.
+    item.querySelector('.points-preview').textContent = 'standIn' in item.dataset
+      ? 'stand-in'
+      : `+${getPointsForPosition(pointsTable, idx, items.length)} pts`;
   });
 }
 
-/**
- * Label for a ranking row; stand-ins take a position but score nothing
- */
-function pointsPreviewText(isStandIn, pointsTable, idx, totalPlayers) {
-  return isStandIn ? 'stand-in' : `+${getPointsForPosition(pointsTable, idx, totalPlayers)} pts`;
-}
-
-/**
- * Submit race result from modal
- */
 function onSubmitRaceResult() {
-  const gameId = document.getElementById('race-id').value;
-  const list = document.getElementById('race-ranking-list');
-  const items = list.querySelectorAll('li');
+  const modal = document.getElementById('race-result-modal');
+  const items = document.getElementById('race-ranking-list').querySelectorAll('li');
 
   if (items.length === 0) {
     showError('No participants to submit');
     return;
   }
 
-  // Build results array from current order
-  const results = Array.from(items).map((item, idx) => ({
+  const results = Array.from(items, (item, idx) => ({
     participantId: item.dataset.participantId,
     position: idx + 1,
   }));
 
   try {
-    reportRaceResult(getRoom(), gameId, results);
-
-    // Close modal
-    document.getElementById('race-result-modal').close();
+    reportRaceResult(getRoom(), modal.dataset.gameId, results);
+    modal.close();
     showSuccess('Game result recorded!');
-
-    // Re-render
-    updateBracketUI();
-
   } catch (e) {
     console.error('Failed to submit race result:', e);
     showError('Failed to submit result: ' + e.message);
   }
 }
 
-/**
- * Render standings table (Points Race)
- */
+/** Render the Points Race standings table. */
 function renderStandings() {
   const standings = store.get('standings');
-  const thead = document.querySelector('#standings-table thead tr');
   const tbody = document.querySelector('#standings-table tbody');
 
   if (!standings || standings.size === 0) {
@@ -777,43 +502,20 @@ function renderStandings() {
     return;
   }
 
-  // Update header to include more columns
-  thead.innerHTML = `
-    <th>#</th>
-    <th>Player</th>
-    <th>Points</th>
-    <th>Wins</th>
-    <th>Games</th>
-  `;
-
-  // Sort by points, then wins, then games completed
-  const sorted = sortStandings(Array.from(standings.values()));
-
-  tbody.innerHTML = sorted.map((s, i) => `
+  tbody.innerHTML = sortStandings(Array.from(standings.values())).map((s, i) => `
     <tr class="${i === 0 ? 'leader' : ''}">
       <td>${i + 1}</td>
       <td>${escapeHtml(s.name || 'Unknown')}</td>
-      <td><strong>${s.points}</strong></td>
-      <td>${s.wins}</td>
-      <td>${s.gamesCompleted}</td>
+      <td><strong>${escapeHtml(s.points)}</strong></td>
+      <td>${escapeHtml(s.wins)}</td>
+      <td>${escapeHtml(s.gamesCompleted)}</td>
     </tr>
   `).join('');
 }
 
-/**
- * Render final standings when tournament is complete
- */
+/** Render the results card's final standings and the room's tournament history. */
 function renderFinalStandings() {
   const container = document.getElementById('final-standings');
-  if (!container) return;
-
-  const status = store.get('meta.status');
-  if (status !== 'complete') {
-    container.innerHTML = '';
-    return;
-  }
-
-  const type = store.get('meta.type');
 
   if (!store.get('bracket')) {
     container.innerHTML = '<p>No bracket data available</p>';
@@ -834,128 +536,58 @@ function renderFinalStandings() {
     return;
   }
 
-  // Render standings HTML
+  const showPoints = store.get('meta.type') === 'mariokart';
   container.innerHTML = standings.map(s => {
-    const placeClass = s.place === 1 ? 'first' : s.place === 2 ? 'second' : s.place === 3 ? 'third' : '';
-    const icon = s.place === 1 ? '<span class="fa-solid fa-trophy"></span>' :
-                 s.place === 2 ? '<span class="fa-solid fa-medal"></span>' :
-                 s.place === 3 ? '<span class="fa-solid fa-award"></span>' : '';
-
-    // Build name display (handles teams for doubles mode)
-    let nameDisplay = escapeHtml(s.name || 'Unknown');
-    if (s.team && s.team.members) {
-      const memberNames = s.team.members.map(m => escapeHtml(m.name)).join(' & ');
-      nameDisplay = `${escapeHtml(s.team.name)} <small>(${memberNames})</small>`;
-    }
-
-    // Add points for Mario Kart mode
-    const pointsDisplay = type === 'mariokart' && s.points !== undefined
-      ? ` <small>${s.points} pts</small>`
-      : '';
+    const icon = PODIUM_ICON[s.place - 1];
+    const name = s.team?.members ? teamLabel(s.team) : escapeHtml(s.name || 'Unknown');
+    const points = showPoints && s.points !== undefined ? ` <small>${escapeHtml(s.points)} pts</small>` : '';
 
     return `
-      <div class="place ${placeClass}">
-        <span class="position">${icon} ${formatOrdinal(s.place)}</span>
-        <span class="name">${nameDisplay}${pointsDisplay}</span>
+      <div class="place ${PODIUM[s.place - 1] ?? ''}">
+        <span class="position">${icon ? `<span class="fa-solid ${icon}"></span>` : ''} ${formatOrdinal(s.place)}</span>
+        <span class="name">${name}${points}</span>
       </div>
     `;
   }).join('');
 
-  // Render history section if there are past tournaments
-  renderHistorySection(container);
+  renderHistorySection();
 }
 
-/**
- * Get icon for tournament type
- * @param {string} type - Tournament type
- * @returns {string} FontAwesome icon class
- */
-function getTournamentTypeIcon(type) {
-  switch (type) {
-    case 'single': return 'fa-solid fa-sitemap';
-    case 'double': return 'fa-solid fa-layer-group';
-    case 'mariokart': return 'fa-solid fa-flag-checkered';
-    case 'doubles': return 'fa-solid fa-users';
-    default: return 'fa-solid fa-trophy';
-  }
-}
-
-/**
- * Format tournament type for display
- * @param {string} type - Tournament type
- * @returns {string} Human readable type name
- */
-function formatTournamentType(type) {
-  switch (type) {
-    case 'single': return 'Single Elimination';
-    case 'double': return 'Double Elimination';
-    case 'mariokart': return 'Points Race';
-    case 'doubles': return 'Doubles';
-    default: return type;
-  }
-}
-
-/**
- * Render tournament history section below standings
- * @param {HTMLElement} container - Parent container (final-standings)
- */
-function renderHistorySection(container) {
+/** Fill #tournament-history with past tournaments, newest first, or hide it when there are none. */
+function renderHistorySection() {
   const history = store.getHistory();
-  if (!history || history.length === 0) return;
+  const section = document.getElementById('tournament-history');
+  section.hidden = history.length === 0;
 
-  // Check if history section already exists
-  let historySection = document.getElementById('tournament-history');
-  if (!historySection) {
-    historySection = document.createElement('section');
-    historySection.id = 'tournament-history';
-    historySection.className = 'tournament-history';
-    container.after(historySection);
-  }
-
-  // Sort by completedAt descending (most recent first)
-  const sortedHistory = [...history].sort((a, b) => b.completedAt - a.completedAt);
-
-  historySection.innerHTML = `
+  section.innerHTML = `
     <h4><span class="fa-solid fa-clock-rotate-left"></span> Past Tournaments</h4>
-    ${sortedHistory.map(entry => {
-      const date = new Date(entry.completedAt);
-      const dateStr = date.toLocaleDateString(undefined, {
+    ${history.toSorted((a, b) => b.completedAt - a.completedAt).map(entry => {
+      const [icon, label] = TYPE_INFO.get(entry.type) ?? ['fa-trophy', 'Tournament'];
+      const date = new Date(entry.completedAt).toLocaleDateString(undefined, {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
       });
-
-      // Build winner display
-      let winnerDisplay = 'Unknown';
-      if (entry.winner) {
-        if (entry.winner.team) {
-          const memberNames = entry.winner.team.members?.map(m => escapeHtml(m.name)).join(' & ') || '';
-          winnerDisplay = `${escapeHtml(entry.winner.team.name)} <small>(${memberNames})</small>`;
-        } else {
-          winnerDisplay = escapeHtml(entry.winner.name || 'Unknown');
-        }
-      }
-
-      // Build standings preview (top 3)
-      const standingsPreview = entry.standings?.slice(0, 3).map(s => {
-        const pointsStr = s.points !== undefined ? ` (${s.points} pts)` : '';
-        return `${s.place}. ${escapeHtml(s.name)}${pointsStr}`;
-      }).join(', ') || '';
+      const winner = entry.winner?.team ? teamLabel(entry.winner.team) : escapeHtml(entry.winner?.name || 'Unknown');
+      const topThree = entry.standings?.slice(0, 3).map(s => {
+        const points = s.points !== undefined ? ` (${escapeHtml(s.points)} pts)` : '';
+        return `${escapeHtml(s.place)}. ${escapeHtml(s.name)}${points}`;
+      }).join(', ');
 
       return `
         <details class="history-entry">
           <summary>
-            <span class="history-icon"><span class="${getTournamentTypeIcon(entry.type)}"></span></span>
+            <span class="history-icon"><span class="fa-solid ${icon}"></span></span>
             <span class="history-winner">
-              <span class="fa-solid fa-crown"></span> ${winnerDisplay}
+              <span class="fa-solid fa-crown"></span> ${winner}
             </span>
-            <span class="history-meta">${dateStr}</span>
+            <span class="history-meta">${date}</span>
           </summary>
           <div class="history-details">
-            <p><strong>Type:</strong> ${formatTournamentType(entry.type)}</p>
-            <p><strong>Participants:</strong> ${entry.participantCount}</p>
-            ${standingsPreview ? `<p><strong>Top 3:</strong> ${standingsPreview}</p>` : ''}
+            <p><strong>Type:</strong> ${label}</p>
+            <p><strong>Participants:</strong> ${escapeHtml(entry.participantCount)}</p>
+            ${topThree ? `<p><strong>Top 3:</strong> ${topThree}</p>` : ''}
           </div>
         </details>
       `;

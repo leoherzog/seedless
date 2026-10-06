@@ -5,16 +5,13 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import { store } from '../js/state/store.js';
 import { initBracketView, cleanupBracketView } from '../js/components/bracket-view.js';
-import { createMockElement, installBracketViewDom } from './fixtures.js';
+import { installBracketViewDom } from './fixtures.js';
 
 function setup() {
   store.reset();
-  const mockDoc = installBracketViewDom();
-
-  const resultsView = createMockElement('section', { hidden: true });
+  const resultsView = installBracketViewDom()._elements.get('results-view');
   resultsView.scrollCount = 0;
   resultsView.scrollIntoView = () => { resultsView.scrollCount++; };
-  mockDoc._addElement('results-view', resultsView);
   initBracketView();
 
   store.set('participants', new Map([

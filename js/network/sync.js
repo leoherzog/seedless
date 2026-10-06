@@ -5,7 +5,7 @@
 
 import { store } from '../state/store.js';
 import { navigateToHome } from '../state/url-state.js';
-import { showToast } from '../components/toast.js';
+import { showToast, showInfo } from '../components/toast.js';
 import { ActionTypes } from './room.js';
 import {
   isValidState,
@@ -248,7 +248,7 @@ export function setupStateSync(room) {
     store.resetForNewTournament();
 
     if (!store.isAdmin()) {
-      showToast('Ready for new tournament!', 'info');
+      showInfo('Ready for new tournament!');
     }
   });
 

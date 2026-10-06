@@ -372,11 +372,6 @@ button.inline-link:focus-visible {
   text-align: center;
 }
 
-#standings-table th:last-child,
-#standings-table td:last-child {
-  text-align: right;
-}
-
 #results-view article {
   max-width: 500px;
   margin: 2rem auto;

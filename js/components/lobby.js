@@ -9,7 +9,7 @@ import { getRoom } from '../network/room.js';
 import { startTournament } from '../network/sync.js';
 import { showSuccess, showError, showInfo } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
-import { getDragAfterElement } from '../utils/drag-drop.js';
+import { makeSortable } from '../utils/drag-drop.js';
 import { CONFIG } from '../../config.js';
 import { planGames, suggestEvenGamesPerPlayer, generateMarioKartTournament } from '../tournament/mario-kart.js';
 import { generateSingleEliminationBracket } from '../tournament/single-elimination.js';
@@ -147,10 +147,8 @@ function setNameLocked(locked) {
 function setupParticipantList() {
   const list = document.getElementById('participant-list');
 
-  list.addEventListener('dragstart', onDragStart);
-  list.addEventListener('dragover', onDragOver);
+  makeSortable(list);
   list.addEventListener('drop', onDrop);
-  list.addEventListener('dragend', onDragEnd);
   list.addEventListener('click', (e) => {
     const btn = e.target.closest('.remove-participant-btn');
     if (btn) removeParticipant(btn.dataset.participantId);
@@ -418,48 +416,20 @@ function onStartTournament() {
   }
 }
 
-let draggedItem = null;
-
-function onDragStart(e) {
-  draggedItem = e.target.closest('li');
-  if (draggedItem) {
-    draggedItem.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-  }
-}
-
-function onDragOver(e) {
-  e.preventDefault();
-  const list = document.getElementById('participant-list');
-  const afterElement = getDragAfterElement(list, e.clientY);
-  if (draggedItem) {
-    if (afterElement) {
-      list.insertBefore(draggedItem, afterElement);
-    } else {
-      list.appendChild(draggedItem);
-    }
-  }
-}
-
 function onDrop(e) {
   e.preventDefault();
-  if (!draggedItem) return;
+  const list = document.getElementById('participant-list');
+  // drop fires before dragend, so a row dragged within this list still has the class.
+  if (!list.querySelector('li.dragging')) return;
 
   const room = getRoom();
-  document.getElementById('participant-list').querySelectorAll('li').forEach((item, index) => {
+  list.querySelectorAll('li').forEach((item, index) => {
     const participantId = item.dataset.participantId;
     const seed = index + 1;
     store.updateParticipant(participantId, { seed });
     // The admin's p:upd may name another participant's id.
     room?.broadcast('p:upd', { id: participantId, seed });
   });
-}
-
-function onDragEnd() {
-  if (draggedItem) {
-    draggedItem.classList.remove('dragging');
-    draggedItem = null;
-  }
 }
 
 /**

@@ -77,6 +77,7 @@ export function createMockElement(tag = 'div', options = {}) {
     select: () => {},
     focus: () => {},
     blur: () => {},
+    scrollIntoView: () => {},
     getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
   };
 
@@ -123,13 +124,18 @@ function createMockDocument() {
 export function installBracketViewDom() {
   const doc = createMockDocument();
   doc._addElement('score-modal', createMockElement('dialog'));
+  doc._addElement('race-result-modal', createMockElement('dialog'));
   doc._addElement('submit-score-btn', createMockElement('button'));
+  doc._addElement('submit-race-btn', createMockElement('button'));
   doc._addElement('score1', createMockElement('input'));
   doc._addElement('score2', createMockElement('input'));
-  for (const id of ['bracket-tabs', 'bracket-title', 'bracket-status', 'standings-panel', 'bracket-container']) {
+  doc._addElement('race-ranking-list', createMockElement('ol'));
+  for (const id of ['bracket-tabs', 'bracket-title', 'bracket-status', 'standings-panel', 'bracket-container', 'final-standings']) {
     doc._addElement(id, createMockElement('div'));
   }
   doc._addElement('bracket-view', createMockElement('section', { hidden: false }));
+  doc._addElement('results-view', createMockElement('section', { hidden: true }));
+  doc._addElement('tournament-history', createMockElement('section', { hidden: true }));
   globalThis.document = doc;
   return doc;
 }
