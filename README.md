@@ -2,93 +2,38 @@
 
 **Serverless P2P Tournament Brackets**
 
-A fully client-side tournament bracket system using peer-to-peer communication. No server required - works on any static hosting like GitHub Pages or Cloudflare Pages.
+Tournament brackets that run entirely in the browser. Peers sync directly with each other, so there is no backend and any static host works.
 
 ## Features
 
-- **P2P Communication**: Uses [Trystero](https://github.com/dmotz/trystero) with Nostr relays for peer discovery
-- **Multiple Tournament Types**:
-  - Single Elimination
-  - Double Elimination
-  - Points Race (Mario Kart style)
-  - Doubles (team-based)
-- **Admin Controls**: Tournament creator manages settings and can verify results
-- **Participant Reporting**: Match participants can report their own results
-- **Persistent State**: Tournament state saved to localStorage and synced across peers
-- **Shareable Links**: Room URLs can be shared for easy joining
-- **No Build Required**: Pure ES modules, runs directly in browser
+- **Tournament types**: Single Elimination, Double Elimination, Points Race in the style of Mario Kart, and Doubles, which runs teams through a single- or double-elimination bracket
+- **Shareable links**: a room is a URL, and anyone with the link can join
+- **Admin controls**: the room's creator is authoritative for bracket structure and can verify or edit results
+- **Self-reporting**: match participants or the admin report results, and the latest report wins until the admin verifies it
+- **Persistent state**: each browser saves the tournament to localStorage and resyncs with peers when they reconnect
 
 ## Quick Start
 
-1. Clone or download this repository
-2. Serve the files with any static HTTP server:
-   ```bash
-   # Using Python
-   python -m http.server 8000
+Serve the repo root, open `http://localhost:8000`, then create a room and share its link.
 
-   # Using Node.js (npx)
-   npx serve
-
-   # Using PHP
-   php -S localhost:8000
-   ```
-3. Open `http://localhost:8000` in your browser
-4. Create a room and share the link with participants
-
-## Deployment
-
-Deploy to any static hosting:
-
-### GitHub Pages
-1. Push to a GitHub repository
-2. Go to Settings > Pages
-3. Select branch and save
-
-### Cloudflare Pages
-1. Connect your repository
-2. Leave build command empty
-3. Set output directory to `/`
-
-### Netlify / Vercel
-1. Connect repository
-2. No build configuration needed
+```bash
+python -m http.server 8000
+```
 
 ## Forking
 
-To create your own Seedless instance:
-
-1. Fork this repository
-2. **Important**: Edit `config.js` and change the `appId` to something unique:
-   ```javascript
-   appId: 'your-unique-tournament-app-id',
-   ```
-   This ensures your tournaments are isolated from other Seedless instances.
-3. **Font Awesome**: The icons use a Font Awesome kit. For your own deployment, either:
-   - Create a free Font Awesome kit at [fontawesome.com](https://fontawesome.com/kits) and update the script tag in `index.html`
-   - Or replace with the CDN version: `https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css`
-4. Deploy to your preferred static host
-
-## How It Works
-
-1. **Room Creation**: Admin creates a room with a custom slug (e.g., `friday-smash`)
-2. **Peer Discovery**: Trystero uses Nostr relays to discover peers in the same room
-3. **State Sync**: Admin is authoritative for bracket structure; match results use last-write-wins
-4. **Match Reporting**: Only participants in a match can report its result
-5. **Persistence**: State is saved to localStorage and synced when peers reconnect
+1. Fork this repository.
+2. Change `appId` in `config.js` to something unique. Peers on different appIds never see each other's rooms.
+3. Replace the Font Awesome kit `<script>` in `index.html` with your own kit or `<script defer src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.1/js/all.min.js"></script>`. Use an SVG+JS build, because only it replaces the emoji fallback inside each icon span.
+4. Set `network.turnCredentialsUrl` in `config.js` to your deployed [TURN worker](turn-worker/README.md), or to `''` for STUN only. The default URL refuses other sites, and without TURN, peers behind strict NATs such as cellular networks may fail to connect.
+5. Deploy the repo root to any static host. There is no build step.
 
 ## Technology Stack
 
-- **[Trystero](https://github.com/dmotz/trystero)** - P2P WebRTC connections via Nostr
-- **[PicoCSS](https://picocss.com/)** - Minimal CSS framework for semantic HTML
-- **[Font Awesome](https://fontawesome.com/)** - Icons
-- **Vanilla JavaScript** - ES modules, no build step
-
-## Browser Support
-
-Works in modern browsers that support:
-- WebRTC
-- ES Modules
-- localStorage
+- **[Trystero](https://github.com/dmotz/trystero)**: WebRTC peer connections, with Nostr relays for discovery
+- **[PicoCSS](https://picocss.com/)**: minimal CSS framework for semantic HTML
+- **[Font Awesome](https://fontawesome.com/)**: icons
+- **Vanilla JavaScript**: ES modules, no build step
 
 ## License
 

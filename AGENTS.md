@@ -1,117 +1,98 @@
 # AGENTS.md
 
-This file provides guidance to Claude Code, Codex, Gemini, etc when working with code in this repository.
+Guidance for coding agents working in this repository.
 
-## Project Overview
+## Overview
 
-Seedless is a serverless P2P tournament bracket application. It runs entirely client-side with no build step, using ES modules directly in the browser. Peer-to-peer communication is handled through Trystero using Nostr relays for peer discovery.
+Seedless is a serverless P2P tournament bracket app built from plain ES modules with no build step. Every import is a relative path ending in `.js`. Peers discover each other through Trystero over Nostr relays and sync over WebRTC.
 
-## Running Locally
+## Commands
 
-Serve the files with any static HTTP server:
 ```bash
-python -m http.server 8000
-# or
-npx serve
+python -m http.server 8000   # serve at http://localhost:8000
+deno task test               # run all tests
+deno task test:watch         # watch mode
+deno task test:coverage      # coverage report in coverage/
 ```
 
-Open `http://localhost:8000` in browser.
+Serve on port 8000, the only local origin the TURN worker allows. Tests live in `tests/`, with integration tests in `tests/integration/`. `deno.json` maps the Trystero CDN import to `tests/mocks/trystero-mock.js`, so changing that URL in `room.js` means changing both.
 
-## Testing
-
-Tests use Deno's built-in test runner:
-```bash
-deno task test           # Run all tests
-deno task test:watch     # Watch mode
-deno task test:coverage  # Generate coverage report
-```
-
-Tests are in `tests/` with mocks in `tests/mocks/` and integration tests in `tests/integration/`.
-
-## Architecture
-
-### Key Concepts
-
-**No Build System**: Pure ES modules loaded directly by the browser. All imports use relative paths with `.js` extensions.
-
-**Admin Authority Model**: The tournament creator (admin) is authoritative for bracket structure. Match results use last-write-wins (LWW) with admin verification override. Admin status persists across page refreshes because meta.adminId matches the persistent localUserId.
-
-Security considerations in `sync.js` and `store.js`:
-- Admin-only actions (`t:start`, `t:reset`, participant removal) verify sender's `localUserId` matches `meta.adminId`
-- `store.merge` grants admin authority only when sync.js has verified the sending peer as admin (`senderIsAdmin`)
-- Initial sync allows admin establishment when local has no adminId yet
-- `p:join` rejects claims to existing connected user IDs (prevents impersonation)
-
-**Dual ID System**: Participants have two IDs:
-- `peerId` - Transient WebRTC peer ID (changes on reconnect)
-- `localUserId` - Persistent ID stored in localStorage (survives page refresh)
-
-The `peerIdToUserId` map in `js/network/sync.js` translates between them.
-
-### Module Structure
+## Module Structure
 
 ```
+index.html          # All views, as data-view sections
+config.js           # CONFIG, commented per key
+css/tournament.css  # App styles on top of Pico
 js/
-├── main.js              # App entry point, view routing, room lifecycle
+├── main.js         # Entry: room join/leave from the URL, view switching, saves
 ├── state/
-│   ├── store.js         # Central event-emitting state store with CRDT-like merge
-│   ├── persistence.js   # localStorage read/write
-│   └── url-state.js     # URL query routing (?room=slug)
+│   ├── store.js           # Event-emitting store, serialize, merge
+│   ├── persistence.js     # localStorage snapshots, preferences, localUserId
+│   └── url-state.js       # ?room= query parameter
 ├── network/
-│   ├── room.js          # Trystero room wrapper, action channel setup
-│   ├── sync.js          # P2P state sync, conflict resolution, message handlers
-│   └── sync-validators.js # Payload validation and LWW conflict resolution
+│   ├── room.js            # Trystero wrapper, ActionTypes, TURN fetch
+│   ├── sync.js            # Action handlers, sender trust, advanceWinner
+│   └── sync-validators.js # Payload validators, match LWW rule
 ├── tournament/
-│   ├── single-elimination.js  # Bracket generation and match advancement
-│   ├── double-elimination.js  # Losers bracket support
-│   ├── mario-kart.js          # Points race mode with balanced scheduling
-│   ├── doubles.js             # Team-based tournament adapter
-│   ├── standings.js           # Final standings for any type (results card, history)
-│   └── bracket-utils.js       # Seed order, shared knockout builder, round names
+│   ├── bracket-utils.js       # Seed order, knockout builder, round names
+│   ├── single-elimination.js  # Generation, advance(), standings
+│   ├── double-elimination.js  # Same, plus losers bracket and grand finals
+│   ├── doubles.js             # Teams through a single or double bracket
+│   ├── mario-kart.js          # Points Race scheduling and scoring
+│   └── standings.js           # Final standings for any type
 ├── components/
-│   ├── lobby.js         # Pre-tournament participant management
-│   ├── bracket-view.js  # Tournament bracket rendering
-│   └── toast.js         # Notification system
+│   ├── lobby.js           # Participants, settings, teams, start
+│   ├── bracket-view.js    # Bracket, games, standings, result modals
+│   └── toast.js           # Notifications
 └── utils/
-    ├── html.js          # HTML escaping
-    ├── drag-drop.js     # Drag-and-drop helpers
-    ├── random-names.js  # Default room slugs and player names
-    └── tournament-helpers.js # Match status, ordinals, seeding, shuffle, team membership
+    ├── html.js               # HTML escaping
+    ├── drag-drop.js          # Sortable lists
+    ├── random-names.js       # Default room slugs and player names
+    └── tournament-helpers.js # Ordinals, match status, points, seeding, membership
+turn-worker/        # Cloudflare Worker that mints TURN credentials
 ```
 
-### State Flow
+## State Model
 
-1. `store.js` is the single source of truth - an event-emitting store with `get()`, `set()` and `on()` methods
-2. Components subscribe to store changes via `store.on('change', callback)`
-3. P2P messages trigger store updates through handlers in `sync.js`
-4. Store changes are persisted to localStorage via `saveTournament()`
+`store.js` is the single source of truth, and each mutation emits `change` with its path. `main.js` saves every change outside `local.*` after a debounce, and `local.*` is never serialized or synced.
 
-### Network Protocol
+The `matches` Map is the only copy of each match and Points Race game, and bracket rounds hold `matchIds`. `bracket.startedAt`, stamped at start, identifies the tournament. `meta.status` runs `lobby`, `active`, `complete`; inside a room `main.js` shows the lobby until `active`, then the bracket view.
 
-`ActionTypes` in `room.js` names each action. Trystero limits names to 32 bytes.
-- `st:req/st:res` - State request/response
-- `p:join/p:upd` - Participant announce and update
-- `p:leave` - Participant removal (admin only); voluntary leaves arrive through Trystero's peer-leave event
-- `t:start/t:reset` - Tournament lifecycle (admin only); `t:reset` carries the archived tournament
-- `m:result/m:verify` - Match reporting
-- `r:result` - Points Race game result
+`advance()` in `single-elimination.js` and `double-elimination.js` is the only advancement engine, and doubles reuses it with teams as participants. `advanceWinner()` in `sync.js` picks one by bracket shape, writes through `store.updateMatch`, and sets `meta.status` to `complete` once the champion is decided. Points Race results go through `recordRaceResult()` in `mario-kart.js`.
 
-Messages travel as `{ payload }`, and `room.js` drops any whose payload is not an object. Sender identity comes from Trystero's `peerId`.
+## Identity and Admin
 
-### Configuration
+Participants have a transient Trystero `peerId` and a persistent `localUserId` from localStorage. `peerIdToUserId` in `sync.js` maps one to the other, and handlers identify senders only through it. Manual players added by the admin have `manual_` ids and no peer until a joiner with the same name claims them.
 
-`config.js` exports `CONFIG` object with:
-- `appId` - Must be unique per fork to isolate tournament networks
-- `pointsTables` - Scoring presets for Mario Kart mode
-- `validation` - Input validation limits (maxNameLength, maxMatchIdLength)
-- `storage` - localStorage prefix and retentionDays
-- `ui` - toastDuration
-- `network` - turnCredentialsUrl, the TURN credential endpoint
+The admin is the room's creator, and `connectToRoom()` in `main.js` restores admin status when the saved `meta.adminId` equals `localUserId`.
 
-## Important Patterns
+## Network Protocol
 
-**View System**: HTML sections have `data-view` attributes. `showView()` in `main.js` toggles their `hidden` attribute. Inside a room the view follows `meta.status`: lobby until the tournament starts, then bracket.
+`ActionTypes` in `room.js` names each action:
 
-**Bracket Generation**: `buildKnockout()` in `bracket-utils.js` seeds the single-elimination bracket and the double-elimination winners bracket so high seeds don't meet until later rounds, and gives byes to the top seeds. Generators return `{ bracket, matches }`: the store's `matches` Map is the only copy of each match, and bracket rounds hold match ids. `bracket.startedAt` marks the tournament, so a merge never mixes matches from two tournaments.
+- `st:req/st:res`: state request and full-state reply, exchanged with each new peer
+- `p:join/p:upd`: participant announce and update; `p:join` maps the sender's `peerId`
+- `p:leave`: admin removal; voluntary leaves arrive as Trystero peer-leave events
+- `t:start/t:reset`: tournament start, and return to lobby carrying the archived history entry
+- `m:result/m:verify`: match report and admin verification
+- `r:result`: Points Race game result
 
-**Match Advancement**: Each elimination module exports `advance()`, the only advancement engine. `advanceWinner()` in `sync.js` runs it with `store.updateMatch` as the writer and sets `meta.status` to `'complete'` once the champion is decided.
+Messages travel as `{ payload }`. `room.js` drops non-object payloads, and handlers receive `(payload, peerId)`. `shouldUpdateMatch()` orders results by `version`, then `reportedAt`, and the admin always wins.
+
+## Security Invariants
+
+`sync.js` and `store.js` enforce these:
+
+- Admin only, meaning the sender's mapped id equals `meta.adminId`: `t:start`, `t:reset`, `m:verify`, `p:leave`, manual `p:join`, and a `p:upd` naming another participant, which otherwise applies to the sender.
+- An `st:res` with `isAdmin` maps its sender to `meta.adminId` only if no connected peer holds that mapping, or the sender already does. This is trust on first use: while the admin is offline, any peer claiming `isAdmin` is treated as admin.
+- `store.merge(remote, senderIsAdmin)` takes `meta`, `bracket`, `standings` and `teamAssignments` only from a verified admin, or as a bootstrap when local has no `adminId`. Never derive `senderIsAdmin` from `remote.meta.adminId`, which every peer carries. The local admin's own `adminId` never changes.
+- `p:join` rejects claims to `meta.adminId` and to ids connected from another peer.
+- `m:result` comes only from the match's players, their teammates, or the admin, and only the admin changes a verified match. Non-admins ignore it until their first `st:res`.
+- `r:result` comes only from the game's players or the admin.
+- `sync-validators.js` checks `st:res`, `p:join`, `p:upd`, `m:result` and `m:verify` payloads, and `p:upd` allows only listed fields.
+
+Merges never remove participants and resolve their fields by `updatedAt`. Within one tournament, matches prefer verified, then the later `reportedAt`, with ties going to the admin; a trusted snapshot of another tournament replaces them all. History entries union by `id`.
+
+## Configuration
+
+`config.js` comments each `CONFIG` key. Changing `appId` moves the app to a separate tournament network, cut off from existing rooms. `network.turnCredentialsUrl` points at the deployed `turn-worker/`, and an empty string means STUN only.
