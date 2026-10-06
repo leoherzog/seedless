@@ -4,7 +4,7 @@
  */
 
 import { store } from '../state/store.js';
-import { ActionTypes } from './room.js';
+import { ActionTypes, leaveRoom } from './room.js';
 import {
   isValidName,
   isValidMatchId,
@@ -341,11 +341,7 @@ export function setupStateSync(room) {
         const { showToast } = await import('../components/toast.js');
         showToast('You have been removed from the tournament', 'warning');
 
-        // Disconnect from room
-        if (window.seedlessRoom) {
-          window.seedlessRoom.leave();
-          window.seedlessRoom = null;
-        }
+        leaveRoom();
 
         // Navigate home
         const { navigateToHome } = await import('../state/url-state.js');

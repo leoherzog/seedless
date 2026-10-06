@@ -1,79 +1,92 @@
 /**
- * Tests for joinRoom/leaveRoom with a Trystero mock override.
+ * Tests for room.js against the Trystero mock that deno.json maps in.
  */
 
 import { assertEquals, assert } from 'jsr:@std/assert';
-import { joinRoom, leaveRoom, ActionTypes } from '../js/network/room.js';
-import { createMockTrysteroRoom, _resetAll } from './mocks/trystero-mock.js';
+import { joinRoom, leaveRoom, getRoom, ActionTypes } from '../js/network/room.js';
+import { _getLastRoom } from './mocks/trystero-mock.js';
 
-function installMockTrystero() {
-  const previousJoin = globalThis.__seedlessTrysteroJoin;
-  const previousSelfId = globalThis.__seedlessTrysteroSelfId;
-
-  globalThis.__seedlessTrysteroJoin = (config, roomId) => createMockTrysteroRoom(config, roomId);
-  globalThis.__seedlessTrysteroSelfId = 'mock-self-id';
-
-  return () => {
-    if (previousJoin === undefined) {
-      delete globalThis.__seedlessTrysteroJoin;
-    } else {
-      globalThis.__seedlessTrysteroJoin = previousJoin;
+Deno.test('ActionTypes', async (t) => {
+  await t.step('names fit the 32-byte Trystero limit', () => {
+    const encoder = new TextEncoder();
+    for (const [name, value] of Object.entries(ActionTypes)) {
+      const bytes = encoder.encode(value).length;
+      assert(bytes <= 32, `Action type ${name} ("${value}") exceeds 32 bytes: ${bytes} bytes`);
     }
-    if (previousSelfId === undefined) {
-      delete globalThis.__seedlessTrysteroSelfId;
-    } else {
-      globalThis.__seedlessTrysteroSelfId = previousSelfId;
-    }
-  };
-}
+  });
+
+  await t.step('values are unique', () => {
+    const values = Object.values(ActionTypes);
+    assertEquals(values.length, new Set(values).size);
+  });
+});
 
 Deno.test('joinRoom/leaveRoom with mock Trystero', async (t) => {
-  _resetAll();
-  const restore = installMockTrystero();
-
   try {
-    await t.step('joinRoom creates action channels and uses mock selfId', async () => {
+    await t.step('joins the named Trystero room and tracks the connection', async () => {
       const connection = await joinRoom('room-1');
-      assertEquals(connection.roomId, 'room-1');
+      assertEquals(_getLastRoom().roomId, 'room-1');
       assertEquals(connection.selfId, 'mock-self-id');
+      assertEquals(getRoom(), connection);
 
-      const actionTypes = Object.values(ActionTypes);
-      for (const actionType of actionTypes) {
-        assert(connection.actions[actionType], `missing action ${actionType}`);
+      await leaveRoom();
+      assertEquals(getRoom(), null);
+    });
+
+    await t.step('broadcast and sendTo wrap the payload on every channel', async () => {
+      const connection = await joinRoom('room-1');
+      const room = _getLastRoom();
+
+      for (const type of Object.values(ActionTypes)) {
+        connection.broadcast(type, { type });
+        assertEquals(room._getSentMessages(type), [{ data: { payload: { type } }, targets: undefined }]);
       }
+
+      connection.sendTo(ActionTypes.STATE_RESPONSE, { ok: true }, ['peer-1', 'peer-2']);
+      const [, targeted] = room._getSentMessages(ActionTypes.STATE_RESPONSE);
+      assertEquals(targeted, { data: { payload: { ok: true } }, targets: ['peer-1', 'peer-2'] });
 
       await leaveRoom();
     });
 
-    await t.step('broadcast/sendTo include senderId and targets', async () => {
+    await t.step('onPeerJoin and onPeerLeave fan out to every handler', async () => {
       const connection = await joinRoom('room-1');
+      const room = _getLastRoom();
+      const joined = [];
+      const left = [];
+      connection.onPeerJoin((peerId) => joined.push(['a', peerId]));
+      connection.onPeerJoin((peerId) => joined.push(['b', peerId]));
+      connection.onPeerLeave((peerId) => left.push(peerId));
 
-      connection.broadcast(ActionTypes.STATE_REQUEST, { hello: 'world' });
-      const reqMessages = connection.room._getSentMessages(ActionTypes.STATE_REQUEST);
-      assertEquals(reqMessages.length, 1);
-      assertEquals(reqMessages[0].data.payload.hello, 'world');
-      assertEquals(reqMessages[0].data.senderId, 'mock-self-id');
-      assert(reqMessages[0].data.timestamp);
+      room._simulatePeerJoin('peer-1');
+      assertEquals(joined, [['a', 'peer-1'], ['b', 'peer-1']]);
+      assertEquals(connection.getPeers(), ['peer-1']);
 
-      connection.sendTo(ActionTypes.STATE_RESPONSE, { ok: true }, ['peer-1', 'peer-2']);
-      const resMessages = connection.room._getSentMessages(ActionTypes.STATE_RESPONSE);
-      assertEquals(resMessages.length, 1);
-      assertEquals(resMessages[0].targets, ['peer-1', 'peer-2']);
-      assertEquals(resMessages[0].data.payload.ok, true);
+      room._simulatePeerLeave('peer-1');
+      assertEquals(left, ['peer-1']);
+      assertEquals(connection.getPeers(), []);
 
-      // Should not throw for unknown action
-      connection.broadcast('unknown', { nope: true });
+      await leaveRoom();
+    });
+
+    await t.step('onAction passes the unwrapped payload and sender peerId', async () => {
+      const connection = await joinRoom('room-1');
+      const calls = [];
+      connection.onAction(ActionTypes.MATCH_RESULT, (...args) => calls.push(args));
+
+      _getLastRoom()._simulateMessage(ActionTypes.MATCH_RESULT, { payload: { matchId: 'm1' } }, 'peer-1');
+      assertEquals(calls, [[{ matchId: 'm1' }, 'peer-1']]);
 
       await leaveRoom();
     });
 
     await t.step('joinRoom leaves existing room before joining new one', async () => {
-      const connection1 = await joinRoom('room-1');
-      const room1 = connection1.room;
+      await joinRoom('room-1');
+      const room1 = _getLastRoom();
       const originalLeave = room1.leave;
       room1.leave = () => {
         room1._left = true;
-        originalLeave();
+        return originalLeave();
       };
 
       await joinRoom('room-2');
@@ -87,7 +100,6 @@ Deno.test('joinRoom/leaveRoom with mock Trystero', async (t) => {
       await leaveRoom();
     });
   } finally {
-    restore();
     await leaveRoom();
   }
 });

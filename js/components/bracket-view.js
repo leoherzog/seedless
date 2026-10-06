@@ -4,6 +4,7 @@
  */
 
 import { store } from '../state/store.js';
+import { getRoom } from '../network/room.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
@@ -197,7 +198,7 @@ function renderBracket(bracketFilter = null) {
  */
 function renderRounds(container, rounds, participants, localUserId) {
   container.innerHTML = rounds.map(round => `
-    <div class="bracket-round" data-round="${round.number}">
+    <div class="bracket-round">
       <h4>${round.name}</h4>
       ${round.matches.map(match => renderMatchCard(match, participants, localUserId)).join('')}
     </div>
@@ -289,10 +290,10 @@ function renderGameCard(game, participants, localUserId, isAdmin) {
   const standInTag = '<small class="stand-in" data-tooltip="Races for fun; scores nothing">stand-in</small>';
 
   return `
-    <article class="game-card ${game.complete ? 'complete' : ''}" data-game-id="${game.id}">
+    <article class="game-card ${game.complete ? 'complete' : ''}">
       <header>
         <span>Game ${game.gameNumber}</span>
-        <span class="status-badge ${game.complete ? 'complete' : 'live'}">
+        <span class="status-badge ${game.complete ? 'complete' : 'pending'}">
           ${game.complete ? 'Complete' : 'Pending'}
         </span>
       </header>
@@ -393,7 +394,7 @@ function renderMatchCard(match, participants, localUserId) {
   const { status } = actions;
 
   return `
-    <article class="match-card ${match.isBye ? 'bye' : ''}" data-match-id="${match.id}">
+    <article class="match-card ${match.isBye ? 'bye' : ''}">
       <header>
         <small>Match ${match.position + 1}</small>
         ${match.isBye ? '<mark>BYE</mark>' : `<span class="status-badge ${status}">${status}</span>`}
@@ -444,7 +445,7 @@ function renderTeamMatchCard(match, localUserId) {
   const { status } = actions;
 
   return `
-    <article class="match-card team-match ${match.isBye ? 'bye' : ''}" data-match-id="${match.id}">
+    <article class="match-card team-match ${match.isBye ? 'bye' : ''}">
       <header>
         <small>Match ${match.position + 1}</small>
         ${match.isBye ? '<mark>BYE</mark>' : `<span class="status-badge ${status}">${status}</span>`}
@@ -582,7 +583,7 @@ async function onSubmitScore() {
     advanceWinner(matchId, winnerId);
 
     // Broadcast to peers
-    const room = window.seedlessRoom;
+    const room = getRoom();
     if (room) {
       reportMatchResult(room, matchId, [score1, score2], winnerId);
     }
@@ -634,7 +635,7 @@ async function verifyMatch(matchId) {
   advanceWinner(matchId, match.winnerId);
 
   // Broadcast verification
-  const room = window.seedlessRoom;
+  const room = getRoom();
   if (room) {
     room.broadcast('m:verify', {
       matchId,
@@ -850,7 +851,7 @@ async function onSubmitRaceResult() {
     store.deserialize({ standings: Array.from(tournament.standings.entries()) });
 
     // Broadcast to peers
-    const room = window.seedlessRoom;
+    const room = getRoom();
     if (room) {
       const { reportRaceResult } = await import('../network/sync.js');
       reportRaceResult(room, gameId, results);
@@ -956,9 +957,8 @@ async function renderFinalStandings() {
         });
       }
     } else if (type === 'doubles') {
-      // Doubles mode - async getStandings
       const { getStandings } = await import('../tournament/doubles.js');
-      standings = await getStandings(completeBracket, participants);
+      standings = getStandings(completeBracket);
     } else if (type === 'double') {
       // Double elimination
       const { getStandings } = await import('../tournament/double-elimination.js');

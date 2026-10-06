@@ -23,16 +23,13 @@ import {
   generateAdminToken,
   getLocalUserId,
 } from './state/persistence.js';
-import { joinRoom, leaveRoom, ActionTypes } from './network/room.js';
+import { joinRoom, leaveRoom, getRoom, ActionTypes } from './network/room.js';
 import { setupStateSync, announceJoin, markStateInitialized, resetSyncState } from './network/sync.js';
 import { showSuccess, showError, showToast } from './components/toast.js';
 import { initLobby, cleanupLobby } from './components/lobby.js';
 import { initBracketView, cleanupBracketView } from './components/bracket-view.js';
 import { debounce } from './utils/debounce.js';
 import { HOST_NAME, generateRoomSlug, generatePlayerName } from './utils/random-names.js';
-
-// Make room globally accessible for components
-window.seedlessRoom = null;
 
 /**
  * Check whether a stored admin token matches the existing room's admin token.
@@ -200,7 +197,7 @@ async function handleUrlChange(urlState) {
   showView(view || VIEWS.HOME);
 
   // Handle room connection (with race condition protection)
-  if (roomId && !window.seedlessRoom && !isConnecting) {
+  if (roomId && !getRoom() && !isConnecting) {
     // Need to connect to room
     isConnecting = true;
     try {
@@ -208,7 +205,7 @@ async function handleUrlChange(urlState) {
     } finally {
       isConnecting = false;
     }
-  } else if (!roomId && window.seedlessRoom) {
+  } else if (!roomId && getRoom()) {
     // Need to disconnect
     await disconnectFromRoom();
   }
@@ -382,7 +379,6 @@ async function connectToRoom(roomId, options = {}) {
 
     // Join the P2P room
     const room = await joinRoom(roomId);
-    window.seedlessRoom = room;
 
     // Get persistent local user ID (survives page refresh)
     const localUserId = getLocalUserId();
@@ -522,13 +518,13 @@ async function connectToRoom(roomId, options = {}) {
  * Disconnect from current room
  */
 async function disconnectFromRoom() {
-  if (window.seedlessRoom) {
+  const room = getRoom();
+  if (room) {
     // Announce leave
-    window.seedlessRoom.broadcast(ActionTypes.PARTICIPANT_LEAVE, {});
+    room.broadcast(ActionTypes.PARTICIPANT_LEAVE, {});
 
     // Leave room
     await leaveRoom();
-    window.seedlessRoom = null;
   }
 
   // Cleanup component listeners before resetting state
@@ -551,7 +547,8 @@ async function disconnectFromRoom() {
  * New tournament handler
  */
 async function onNewTournament() {
-  if (window.seedlessRoom && store.isAdmin()) {
+  const room = getRoom();
+  if (room && store.isAdmin()) {
     const status = store.get('meta.status');
 
     // If tournament is complete, archive it first
@@ -560,7 +557,7 @@ async function onNewTournament() {
       if (archive) {
         // Broadcast archive to peers
         const { archiveTournament } = await import('./network/sync.js');
-        archiveTournament(window.seedlessRoom, archive);
+        archiveTournament(room, archive);
       }
     }
 
@@ -570,7 +567,7 @@ async function onNewTournament() {
     // For peers that didn't receive archive (e.g., tournament wasn't complete),
     // send regular reset
     if (status !== 'complete') {
-      window.seedlessRoom.broadcast(ActionTypes.TOURNAMENT_RESET, {});
+      room.broadcast(ActionTypes.TOURNAMENT_RESET, {});
     }
 
     // Save
@@ -593,7 +590,7 @@ function updateConnectionStatus(status) {
   const icon = document.getElementById('status-icon');
 
   if (statusEl) {
-    statusEl.hidden = status === 'disconnected' && !window.seedlessRoom;
+    statusEl.hidden = status === 'disconnected' && !getRoom();
   }
 
   if (icon) {
@@ -612,7 +609,7 @@ function updateConnectionStatus(status) {
  */
 function updatePeerCount() {
   const countEl = document.getElementById('peer-count');
-  const peerCount = window.seedlessRoom?.getPeerCount() || 0;
+  const peerCount = getRoom()?.getPeers().length ?? 0;
   // Add 1 to include yourself in the total
   const totalInRoom = peerCount + 1;
   if (countEl) {

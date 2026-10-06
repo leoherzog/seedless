@@ -5,6 +5,7 @@
 
 import { store } from '../state/store.js';
 import { getRoomLink } from '../state/url-state.js';
+import { getRoom, leaveRoom } from '../network/room.js';
 import { showSuccess, showError, showInfo, showToast } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
@@ -240,7 +241,7 @@ function setupParticipantPanel() {
         store.updateParticipant(localUserId, { name: newName });
 
         // Announce update to peers
-        const room = window.seedlessRoom;
+        const room = getRoom();
         if (room) {
           room.broadcast('p:upd', { name: newName, localUserId });
         }
@@ -274,7 +275,7 @@ function setupParticipantPanel() {
  * Leave the tournament
  */
 async function leaveTournament() {
-  const room = window.seedlessRoom;
+  const room = getRoom();
   if (room) {
     room.broadcast('p:leave', {});
   }
@@ -284,10 +285,7 @@ async function leaveTournament() {
   navigateToHome();
 
   // Disconnect
-  if (window.seedlessRoom) {
-    window.seedlessRoom.leave();
-    window.seedlessRoom = null;
-  }
+  leaveRoom();
 
   showToast('Left tournament', 'info');
 }
@@ -407,7 +405,7 @@ function setupManualParticipantForm() {
     const participant = store.addManualParticipant(name);
 
     // Broadcast to peers as a join with the isManual flag
-    const room = window.seedlessRoom;
+    const room = getRoom();
     if (room) {
       room.broadcast('p:join', {
         name: participant.name,
@@ -606,7 +604,7 @@ function removeParticipant(participantId) {
     store.removeParticipant(participantId);
 
     // Broadcast removal
-    const room = window.seedlessRoom;
+    const room = getRoom();
     if (room) {
       room.broadcast('p:leave', { removedId: participantId });
     }
@@ -724,7 +722,7 @@ async function onStartTournament() {
     store.set('meta.status', 'active');
 
     // Broadcast to peers
-    const room = window.seedlessRoom;
+    const room = getRoom();
     if (room) {
       const { startTournament } = await import('../network/sync.js');
       startTournament(room, bracket, matches);
@@ -772,7 +770,7 @@ function onDrop(e) {
     // Update seeds based on new order
     const list = document.getElementById('participant-list');
     const items = list.querySelectorAll('li');
-    const room = window.seedlessRoom;
+    const room = getRoom();
     items.forEach((item, index) => {
       const participantId = item.dataset.participantId;
       const newSeed = index + 1;
@@ -852,7 +850,7 @@ function renderTeamAssignmentUI() {
 
     teamBox.innerHTML = `
       <h5>Team ${i} ${isFull ? '<span class="fa-solid fa-check"></span>' : ''}</h5>
-      <ul class="team-members" data-team-id="${teamId}">
+      <ul class="team-members">
         ${members.map(m => `
           <li data-participant-id="${m.id}" draggable="true">
             <span>${escapeHtml(m.name)}</span>

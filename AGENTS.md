@@ -38,7 +38,7 @@ Tests are in `tests/` with mocks in `tests/mocks/` and integration tests in `tes
 
 Security considerations in `sync.js` and `store.js`:
 - Admin-only actions (`t:start`, `t:reset`, participant removal) verify sender's `localUserId` matches `meta.adminId`
-- State merges only trust remote as admin if `remoteAdminId === localAdminId` (after admin is established)
+- `store.merge` grants admin authority only when sync.js has verified the sending peer as admin (`senderIsAdmin`)
 - Initial sync allows admin establishment when local has no adminId yet
 - `p:join` rejects claims to existing connected user IDs (prevents impersonation)
 
@@ -56,7 +56,7 @@ js/
 ├── state/
 │   ├── store.js         # Central event-emitting state store with CRDT-like merge
 │   ├── persistence.js   # localStorage read/write, admin token management
-│   └── url-state.js     # URL hash routing (#room=slug&view=bracket)
+│   └── url-state.js     # URL query routing (?room=slug&view=bracket)
 ├── network/
 │   ├── room.js          # Trystero room wrapper, action channel setup
 │   ├── sync.js          # P2P state sync, conflict resolution, message handlers
@@ -88,13 +88,16 @@ js/
 
 ### Network Protocol
 
-Actions defined in `room.js` (12-byte limit on names due to Trystero):
+`ActionTypes` in `room.js` names each action. Trystero limits names to 32 bytes.
 - `st:req/st:res` - State request/response
 - `p:join/p:upd/p:leave` - Participant lifecycle
-- `t:start/t:reset` - Tournament lifecycle (admin only)
+- `t:start/t:reset/t:archive` - Tournament lifecycle (admin only)
 - `m:result/m:verify` - Match reporting
+- `r:result` - Points Race game result
+- `s:upd` - Standings update (admin only)
+- `v:check` - Admin version heartbeat
 
-Messages wrap payload with `senderId` and `timestamp` for conflict resolution.
+Messages travel as `{ payload }`. Sender identity comes from Trystero's `peerId`.
 
 ### Configuration
 
@@ -103,7 +106,7 @@ Messages wrap payload with `senderId` and `timestamp` for conflict resolution.
 - `defaults` - Tournament configuration defaults (bestOf, teamSize, seedingMode)
 - `pointsTables` - Scoring presets for Mario Kart mode
 - `validation` - Input validation limits (maxNameLength, maxMatchIdLength)
-- `network` - Network timing settings (stateResponseDelay)
+- `network` - Network settings (stateResponseDelay, turnCredentialsUrl)
 
 ## Important Patterns
 

@@ -2,10 +2,10 @@
  * Tests for TURN credential fetching in joinRoom (turn-worker integration).
  */
 
-import { assertEquals, assert } from 'jsr:@std/assert';
+import { assertEquals } from 'jsr:@std/assert';
 import { joinRoom, leaveRoom } from '../js/network/room.js';
 import { CONFIG } from '../config.js';
-import { createMockTrysteroRoom, _resetAll } from './mocks/trystero-mock.js';
+import { _getLastRoom } from './mocks/trystero-mock.js';
 
 const MOCK_ICE_SERVERS = [
   { urls: ['stun:stun.cloudflare.com:3478'] },
@@ -15,27 +15,6 @@ const MOCK_ICE_SERVERS = [
     credential: 'mock-credential',
   },
 ];
-
-function installMockTrystero() {
-  const previousJoin = globalThis.__seedlessTrysteroJoin;
-  const previousSelfId = globalThis.__seedlessTrysteroSelfId;
-
-  globalThis.__seedlessTrysteroJoin = (config, roomId) => createMockTrysteroRoom(config, roomId);
-  globalThis.__seedlessTrysteroSelfId = 'mock-self-id';
-
-  return () => {
-    if (previousJoin === undefined) {
-      delete globalThis.__seedlessTrysteroJoin;
-    } else {
-      globalThis.__seedlessTrysteroJoin = previousJoin;
-    }
-    if (previousSelfId === undefined) {
-      delete globalThis.__seedlessTrysteroSelfId;
-    } else {
-      globalThis.__seedlessTrysteroSelfId = previousSelfId;
-    }
-  };
-}
 
 function installMockFetch(handler) {
   const previousFetch = globalThis.fetch;
@@ -53,8 +32,6 @@ function installMockFetch(handler) {
 }
 
 Deno.test('joinRoom TURN credential fetching', async (t) => {
-  _resetAll();
-  const restoreTrystero = installMockTrystero();
   const previousUrl = CONFIG.network.turnCredentialsUrl;
 
   try {
@@ -67,9 +44,9 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
       );
 
       try {
-        const connection = await joinRoom('room-turn');
+        await joinRoom('room-turn');
         assertEquals(mockFetch.getCalls(), 1);
-        assertEquals(connection.room.config.turnConfig, MOCK_ICE_SERVERS);
+        assertEquals(_getLastRoom().config.turnConfig, MOCK_ICE_SERVERS);
         await leaveRoom();
       } finally {
         mockFetch.restore();
@@ -81,9 +58,8 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
       const mockFetch = installMockFetch(() => Promise.reject(new Error('network down')));
 
       try {
-        const connection = await joinRoom('room-turn');
-        assertEquals(connection.room.config.turnConfig, undefined);
-        assertEquals(connection.roomId, 'room-turn');
+        await joinRoom('room-turn');
+        assertEquals(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();
@@ -97,8 +73,8 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
       );
 
       try {
-        const connection = await joinRoom('room-turn');
-        assertEquals(connection.room.config.turnConfig, undefined);
+        await joinRoom('room-turn');
+        assertEquals(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();
@@ -114,8 +90,8 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
       );
 
       try {
-        const connection = await joinRoom('room-turn');
-        assertEquals(connection.room.config.turnConfig, undefined);
+        await joinRoom('room-turn');
+        assertEquals(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();
@@ -129,9 +105,9 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
       });
 
       try {
-        const connection = await joinRoom('room-turn');
+        await joinRoom('room-turn');
         assertEquals(mockFetch.getCalls(), 0);
-        assert(!('turnConfig' in connection.room.config));
+        assertEquals(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();
@@ -139,7 +115,6 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
     });
   } finally {
     CONFIG.network.turnCredentialsUrl = previousUrl;
-    restoreTrystero();
     await leaveRoom();
   }
 });

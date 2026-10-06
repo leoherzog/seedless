@@ -150,9 +150,11 @@ export function autoAssignTeams(participants, teamSize = 2) {
 }
 
 /**
- * Get standings for doubles (wraps underlying bracket type)
+ * Get team standings from the underlying single- or double-elimination bracket.
+ * @param {Object} tournament - Doubles tournament with teams and bracketType
+ * @returns {Object[]} Standings, each with its team attached
  */
-export function getStandings(tournament, participants) {
+export function getStandings(tournament) {
   const teamMap = new Map(tournament.teams.map(t => [t.id, t]));
 
   const getUnderlyingStandings = tournament.bracketType === 'double'

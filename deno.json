@@ -1,6 +1,6 @@
 {
   "imports": {
-    "trystero/nostr": "https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.26/+esm"
+    "https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.26/+esm": "./tests/mocks/trystero-mock.js"
   },
   "tasks": {
     "test": "deno test --allow-read",
