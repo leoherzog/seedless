@@ -178,8 +178,16 @@ nav #connection-status {
   opacity: 0.5;
 }
 
+/* Pico floats the chevron, which drops below the block-level label; flex keeps it on the label's row. */
 #tournament-config details summary {
+  display: flex;
+  align-items: center;
   padding: 0.5rem;
+}
+
+#tournament-config details summary::after {
+  flex-shrink: 0;
+  margin-inline-start: auto;
 }
 
 #tournament-config details summary label {
