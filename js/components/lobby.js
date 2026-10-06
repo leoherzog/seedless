@@ -4,13 +4,17 @@
  */
 
 import { store } from '../state/store.js';
-import { getRoomLink } from '../state/url-state.js';
-import { getRoom, leaveRoom } from '../network/room.js';
+import { getRoomLink, navigateToHome, navigateToBracket } from '../state/url-state.js';
+import { getRoom } from '../network/room.js';
+import { startTournament } from '../network/sync.js';
 import { showSuccess, showError, showInfo, showToast } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
 import { CONFIG } from '../../config.js';
-import { planGames, suggestEvenGamesPerPlayer } from '../tournament/mario-kart.js';
+import { planGames, suggestEvenGamesPerPlayer, generateMarioKartTournament } from '../tournament/mario-kart.js';
+import { generateSingleEliminationBracket } from '../tournament/single-elimination.js';
+import { generateDoubleEliminationBracket } from '../tournament/double-elimination.js';
+import { validateTeamAssignments, generateDoublesTournament, autoAssignTeams } from '../tournament/doubles.js';
 import { bySeed, seedParticipants } from '../utils/tournament-helpers.js';
 
 // Upper bound of the games-per-player input
@@ -244,7 +248,7 @@ function setupParticipantPanel() {
         // Announce update to peers
         const room = getRoom();
         if (room) {
-          room.broadcast('p:upd', { name: newName, localUserId });
+          room.broadcast('p:upd', { name: newName });
         }
 
         showSuccess('Name updated!');
@@ -264,31 +268,14 @@ function setupParticipantPanel() {
 
   // Leave tournament button
   if (leaveBtn) {
-    leaveBtn.addEventListener('click', async () => {
+    // navigateToHome triggers main.js's disconnect and cleanup.
+    leaveBtn.addEventListener('click', () => {
       if (confirm('Are you sure you want to leave this tournament?')) {
-        await leaveTournament();
+        navigateToHome();
+        showInfo('Left tournament');
       }
     }, { signal });
   }
-}
-
-/**
- * Leave the tournament
- */
-async function leaveTournament() {
-  const room = getRoom();
-  if (room) {
-    room.broadcast('p:leave', {});
-  }
-
-  // Navigate home
-  const { navigateToHome } = await import('../state/url-state.js');
-  navigateToHome();
-
-  // Disconnect
-  leaveRoom();
-
-  showToast('Left tournament', 'info');
 }
 
 /**
@@ -630,7 +617,7 @@ function onParticipantLeave(participant) {
 /**
  * Start tournament
  */
-async function onStartTournament() {
+function onStartTournament() {
   // Only admin can start tournament
   if (!store.isAdmin()) {
     showError('Only the admin can start the tournament');
@@ -655,13 +642,10 @@ async function onStartTournament() {
     let bracket, matches;
 
     if (tournamentType === 'single') {
-      const { generateSingleEliminationBracket } = await import('../tournament/single-elimination.js');
       ({ bracket, matches } = generateSingleEliminationBracket(seededParticipants));
     } else if (tournamentType === 'double') {
-      const { generateDoubleEliminationBracket } = await import('../tournament/double-elimination.js');
       ({ bracket, matches } = generateDoubleEliminationBracket(seededParticipants));
     } else if (tournamentType === 'mariokart') {
-      const { generateMarioKartTournament } = await import('../tournament/mario-kart.js');
       const { matches: games, standings, ...race } = generateMarioKartTournament(seededParticipants, store.get('meta.config'));
       bracket = race;
       matches = games;
@@ -671,7 +655,6 @@ async function onStartTournament() {
       const teamSize = store.get('meta.config.teamSize') || 2;
 
       // Validate team assignments
-      const { validateTeamAssignments, generateDoublesTournament } = await import('../tournament/doubles.js');
       const validation = validateTeamAssignments(seededParticipants, teamAssignments, teamSize);
 
       if (!validation.valid || validation.completeTeams < 2) {
@@ -696,14 +679,12 @@ async function onStartTournament() {
     // Broadcast to peers
     const room = getRoom();
     if (room) {
-      const { startTournament } = await import('../network/sync.js');
       startTournament(room, bracket, matches);
     }
 
     showSuccess('Tournament started!');
 
     // Navigate to bracket view
-    const { navigateToBracket } = await import('../state/url-state.js');
     navigateToBracket();
 
   } catch (e) {
@@ -853,12 +834,11 @@ function renderTeamAssignmentUI() {
 /**
  * Update team validation status display
  */
-async function updateTeamValidationStatus() {
+function updateTeamValidationStatus() {
   const participants = store.getParticipantList();
   const teamAssignments = store.getTeamAssignments();
   const teamSize = store.get('meta.config.teamSize') || 2;
 
-  const { validateTeamAssignments } = await import('../tournament/doubles.js');
   const validation = validateTeamAssignments(participants, teamAssignments, teamSize);
 
   const statusEl = document.getElementById('team-assignment-status');
@@ -998,11 +978,10 @@ function setupTeamAssignmentDelegation() {
 /**
  * Auto-assign teams randomly
  */
-async function onAutoAssignTeams() {
+function onAutoAssignTeams() {
   const participants = store.getParticipantList();
   const teamSize = store.get('meta.config.teamSize') || 2;
 
-  const { autoAssignTeams } = await import('../tournament/doubles.js');
   const assignments = autoAssignTeams(participants, teamSize);
 
   // Clear and set all assignments

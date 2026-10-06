@@ -1,20 +1,19 @@
 /**
  * Malicious and malformed network input against the sync handlers: admin
- * impersonation through isAdmin or a forged localUserId, garbage payloads,
- * and invalid MATCH_VERIFY shapes.
+ * impersonation through isAdmin, a forged identity or a forged synced peerId,
+ * garbage payloads, and invalid MATCH_VERIFY shapes.
  */
 
 import { assertEquals } from 'jsr:@std/assert';
 import { store } from '../js/state/store.js';
-import { ActionTypes } from '../js/network/room.js';
+import { ActionTypes, joinRoom, leaveRoom } from '../js/network/room.js';
+import { setupStateSync, resetSyncState } from '../js/network/sync.js';
 import { generateSingleEliminationBracket } from '../js/tournament/single-elimination.js';
 import { createParticipants } from './fixtures.js';
 import { connectAs, mapAdmin } from './sync-fixtures.js';
+import { _getLastRoom } from './mocks/trystero-mock.js';
 
-// setupStateSync starts a heartbeat interval.
-const testOpts = { sanitizeOps: false, sanitizeResources: false };
-
-Deno.test('STATE_RESPONSE admin impersonation', testOpts, async (t) => {
+Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
   await t.step('does not grant admin authority to a peer merely echoing adminId while the real admin peer is active', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId, peers: ['admin-peer'] });
@@ -23,7 +22,7 @@ Deno.test('STATE_RESPONSE admin impersonation', testOpts, async (t) => {
 
     // The real admin peer maps first: no admin peer is active yet.
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
-      state: { meta: { adminId, status: 'lobby', version: 1 } },
+      state: { meta: { adminId, status: 'lobby' } },
       isAdmin: true,
     }, 'admin-peer');
 
@@ -31,7 +30,7 @@ Deno.test('STATE_RESPONSE admin impersonation', testOpts, async (t) => {
     // only applies if the sender is trusted as admin.
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
       state: {
-        meta: { adminId, status: 'lobby', version: 1 },
+        meta: { adminId, status: 'lobby' },
         bracket: { type: 'evil-forged-bracket' },
       },
       isAdmin: true,
@@ -45,12 +44,12 @@ Deno.test('STATE_RESPONSE admin impersonation', testOpts, async (t) => {
     const mockRoom = connectAs({ userId: 'user-1', adminId, peers: ['admin-peer'] });
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
-      state: { meta: { adminId, status: 'lobby', version: 1 } },
+      state: { meta: { adminId, status: 'lobby' } },
       isAdmin: true,
     }, 'admin-peer');
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
-      state: { meta: { adminId, status: 'lobby', version: 1 } },
+      state: { meta: { adminId, status: 'lobby' } },
       isAdmin: true,
     }, 'malicious-peer');
 
@@ -70,7 +69,7 @@ Deno.test('STATE_RESPONSE admin impersonation', testOpts, async (t) => {
     const mockRoom = connectAs({ userId: 'user-1', adminId });
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
-      state: { meta: { adminId, status: 'lobby', version: 1 }, bracket: { type: 'real' } },
+      state: { meta: { adminId, status: 'lobby' }, bracket: { type: 'real' } },
       isAdmin: true,
     }, 'admin-peer');
 
@@ -78,79 +77,75 @@ Deno.test('STATE_RESPONSE admin impersonation', testOpts, async (t) => {
   });
 });
 
-Deno.test('PARTICIPANT_UPDATE admin identity theft', testOpts, async (t) => {
-  await t.step('rejects payload.localUserId claiming the admin id from an unmapped peer', () => {
+Deno.test('PARTICIPANT_UPDATE from an unmapped peer gets no identity', async (t) => {
+  await t.step('cannot rename the admin or any other participant', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId });
     store.addParticipant({ id: adminId, name: 'RealAdmin', seed: 1 });
 
-    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, {
-      localUserId: adminId,
-      name: 'Hijacked',
-    }, 'attacker-peer');
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { localUserId: adminId, name: 'Hijacked' }, 'attacker-peer');
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { id: adminId, name: 'Hijacked' }, 'attacker-peer');
 
     assertEquals(store.getParticipant(adminId).name, 'RealAdmin');
+    assertEquals(store.getParticipant('attacker-peer'), undefined);
   });
 
-  await t.step('does not cache the attacker peer as the admin mapping', () => {
+  await t.step('a forged peerId merged into synced state does not map the sender to the admin', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId });
+    store.addParticipant({ id: adminId, name: 'RealAdmin', seed: 1 });
+    store.set('meta.status', 'active');
 
-    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, {
-      localUserId: adminId,
-      name: 'Hijacked',
-    }, 'attacker-peer');
+    // A non-admin snapshot still wins participant LWW, so it can plant peerId 'evil' on the admin.
+    mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
+      state: { participants: [[adminId, { id: adminId, name: 'RealAdmin', peerId: 'evil', updatedAt: 9e15 }]] },
+      isAdmin: false,
+    }, 'evil');
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { seed: 1 }, 'evil');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, {}, 'evil');
 
-    // A cached attacker-peer -> adminId mapping would let this admin-only start through.
-    const bracket = generateSingleEliminationBracket(createParticipants(4));
-
-    mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, {
-      bracket,
-      matches: Array.from(bracket.matches.entries()),
-    }, 'attacker-peer');
-
-    assertEquals(store.get('meta.status'), 'lobby');
+    assertEquals(store.get('meta.status'), 'active');
   });
 });
 
-Deno.test('Malformed payloads do not throw', testOpts, async (t) => {
+Deno.test('Malformed payloads do not throw', async (t) => {
+  const malformedData = [null, 'just-a-string', 42, [], undefined, {}];
   const malformedPayloads = [null, 'just-a-string', {}, 42, [], undefined];
 
-  const hardenedActions = [
-    ActionTypes.PARTICIPANT_LEAVE,
-    ActionTypes.TOURNAMENT_START,
-    ActionTypes.MATCH_VERIFY,
-    ActionTypes.STANDINGS_UPDATE,
-    ActionTypes.RACE_RESULT,
-    ActionTypes.VERSION_CHECK,
-  ];
-
-  for (const actionType of hardenedActions) {
-    await t.step(`${actionType} handler survives all malformed payload shapes`, async () => {
-      const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-
-      for (const bad of malformedPayloads) {
-        await mockRoom._simulateAction(actionType, bad, 'some-peer');
-      }
-    });
+  /** Run setupStateSync on a room.js connection over the Trystero mock, as admin. */
+  async function connectThroughRoomJs() {
+    resetSyncState();
+    store.reset();
+    store.set('meta.adminId', 'admin-123');
+    store.set('local.localUserId', 'admin-123');
+    store.setAdmin(true);
+    setupStateSync(await joinRoom('malformed'));
+    return _getLastRoom();
   }
 
-  await t.step('store remains in a sane state after a barrage of malformed input', () => {
-    const adminId = 'admin-123';
-    const mockRoom = connectAs({ userId: adminId, adminId });
+  try {
+    await t.step('every action survives malformed data and payload shapes', async () => {
+      const trystero = await connectThroughRoomJs();
 
-    for (const actionType of hardenedActions) {
-      for (const bad of malformedPayloads) {
-        mockRoom._simulateAction(actionType, bad, 'some-peer');
+      for (const type of Object.values(ActionTypes)) {
+        for (const bad of malformedData) {
+          trystero._simulateMessage(type, bad, 'some-peer');
+        }
+        for (const bad of malformedPayloads) {
+          trystero._simulateMessage(type, { payload: bad }, 'some-peer');
+        }
       }
-    }
 
-    assertEquals(store.get('meta.status'), 'lobby');
-    assertEquals(store.get('meta.adminId'), adminId);
-  });
+      assertEquals(store.get('meta.status'), 'lobby');
+      assertEquals(store.get('meta.adminId'), 'admin-123');
+    });
+  } finally {
+    await leaveRoom();
+    resetSyncState();
+  }
 });
 
-Deno.test('MATCH_VERIFY invalid shape', testOpts, async (t) => {
+Deno.test('MATCH_VERIFY invalid shape', async (t) => {
   const adminId = 'admin-123';
 
   /** Connect as a participant with an active 4-player bracket and the admin mapped. */

@@ -8,29 +8,17 @@ import { CONFIG } from '../../config.js';
 const MAX_NAME_LENGTH = CONFIG.validation.maxNameLength;
 const MAX_MATCH_ID_LENGTH = CONFIG.validation.maxMatchIdLength;
 
-/**
- * Validate a participant name
- * @param {*} name - Value to validate
- * @returns {boolean} True if valid
- */
+/** Non-empty string no longer than CONFIG.validation.maxNameLength. */
 export function isValidName(name) {
   return typeof name === 'string' && name.length > 0 && name.length <= MAX_NAME_LENGTH;
 }
 
-/**
- * Validate a match ID
- * @param {*} matchId - Value to validate
- * @returns {boolean} True if valid
- */
+/** Non-empty string no longer than CONFIG.validation.maxMatchIdLength. */
 export function isValidMatchId(matchId) {
   return typeof matchId === 'string' && matchId.length > 0 && matchId.length <= MAX_MATCH_ID_LENGTH;
 }
 
-/**
- * Validate a scores array
- * @param {*} scores - Value to validate
- * @returns {boolean} True if valid (both scores must be finite non-negative numbers)
- */
+/** Two finite, non-negative numbers. */
 export function isValidScores(scores) {
   return Array.isArray(scores) &&
     scores.length === 2 &&
@@ -40,20 +28,14 @@ export function isValidScores(scores) {
     Number.isFinite(scores[1]) && scores[1] >= 0;
 }
 
-/**
- * Validate incoming state object structure
- * @param {Object} state - State object to validate
- * @returns {boolean} True if valid
- */
+/** Serialized state whose meta is an object and whose participants and matches are [id, value] entry arrays. */
 export function isValidState(state) {
   if (!state || typeof state !== 'object') return false;
 
-  // Meta must be an object if present
   if (state.meta !== undefined && (typeof state.meta !== 'object' || state.meta === null)) {
     return false;
   }
 
-  // Participants must be an array of [id, participant] entries if present
   if (state.participants !== undefined) {
     if (!Array.isArray(state.participants)) return false;
     for (const entry of state.participants) {
@@ -63,7 +45,6 @@ export function isValidState(state) {
     }
   }
 
-  // Matches must be an array of [id, match] entries if present
   if (state.matches !== undefined) {
     if (!Array.isArray(state.matches)) return false;
     for (const entry of state.matches) {
@@ -76,16 +57,9 @@ export function isValidState(state) {
 }
 
 /**
- * Determine if an incoming match result should update the existing match.
- * Uses Last-Writer-Wins (LWW) with logical clock for conflict resolution.
- *
- * @param {Object} incoming - Incoming match result
- * @param {number} incoming.version - Logical clock version
- * @param {number} incoming.reportedAt - Timestamp when reported
- * @param {Object} existing - Existing match state
- * @param {number} [existing.version] - Existing version (default 0)
- * @param {number} [existing.reportedAt] - Existing timestamp (default 0)
- * @param {string} [existing.verifiedBy] - User ID who verified the match
+ * Last-writer-wins on a per-match logical clock, then on reportedAt; the admin always wins.
+ * @param {{version?: number, reportedAt?: number}} incoming - Incoming result
+ * @param {{version?: number, reportedAt?: number}} existing - Stored match
  * @param {boolean} isAdmin - Whether the reporter is admin
  * @returns {boolean} True if incoming should replace existing
  */
@@ -95,75 +69,46 @@ export function shouldUpdateMatch(incoming, existing, isAdmin) {
   const incomingReportedAt = incoming.reportedAt || 0;
   const existingReportedAt = existing.reportedAt || 0;
 
-  // Accept update if:
-  // 1. Higher version (logical clock)
-  if (incomingVersion > existingVersion) {
-    return true;
-  }
-
-  // 2. Same version but newer timestamp
-  if (incomingVersion === existingVersion && incomingReportedAt > existingReportedAt) {
-    return true;
-  }
-
-  // 3. Admin can always override (even verified matches)
-  if (isAdmin) {
-    return true;
-  }
-
-  return false;
+  return isAdmin ||
+    incomingVersion > existingVersion ||
+    (incomingVersion === existingVersion && incomingReportedAt > existingReportedAt);
 }
 
-/**
- * Validate a match result payload structure
- * @param {Object} payload - Payload to validate
- * @returns {boolean} True if valid
- */
-export function isValidMatchResultPayload(payload) {
-  return payload &&
+/** m:verify payload: matchId, scores and a string winnerId. */
+export function isValidMatchVerifyPayload(payload) {
+  return !!payload &&
     isValidMatchId(payload.matchId) &&
     isValidScores(payload.scores) &&
-    typeof payload.winnerId === 'string' &&
-    typeof payload.reportedAt === 'number';
+    typeof payload.winnerId === 'string';
 }
 
-/**
- * Validate a participant join payload
- * @param {Object} payload - Payload to validate
- * @returns {boolean} True if valid
- */
+/** m:result payload: a verify payload plus a numeric reportedAt. */
+export function isValidMatchResultPayload(payload) {
+  return isValidMatchVerifyPayload(payload) && typeof payload.reportedAt === 'number';
+}
+
+/** p:join payload: a valid name and a non-empty string localUserId. */
 export function isValidParticipantJoinPayload(payload) {
-  return payload && isValidName(payload.name);
+  return !!payload &&
+    isValidName(payload.name) &&
+    typeof payload.localUserId === 'string' &&
+    payload.localUserId.length > 0;
 }
 
-/**
- * Validate a participant update payload
- * Allowlist-based validation to prevent field injection
- * @param {Object} payload - Payload to validate
- * @returns {boolean} True if valid
- */
+/** Allowlisted participant-update fields with type checks; unknown keys are rejected. */
 export function isValidParticipantUpdatePayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
 
-  // Check for prototype pollution attempts (these don't appear in Object.keys())
-  // Use hasOwnProperty to avoid false positives from inherited properties
-  const hasOwn = Object.prototype.hasOwnProperty;
-  if (hasOwn.call(payload, '__proto__') || hasOwn.call(payload, 'constructor') || hasOwn.call(payload, 'prototype')) return false;
-
-  const allowedFields = ['name', 'seed', 'id', 'teamId', 'peerId', 'isConnected', 'localUserId', 'isManual', 'claimedBy'];
+  const allowedFields = ['name', 'seed', 'id', 'peerId', 'isConnected', 'claimedBy'];
   for (const key of Object.keys(payload)) {
     if (!allowedFields.includes(key)) return false;
   }
 
-  // Validate field types if present
   if (payload.name !== undefined && !isValidName(payload.name)) return false;
   if (payload.seed !== undefined && typeof payload.seed !== 'number') return false;
   if (payload.id !== undefined && typeof payload.id !== 'string') return false;
-  if (payload.teamId !== undefined && payload.teamId !== null && typeof payload.teamId !== 'string') return false;
   if (payload.peerId !== undefined && payload.peerId !== null && typeof payload.peerId !== 'string') return false;
   if (payload.isConnected !== undefined && typeof payload.isConnected !== 'boolean') return false;
-  if (payload.localUserId !== undefined && typeof payload.localUserId !== 'string') return false;
-  if (payload.isManual !== undefined && typeof payload.isManual !== 'boolean') return false;
   if (payload.claimedBy !== undefined && payload.claimedBy !== null && typeof payload.claimedBy !== 'string') return false;
 
   return true;

@@ -91,14 +91,13 @@ js/
 
 `ActionTypes` in `room.js` names each action. Trystero limits names to 32 bytes.
 - `st:req/st:res` - State request/response
-- `p:join/p:upd/p:leave` - Participant lifecycle
-- `t:start/t:reset/t:archive` - Tournament lifecycle (admin only)
+- `p:join/p:upd` - Participant announce and update
+- `p:leave` - Participant removal (admin only); voluntary leaves arrive through Trystero's peer-leave event
+- `t:start/t:reset` - Tournament lifecycle (admin only); `t:reset` carries the archived tournament
 - `m:result/m:verify` - Match reporting
 - `r:result` - Points Race game result
-- `s:upd` - Standings update (admin only)
-- `v:check` - Admin version heartbeat
 
-Messages travel as `{ payload }`. Sender identity comes from Trystero's `peerId`.
+Messages travel as `{ payload }`, and `room.js` drops any whose payload is not an object. Sender identity comes from Trystero's `peerId`.
 
 ### Configuration
 
@@ -108,7 +107,7 @@ Messages travel as `{ payload }`. Sender identity comes from Trystero's `peerId`
 - `validation` - Input validation limits (maxNameLength, maxMatchIdLength)
 - `storage` - localStorage prefix and retentionDays
 - `ui` - toastDuration
-- `network` - Network settings (stateResponseDelay, turnCredentialsUrl)
+- `network` - turnCredentialsUrl, the TURN credential endpoint
 
 ## Important Patterns
 

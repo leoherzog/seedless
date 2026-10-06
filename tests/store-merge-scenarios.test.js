@@ -19,7 +19,7 @@ Deno.test("Store.merge - fresh joiner bootstrap", async (t) => {
     };
 
     const remoteState = {
-      meta: { id: "room-1", adminId: "admin-1", status: "active", version: 3 },
+      meta: { id: "room-1", adminId: "admin-1", status: "active" },
       bracket: remoteBracket,
       matches: [["r1m0", { id: "r1m0", participants: ["p1", "p2"], winnerId: null }]],
       standings: [
@@ -58,12 +58,11 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
   await t.step("merge(remote, true) grants admin authority over bracket/standings", () => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
-    store.set("meta.version", 10);
     store._state.bracket = { type: "single", rounds: [{ number: 1, matchIds: [] }] };
     store._state.standings = new Map([["old", { participantId: "old", points: 1 }]]);
 
     const remoteState = {
-      meta: { adminId: "admin-1", status: "complete", version: 1 },
+      meta: { adminId: "admin-1", status: "complete" },
       bracket: { type: "single", rounds: [{ number: 2, matchIds: [] }] },
       standings: [["new", { participantId: "new", points: 99 }]],
     };
@@ -71,23 +70,21 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
     store.merge(remoteState, true);
 
     assertEquals(store.get("meta.status"), "complete");
-    assertEquals(store.get("meta.version"), 1, "admin authority overrides even a lower version");
     assertEquals(store.get("bracket").rounds[0].number, 2);
     const standings = store.get("standings");
     assert(standings.has("new"));
     assert(!standings.has("old"));
   });
 
-  await t.step("merge(remote, false) from a stale peer with lower version does not clobber meta/bracket/standings", () => {
+  await t.step("merge(remote, false) from a stale peer does not clobber meta/bracket/standings", () => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
-    store.set("meta.version", 10);
     store.set("meta.status", "active");
     store._state.bracket = { type: "single", rounds: [{ number: 1, matchIds: [] }], marker: "local" };
     store._state.standings = new Map([["local", { participantId: "local", points: 5 }]]);
 
     const remoteState = {
-      meta: { adminId: "admin-1", status: "lobby", version: 2 },
+      meta: { adminId: "admin-1", status: "lobby" },
       bracket: { type: "single", rounds: [], marker: "stale" },
       standings: [["stale", { participantId: "stale", points: 0 }]],
     };
@@ -95,30 +92,27 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
     store.merge(remoteState, false);
 
     assertEquals(store.get("meta.status"), "active", "stale peer must not regress status");
-    assertEquals(store.get("meta.version"), 10, "stale peer must not regress version");
     assertEquals(store.get("bracket").marker, "local", "stale peer must not clobber bracket");
     const standings = store.get("standings");
     assert(standings.has("local"));
     assert(!standings.has("stale"), "stale non-admin standings must be rejected");
   });
 
-  await t.step("non-admin meta is ignored even when its version is higher", () => {
+  await t.step("non-admin meta is ignored", () => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
-    store.set("meta.version", 5);
     store.set("meta.status", "lobby");
 
-    store.merge({ meta: { adminId: "attacker", status: "active", type: "double", version: 999 } }, false);
+    store.merge({ meta: { adminId: "attacker", status: "active", type: "double" } }, false);
 
     assertEquals(store.get("meta.adminId"), "admin-1", "a non-admin peer must not rewrite adminId");
     assertEquals(store.get("meta.status"), "lobby", "a non-admin peer must not change status");
     assertEquals(store.get("meta.type"), "single");
-    assertEquals(store.get("meta.version"), 5);
   });
 });
 
 Deno.test("Store.merge - adminId protection", async (t) => {
-  const foreignMeta = { meta: { adminId: "other-admin", status: "active", version: 999 } };
+  const foreignMeta = { meta: { adminId: "other-admin", status: "active" } };
 
   await t.step("the admin keeps its own adminId against any sender", () => {
     const store = new Store();

@@ -16,12 +16,9 @@ export const ActionTypes = {
   PARTICIPANT_LEAVE: 'p:leave',
   TOURNAMENT_START: 't:start',
   TOURNAMENT_RESET: 't:reset',
-  TOURNAMENT_ARCHIVE: 't:archive',
   MATCH_RESULT: 'm:result',
   MATCH_VERIFY: 'm:verify',
-  STANDINGS_UPDATE: 's:upd',
   RACE_RESULT: 'r:result',
-  VERSION_CHECK: 'v:check',
 };
 
 /**
@@ -29,7 +26,7 @@ export const ActionTypes = {
  * @property {string} selfId - Local peer ID
  * @property {(type: string, payload: *) => void} broadcast - Send to every peer
  * @property {(type: string, payload: *, target: string|string[]) => void} sendTo - Send to specific peer(s)
- * @property {(type: string, callback: (payload: *, peerId: string) => void) => void} onAction - Set the handler for one action type
+ * @property {(type: string, callback: (payload: Object, peerId: string) => void) => void} onAction - Set the handler for one action type; non-object payloads are dropped
  * @property {(callback: (peerId: string) => void) => void} onPeerJoin - Add a peer-join handler
  * @property {(callback: (peerId: string) => void) => void} onPeerLeave - Add a peer-leave handler
  * @property {() => string[]} getPeers - Connected peer IDs
@@ -95,7 +92,9 @@ export async function joinRoom(roomId) {
     broadcast: (type, payload) => actions[type].send({ payload }),
     sendTo: (type, payload, target) => actions[type].send({ payload }, { target }),
     onAction: (type, callback) => {
-      actions[type].onMessage = (data, { peerId }) => callback(data.payload, peerId);
+      actions[type].onMessage = (data, { peerId }) => {
+        if (typeof data?.payload === 'object' && data.payload !== null) callback(data.payload, peerId);
+      };
     },
     onPeerJoin: (callback) => joinHandlers.push(callback),
     onPeerLeave: (callback) => leaveHandlers.push(callback),

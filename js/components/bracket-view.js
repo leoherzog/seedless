@@ -5,6 +5,7 @@
 
 import { store } from '../state/store.js';
 import { getRoom } from '../network/room.js';
+import { reportMatchResult, advanceWinner, reportRaceResult } from '../network/sync.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
@@ -524,7 +525,7 @@ function openScoreModal(matchId) {
 /**
  * Submit score from modal
  */
-async function onSubmitScore() {
+function onSubmitScore() {
   const form = document.getElementById('score-form');
   const matchId = document.getElementById('match-id').value;
   const score1 = parseInt(document.getElementById('score1').value, 10) || 0;
@@ -539,7 +540,6 @@ async function onSubmitScore() {
   const winnerId = winnerRadio.value === 'player1' ? form.dataset.p1 : form.dataset.p2;
 
   try {
-    const { reportMatchResult } = await import('../network/sync.js');
     reportMatchResult(getRoom(), matchId, [score1, score2], winnerId);
 
     // Close modal
@@ -558,7 +558,7 @@ async function onSubmitScore() {
 /**
  * Verify a match result (admin only)
  */
-async function verifyMatch(matchId) {
+function verifyMatch(matchId) {
   const match = store.getMatch(matchId);
   if (!match || !match.winnerId) return;
 
@@ -575,7 +575,6 @@ async function verifyMatch(matchId) {
   });
 
   // Advance winner to next match (in case it wasn't advanced during initial report)
-  const { advanceWinner } = await import('../network/sync.js');
   advanceWinner(matchId);
 
   // Broadcast verification
@@ -748,7 +747,7 @@ function pointsPreviewText(isStandIn, pointsTable, idx, totalPlayers) {
 /**
  * Submit race result from modal
  */
-async function onSubmitRaceResult() {
+function onSubmitRaceResult() {
   const gameId = document.getElementById('race-id').value;
   const list = document.getElementById('race-ranking-list');
   const items = list.querySelectorAll('li');
@@ -765,7 +764,6 @@ async function onSubmitRaceResult() {
   }));
 
   try {
-    const { reportRaceResult } = await import('../network/sync.js');
     reportRaceResult(getRoom(), gameId, results);
 
     // Close modal

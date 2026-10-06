@@ -4,21 +4,12 @@
 
 import { assertEquals, assert, assertNotEquals } from 'jsr:@std/assert';
 import { store } from '../js/state/store.js';
-import {
-  announceJoin,
-  reportMatchResult,
-  startTournament,
-  reportRaceResult,
-  markStateInitialized,
-} from '../js/network/sync.js';
+import { reportMatchResult, startTournament, reportRaceResult } from '../js/network/sync.js';
 import { ActionTypes } from '../js/network/room.js';
 import { generateSingleEliminationBracket } from '../js/tournament/single-elimination.js';
 import { generateMarioKartTournament } from '../js/tournament/mario-kart.js';
-import { createMockRoom, createParticipants } from './fixtures.js';
+import { createParticipants } from './fixtures.js';
 import { connectAs, mapAdmin } from './sync-fixtures.js';
-
-// setupStateSync starts a heartbeat interval.
-const testOpts = { sanitizeOps: false, sanitizeResources: false };
 
 /** Load a 4-player single-elimination bracket into the store. */
 function loadSingleBracket() {
@@ -27,7 +18,7 @@ function loadSingleBracket() {
   store.set('bracket', bracket);
 }
 
-Deno.test('STATE_REQUEST handler', testOpts, async (t) => {
+Deno.test('STATE_REQUEST handler', async (t) => {
   await t.step('responds with current state to requester', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: adminId, adminId });
@@ -45,13 +36,13 @@ Deno.test('STATE_REQUEST handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('STATE_RESPONSE handler', testOpts, async (t) => {
+Deno.test('STATE_RESPONSE handler', async (t) => {
   await t.step('merges valid state from admin', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'participant-456', adminId, peers: ['admin-peer'] });
 
     const remoteState = {
-      meta: { adminId, status: 'lobby', version: 1 },
+      meta: { adminId, status: 'lobby' },
       participants: [[adminId, { id: adminId, name: 'Admin', seed: 1, isConnected: true }]],
     };
 
@@ -85,7 +76,7 @@ Deno.test('STATE_RESPONSE handler', testOpts, async (t) => {
     store.addParticipant({ id: 'disconnected-user', name: 'Disconnected', seed: 3, peerId: 'gone-peer', isConnected: true });
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
-      state: { meta: { adminId, status: 'lobby', version: 1 }, participants: [] },
+      state: { meta: { adminId, status: 'lobby' }, participants: [] },
       isAdmin: true,
     }, 'admin-peer');
 
@@ -101,7 +92,7 @@ Deno.test('STATE_RESPONSE handler', testOpts, async (t) => {
     mockRoom._clearMessages();
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
-      state: { meta: { adminId, status: 'lobby', version: 1 }, participants: [] },
+      state: { meta: { adminId, status: 'lobby' }, participants: [] },
       isAdmin: true,
     }, 'admin-peer');
 
@@ -112,7 +103,7 @@ Deno.test('STATE_RESPONSE handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('PARTICIPANT_JOIN handler', testOpts, async (t) => {
+Deno.test('PARTICIPANT_JOIN handler', async (t) => {
   await t.step('adds new participant', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
@@ -136,8 +127,10 @@ Deno.test('PARTICIPANT_JOIN handler', testOpts, async (t) => {
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
       localUserId: 'bad-player',
     }, 'peer-1');
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, { name: 'NoId' }, 'peer-2');
 
     assertEquals(store.getParticipantList().length, initialCount);
+    assertEquals(store.getParticipant('peer-2'), undefined);
   });
 
   await t.step('handles manual participant additions from admin', () => {
@@ -156,7 +149,7 @@ Deno.test('PARTICIPANT_JOIN handler', testOpts, async (t) => {
     assert(participant !== undefined);
     assertEquals(participant.name, 'ManualPlayer');
     assertEquals(participant.isManual, true);
-    assertEquals(participant.peerId, null);
+    assertEquals(participant.isConnected, false, 'manual players stay offline on peers');
   });
 
   await t.step('rejects manual participant injection from non-admin', () => {
@@ -262,7 +255,7 @@ Deno.test('PARTICIPANT_JOIN handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('PARTICIPANT_UPDATE handler', testOpts, async (t) => {
+Deno.test('PARTICIPANT_UPDATE handler', async (t) => {
   await t.step('updates participant data', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
@@ -282,15 +275,10 @@ Deno.test('PARTICIPANT_UPDATE handler', testOpts, async (t) => {
 
   await t.step('admin can update any participant by ID', () => {
     const adminId = 'admin-123';
-    const mockRoom = connectAs({ userId: adminId, adminId });
+    const mockRoom = connectAs({ userId: 'user-2', adminId });
+    mapAdmin(mockRoom, adminId);
 
-    store.addParticipant({ id: adminId, name: 'Admin', seed: 1, peerId: 'admin-peer' });
     store.addParticipant({ id: 'user-1', name: 'Player1', seed: 2 });
-
-    mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
-      name: 'Admin',
-      localUserId: adminId,
-    }, 'admin-peer');
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, {
       id: 'user-1',
@@ -300,32 +288,27 @@ Deno.test('PARTICIPANT_UPDATE handler', testOpts, async (t) => {
     assertEquals(store.getParticipant('user-1').name, 'UpdatedByAdmin');
   });
 
-  await t.step('creates participant if not exists with name in payload', () => {
-    const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-
-    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, {
-      name: 'NewPlayer',
-      localUserId: 'new-user',
-    }, 'peer-1');
-
-    const participant = store.getParticipant('new-user');
-    assert(participant !== undefined);
-    assertEquals(participant.name, 'NewPlayer');
-  });
-
-  await t.step('participant update uses peerId fallback and ignores id for non-admin', () => {
+  await t.step('updates apply only to the mapped sender, and never add participants', () => {
     const mockRoom = connectAs({ userId: 'local-user', adminId: 'admin-1' });
 
     store.addParticipant({ id: 'user-1', peerId: 'peer-1', name: 'Alice' });
+    store.addParticipant({ id: 'user-2', name: 'Bob' });
 
+    // A synced peerId alone does not identify the sender.
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { name: 'Alicia' }, 'peer-1');
+    assertEquals(store.getParticipant('user-1').name, 'Alice');
+
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, { name: 'Alice', localUserId: 'user-1' }, 'peer-1');
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { name: 'Alicia' }, 'peer-1');
     assertEquals(store.getParticipant('user-1').name, 'Alicia');
 
-    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { name: 'Bob' }, 'peer-2');
-    assert(store.getParticipant('peer-2'), 'unknown peer should be added when name is provided');
+    // A non-admin's id is ignored.
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { id: 'user-2', name: 'Carol' }, 'peer-1');
+    assertEquals(store.getParticipant('user-2').name, 'Bob');
+    assertEquals(store.getParticipant('user-1').name, 'Carol');
 
-    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { id: 'target-2', name: 'Carol' }, 'peer-2');
-    assertEquals(store.getParticipant('target-2'), undefined);
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { name: 'Dave' }, 'peer-3');
+    assertEquals(store.getParticipant('peer-3'), undefined);
   });
 
   await t.step('rejects invalid payload', () => {
@@ -346,11 +329,9 @@ Deno.test('PARTICIPANT_UPDATE handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('PARTICIPANT_LEAVE handler', testOpts, async (t) => {
-  await t.step('marks participant as disconnected on voluntary leave', () => {
+Deno.test('PARTICIPANT_LEAVE handler', async (t) => {
+  await t.step('ignores a leave without removedId, which onPeerLeave handles', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-
-    store.addParticipant({ id: 'user-1', name: 'Player', seed: 1, peerId: 'peer-1', isConnected: true });
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
       name: 'Player',
@@ -359,7 +340,7 @@ Deno.test('PARTICIPANT_LEAVE handler', testOpts, async (t) => {
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_LEAVE, {}, 'peer-1');
 
-    assertEquals(store.getParticipant('user-1').isConnected, false);
+    assertEquals(store.getParticipant('user-1').isConnected, true);
   });
 
   await t.step('admin can remove other participants', () => {
@@ -394,7 +375,7 @@ Deno.test('PARTICIPANT_LEAVE handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('TOURNAMENT_START handler', testOpts, async (t) => {
+Deno.test('TOURNAMENT_START handler', async (t) => {
   await t.step('rejects tournament start from non-admin', async () => {
     const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
 
@@ -450,7 +431,7 @@ Deno.test('TOURNAMENT_START handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('TOURNAMENT_RESET handler', testOpts, async (t) => {
+Deno.test('TOURNAMENT_RESET handler', async (t) => {
   await t.step('resets tournament state when called by admin', async () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: adminId, adminId });
@@ -471,6 +452,21 @@ Deno.test('TOURNAMENT_RESET handler', testOpts, async (t) => {
     assertEquals(store.getTeamAssignments().size, 0);
   });
 
+  await t.step('adds the carried archive to history once', () => {
+    const adminId = 'admin-123';
+    const mockRoom = connectAs({ userId: adminId, adminId });
+    mapAdmin(mockRoom, adminId);
+
+    store.set('meta.status', 'complete');
+    const archive = { id: 'archive-1', name: 'Cup', winner: null, standings: [] };
+
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive }, 'admin-peer');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive }, 'admin-peer');
+
+    assertEquals(store.getHistory().map(h => h.id), ['archive-1']);
+    assertEquals(store.get('meta.status'), 'lobby');
+  });
+
   await t.step('rejects reset from non-admin', async () => {
     const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
 
@@ -487,11 +483,9 @@ Deno.test('TOURNAMENT_RESET handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('MATCH_RESULT handler', testOpts, async (t) => {
+Deno.test('MATCH_RESULT handler', async (t) => {
   await t.step('accepts valid result from participant', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-    markStateInitialized();
-
     loadSingleBracket();
     store.set('meta.status', 'active');
     store.set('meta.type', 'single');
@@ -521,8 +515,6 @@ Deno.test('MATCH_RESULT handler', testOpts, async (t) => {
 
   await t.step('rejects result with invalid winnerId', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-    markStateInitialized();
-
     loadSingleBracket();
     store.set('meta.status', 'active');
 
@@ -545,8 +537,6 @@ Deno.test('MATCH_RESULT handler', testOpts, async (t) => {
 
   await t.step('rejects result from non-participant non-admin', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-    markStateInitialized();
-
     loadSingleBracket();
     store.set('meta.status', 'active');
 
@@ -590,7 +580,7 @@ Deno.test('MATCH_RESULT handler', testOpts, async (t) => {
     mockRoom._simulateAction(ActionTypes.MATCH_RESULT, result, 'peer-1');
     assertEquals(store.getMatch(matchId).winnerId, null);
 
-    markStateInitialized();
+    mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, { state: {}, isAdmin: false }, 'peer-x');
 
     mockRoom._simulateAction(ActionTypes.MATCH_RESULT, result, 'peer-1');
     assertEquals(store.getMatch(matchId).winnerId, match.participants[0]);
@@ -599,8 +589,6 @@ Deno.test('MATCH_RESULT handler', testOpts, async (t) => {
   await t.step('protects verified match from non-admin overwrite', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: adminId, adminId });
-    markStateInitialized();
-
     loadSingleBracket();
     store.set('meta.status', 'active');
 
@@ -631,7 +619,7 @@ Deno.test('MATCH_RESULT handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('MATCH_VERIFY handler', testOpts, async (t) => {
+Deno.test('MATCH_VERIFY handler', async (t) => {
   await t.step('admin can verify match', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'participant-1', adminId });
@@ -641,7 +629,7 @@ Deno.test('MATCH_VERIFY handler', testOpts, async (t) => {
 
     const matchId = 'r1m0';
     const winnerId = store.getMatch(matchId).participants[0];
-    store.updateMatch(matchId, { reportedBy: winnerId });
+    store.updateMatch(matchId, { reportedBy: winnerId, reportedAt: 1234 });
 
     mockRoom._simulateAction(ActionTypes.MATCH_VERIFY, {
       matchId,
@@ -652,6 +640,7 @@ Deno.test('MATCH_VERIFY handler', testOpts, async (t) => {
     assertEquals(store.getMatch(matchId).winnerId, winnerId);
     assertEquals(store.getMatch(matchId).verifiedBy, adminId);
     assertEquals(store.getMatch(matchId).reportedBy, winnerId, 'verify keeps the reporter');
+    assertEquals(store.getMatch(matchId).reportedAt, 1234, 'verify keeps the reported time');
     assertEquals(store.getMatch('r2m0').participants[0], winnerId, 'the winner advances');
   });
 
@@ -678,40 +667,7 @@ Deno.test('MATCH_VERIFY handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('STANDINGS_UPDATE handler', testOpts, async (t) => {
-  await t.step('admin can update standings', () => {
-    const adminId = 'admin-123';
-    const mockRoom = connectAs({ userId: 'participant-1', adminId });
-    mapAdmin(mockRoom, adminId);
-
-    const standings = [
-      ['player-1', { name: 'P1', points: 15, wins: 1, gamesCompleted: 1 }],
-      ['player-2', { name: 'P2', points: 12, wins: 0, gamesCompleted: 1 }],
-    ];
-
-    mockRoom._simulateAction(ActionTypes.STANDINGS_UPDATE, { standings }, 'admin-peer');
-
-    assertEquals(store.get('standings').size, 2);
-    assertEquals(store.get('standings').get('player-1').points, 15);
-  });
-
-  await t.step('rejects standings update from non-admin', () => {
-    const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
-
-    mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
-      name: 'User1',
-      localUserId: 'user-1',
-    }, 'peer-1');
-
-    mockRoom._simulateAction(ActionTypes.STANDINGS_UPDATE, {
-      standings: [['player-1', { points: 100 }]],
-    }, 'peer-1');
-
-    assertEquals(store.get('standings').size, 0);
-  });
-});
-
-Deno.test('RACE_RESULT handler', testOpts, async (t) => {
+Deno.test('RACE_RESULT handler', async (t) => {
   await t.step('race result enforces participant/admin and staleness', async () => {
     const mockRoom = connectAs({ userId: 'local-user', adminId: 'admin-1' });
     store.set('meta.type', 'mariokart');
@@ -772,32 +728,7 @@ Deno.test('RACE_RESULT handler', testOpts, async (t) => {
   });
 });
 
-Deno.test('VERSION_CHECK handler', testOpts, async (t) => {
-  await t.step('requests sync when behind on version', () => {
-    const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
-    store.set('meta.version', 5);
-    mockRoom._clearMessages();
-
-    mockRoom._simulateAction(ActionTypes.VERSION_CHECK, { version: 10 }, 'admin-peer');
-
-    const stateRequest = mockRoom._sentMessages.find(m => m.type === ActionTypes.STATE_REQUEST);
-    assert(stateRequest !== undefined);
-    assertEquals(stateRequest.peerId, 'admin-peer');
-  });
-
-  await t.step('does not request sync when version is current', () => {
-    const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
-    store.set('meta.version', 10);
-    mockRoom._clearMessages();
-
-    mockRoom._simulateAction(ActionTypes.VERSION_CHECK, { version: 10 }, 'admin-peer');
-
-    const stateRequest = mockRoom._sentMessages.find(m => m.type === ActionTypes.STATE_REQUEST);
-    assertEquals(stateRequest, undefined);
-  });
-});
-
-Deno.test('Peer join/leave handlers', testOpts, async (t) => {
+Deno.test('Peer join/leave handlers', async (t) => {
   await t.step('marks participant connected on peer join', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
@@ -852,25 +783,9 @@ Deno.test('Peer join/leave handlers', testOpts, async (t) => {
   });
 });
 
-Deno.test('announceJoin', testOpts, async (t) => {
-  await t.step('broadcasts participant join', () => {
-    const mockRoom = createMockRoom();
-
-    announceJoin(mockRoom, 'TestPlayer', 'user-123');
-
-    assertEquals(mockRoom._broadcasts.length, 1);
-    assertEquals(mockRoom._broadcasts[0].type, ActionTypes.PARTICIPANT_JOIN);
-    assertEquals(mockRoom._broadcasts[0].payload.name, 'TestPlayer');
-    assertEquals(mockRoom._broadcasts[0].payload.localUserId, 'user-123');
-    assert(mockRoom._broadcasts[0].payload.joinedAt !== undefined);
-  });
-});
-
-Deno.test('reportMatchResult', testOpts, async (t) => {
+Deno.test('reportMatchResult', async (t) => {
   await t.step('broadcasts match result', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
-    // The broadcast carries the per-match version, not meta.version.
-    store.set('meta.version', 5);
     mockRoom._clearMessages();
 
     reportMatchResult(mockRoom, 'match-1', [2, 1], 'player-1');
@@ -895,7 +810,7 @@ Deno.test('reportMatchResult', testOpts, async (t) => {
   });
 });
 
-Deno.test('startTournament', testOpts, async (t) => {
+Deno.test('startTournament', async (t) => {
   await t.step('broadcasts tournament start when admin', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     mockRoom._clearMessages();
@@ -909,18 +824,9 @@ Deno.test('startTournament', testOpts, async (t) => {
     assertEquals(mockRoom._broadcasts[0].type, ActionTypes.TOURNAMENT_START);
     assertEquals(mockRoom._broadcasts[0].payload.bracket, bracket);
   });
-
-  await t.step('does not broadcast when not admin', () => {
-    const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
-    mockRoom._clearMessages();
-
-    startTournament(mockRoom, {}, new Map());
-
-    assertEquals(mockRoom._broadcasts.length, 0);
-  });
 });
 
-Deno.test('reportRaceResult', testOpts, async (t) => {
+Deno.test('reportRaceResult', async (t) => {
   /** Load a one-game, 4-player race into the store. */
   function loadRace() {
     const participants = createParticipants(4);

@@ -1,8 +1,20 @@
 /**
- * Tests for url-state.js against a mock window installed before the module loads.
+ * Tests for url-state.js against a mock window.
  */
 
 import { assertEquals } from "jsr:@std/assert";
+import {
+  sanitizeRoomSlug,
+  formatRoomSlugInput,
+  parseUrlState,
+  updateUrlState,
+  navigateToRoom,
+  navigateToBracket,
+  navigateToHome,
+  getRoomLink,
+  URL_PARAMS,
+  VIEWS,
+} from "../js/state/url-state.js";
 
 function createMockWindow() {
   const listeners = new Map();
@@ -53,22 +65,8 @@ function getQuery(url) {
   return u.searchParams;
 }
 
-// url-state.js registers its popstate listener on window at import time.
 const windowMock = createMockWindow();
 globalThis.window = windowMock;
-
-const {
-  sanitizeRoomSlug,
-  formatRoomSlugInput,
-  parseUrlState,
-  updateUrlState,
-  navigateToRoom,
-  navigateToBracket,
-  navigateToHome,
-  getRoomLink,
-  URL_PARAMS,
-  VIEWS,
-} = await import("../js/state/url-state.js");
 
 Deno.test("sanitizeRoomSlug", async (t) => {
   await t.step("lowercases input", () => {
@@ -227,14 +225,5 @@ Deno.test('url-state behaviors', async (t) => {
     const url = new URL(link);
     assertEquals(url.searchParams.get(URL_PARAMS.ROOM), 'share-room');
     assertEquals(url.searchParams.get(URL_PARAMS.VIEW), 'lobby');
-  });
-
-  await t.step('popstate dispatches urlstatechange for the restored URL', () => {
-    windowMock.location.search = '?room=x&view=lobby';
-    windowMock.dispatchEvent({ type: 'popstate', state: null });
-
-    const lastEvent = windowMock._dispatched.at(-1);
-    assertEquals(lastEvent.type, 'urlstatechange');
-    assertEquals(lastEvent.detail.roomId, 'x');
   });
 });

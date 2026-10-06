@@ -23,10 +23,6 @@ function getContainer() {
  */
 export function showToast(message, type = 'info', duration = CONFIG.ui.toastDuration) {
   const toastContainer = getContainer();
-  if (!toastContainer) {
-    console.warn('[Toast] Container not found, cannot show toast:', message);
-    return null;
-  }
 
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;

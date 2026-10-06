@@ -33,8 +33,6 @@ export const CONFIG = {
 
   // Network settings
   network: {
-    // Delay before sending state to new peers (allows connection to stabilize)
-    stateResponseDelay: 500,
     // TURN credential endpoint (see turn-worker/). Set to your deployed
     // Worker URL to enable TURN relay for peers behind strict NATs (e.g.
     // phones on cellular). Empty string disables TURN (STUN only).

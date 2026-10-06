@@ -239,23 +239,6 @@ Deno.test("archiveTournament - Single Elimination", async (t) => {
     assertExists(entry.id, "Should have an id");
     assert(entry.id.length > 0, "ID should not be empty");
   });
-
-  await t.step("returns null for incomplete tournament", () => {
-    const store = new Store();
-    const participants = createParticipants(4);
-    participants.forEach((p) => store.addParticipant(p));
-
-    const { bracket, matches } = generateSingleEliminationBracket(
-      store.getParticipantList()
-    );
-    store.setMatches(matches);
-    store.set("bracket", bracket);
-    store.set("meta.status", "active"); // Not complete
-
-    const entry = store.archiveTournament();
-
-    assertEquals(entry, null, "Should return null for incomplete tournament");
-  });
 });
 
 Deno.test("archiveTournament - Double Elimination", async (t) => {
@@ -489,16 +472,6 @@ Deno.test("resetForNewTournament", async (t) => {
 
     const history = store.getHistory();
     assertEquals(history.length, 1);
-  });
-
-  await t.step("increments version", () => {
-    const store = createCompleteSingleElimTournament();
-    const versionBefore = store.get("meta.version");
-
-    store.resetForNewTournament();
-
-    const versionAfter = store.get("meta.version");
-    assert(versionAfter > versionBefore, "Version should increment");
   });
 });
 

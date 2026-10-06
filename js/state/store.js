@@ -10,7 +10,6 @@ import { getFinalStandings } from '../tournament/standings.js';
  * @property {string} id - Unique ID (user_ for connected, manual_ for manual)
  * @property {string|null} peerId - Transient WebRTC peer ID
  * @property {string} name - Display name
- * @property {string|null} teamId - Team ID for doubles
  * @property {boolean} isConnected - Connection status (always false for manual until claimed)
  * @property {boolean} isManual - True if manually added by admin
  * @property {string|null} claimedBy - localUserId of user who claimed this slot
@@ -59,7 +58,6 @@ function createInitialState() {
         pointsTable: null,
       },
       createdAt: null,
-      version: 0,
     },
     participants: new Map(),
     bracket: null,
@@ -130,16 +128,15 @@ class Store extends EventTarget {
         isConnected: true,
       });
     } else {
-      // Add new participant
+      // New participants default to connected; manual players pass isConnected: false.
       this._state.participants.set(participant.id, {
+        isConnected: true,
         ...participant,
         joinedAt: participant.joinedAt || Date.now(),
-        isConnected: true,
         seed: participant.seed || this._state.participants.size + 1,
       });
       this.emit('participant:join', participant);
     }
-    this._state.meta.version++;
     this.emit('change', { path: 'participants' });
     return this;
   }
@@ -149,7 +146,6 @@ class Store extends EventTarget {
     if (participant) {
       // Add updatedAt timestamp for LWW conflict resolution during state sync
       Object.assign(participant, updates, { updatedAt: Date.now() });
-      this._state.meta.version++;
       this.emit('change', { path: 'participants' });
     }
     return this;
@@ -159,7 +155,6 @@ class Store extends EventTarget {
     const participant = this._state.participants.get(id);
     if (participant) {
       this._state.participants.delete(id);
-      this._state.meta.version++;
       this.emit('participant:leave', participant);
       this.emit('change', { path: 'participants' });
     }
@@ -191,7 +186,6 @@ class Store extends EventTarget {
     const participant = {
       id,
       name,
-      teamId: null,
       isConnected: false,
       isManual: true,
       claimedBy: null,
@@ -200,7 +194,6 @@ class Store extends EventTarget {
     };
 
     this._state.participants.set(id, participant);
-    this._state.meta.version++;
     this.emit('participant:join', participant);
     this.emit('change', { path: 'participants' });
 
@@ -209,21 +202,18 @@ class Store extends EventTarget {
 
   setTeamAssignment(participantId, teamId) {
     this._state.teamAssignments.set(participantId, teamId);
-    this._state.meta.version++;
     this.emit('change', { path: 'teamAssignments' });
     return this;
   }
 
   clearTeamAssignments() {
     this._state.teamAssignments.clear();
-    this._state.meta.version++;
     this.emit('change', { path: 'teamAssignments' });
     return this;
   }
 
   removeTeamAssignment(participantId) {
     this._state.teamAssignments.delete(participantId);
-    this._state.meta.version++;
     this.emit('change', { path: 'teamAssignments' });
     return this;
   }
@@ -234,7 +224,6 @@ class Store extends EventTarget {
 
   setMatches(matches) {
     this._state.matches = matches;
-    this._state.meta.version++;
     this.emit('change', { path: 'matches' });
     return this;
   }
@@ -247,7 +236,6 @@ class Store extends EventTarget {
     const match = this._state.matches.get(id);
     if (match) {
       Object.assign(match, updates);
-      this._state.meta.version++;
       this.emit('change', { path: 'matches' });
     }
     return this;
@@ -266,14 +254,9 @@ class Store extends EventTarget {
   /**
    * Archive current tournament to history
    * Creates a summary entry with winner, top 4 standings, type, and participant count
-   * @returns {Object|null} The created history entry, or null if tournament not complete
+   * @returns {Object} The created history entry
    */
   archiveTournament() {
-    if (this._state.meta.status !== 'complete') {
-      console.warn('[Store] Cannot archive incomplete tournament');
-      return null;
-    }
-
     let ranked = [];
     try {
       ranked = getFinalStandings(this._state);
@@ -298,7 +281,6 @@ class Store extends EventTarget {
     };
 
     this._state.history.push(historyEntry);
-    this._state.meta.version++;
     this.emit('change', { path: 'history' });
 
     return historyEntry;
@@ -317,7 +299,6 @@ class Store extends EventTarget {
     this._state.matches = new Map();
     this._state.standings = new Map();
     this._state.teamAssignments = new Map();
-    this._state.meta.version++;
     this.emit('change', { path: '*' });
     return this;
   }

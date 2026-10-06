@@ -3,7 +3,6 @@
  * Main Application Entry Point
  */
 
-import { CONFIG } from '../config.js';
 import { store } from './state/store.js';
 import {
   parseUrlState,
@@ -21,7 +20,7 @@ import {
   getLocalUserId,
 } from './state/persistence.js';
 import { joinRoom, leaveRoom, getRoom, ActionTypes } from './network/room.js';
-import { setupStateSync, announceJoin, markStateInitialized, resetSyncState } from './network/sync.js';
+import { setupStateSync, resetSyncState } from './network/sync.js';
 import { showSuccess, showError, showToast } from './components/toast.js';
 import { initLobby, cleanupLobby } from './components/lobby.js';
 import { initBracketView, cleanupBracketView } from './components/bracket-view.js';
@@ -100,6 +99,7 @@ async function init() {
   window.addEventListener('urlstatechange', (e) => {
     handleUrlChange(e.detail);
   });
+  window.addEventListener('popstate', () => handleUrlChange(parseUrlState()));
 
   // Update connection status
   updateConnectionStatus('disconnected');
@@ -155,15 +155,11 @@ function attachSlugFormatter(input) {
  * Setup navigation handlers
  */
 function setupNavigationHandlers() {
-  // Note: popstate is handled by url-state.js which fires 'urlstatechange' events
-  // We listen to urlstatechange in init() to avoid duplicate handling
-
   // Home link in nav
   const homeLink = document.getElementById('home-link');
   if (homeLink) {
-    homeLink.addEventListener('click', async (e) => {
+    homeLink.addEventListener('click', (e) => {
       e.preventDefault();
-      await disconnectFromRoom();
       navigateToHome();
     });
   }
@@ -403,9 +399,6 @@ async function connectToRoom(roomId, options = {}) {
         // Reset all participants to disconnected (will be updated as peers actually connect)
         resetAllParticipantsOffline();
       }
-
-      // Admin is authoritative, mark state as initialized
-      markStateInitialized();
     } else {
       // Store room ID for non-admin
       store.set('meta.id', roomId);
@@ -426,23 +419,10 @@ async function connectToRoom(roomId, options = {}) {
       isConnected: true,
     });
 
-    // Announce join to peers
-    announceJoin(room, resolvedName, localUserId);
-
     // Setup peer event handlers
-    room.onPeerJoin((peerId) => {
+    room.onPeerJoin(() => {
       updateConnectionStatus('connected');
       updatePeerCount();
-
-      // If admin, broadcast current state to new peer
-      if (store.isAdmin()) {
-        setTimeout(() => {
-          room.sendTo(ActionTypes.STATE_RESPONSE, {
-            state: store.serialize(),
-            isAdmin: true,
-          }, peerId);
-        }, CONFIG.network.stateResponseDelay);
-      }
     });
 
     room.onPeerLeave((peerId) => {
@@ -478,14 +458,7 @@ async function connectToRoom(roomId, options = {}) {
  * Disconnect from current room
  */
 async function disconnectFromRoom() {
-  const room = getRoom();
-  if (room) {
-    // Announce leave
-    room.broadcast(ActionTypes.PARTICIPANT_LEAVE, {});
-
-    // Leave room
-    await leaveRoom();
-  }
+  await leaveRoom();
 
   // Cleanup component listeners before resetting state
   cleanupLobby();
@@ -506,38 +479,22 @@ async function disconnectFromRoom() {
 /**
  * New tournament handler
  */
-async function onNewTournament() {
+function onNewTournament() {
   const room = getRoom();
   if (room && store.isAdmin()) {
-    const status = store.get('meta.status');
-
-    // If tournament is complete, archive it first
-    if (status === 'complete') {
-      const archive = store.archiveTournament();
-      if (archive) {
-        // Broadcast archive to peers
-        const { archiveTournament } = await import('./network/sync.js');
-        archiveTournament(room, archive);
-      }
-    }
+    // The button lives in the results view, so the tournament is complete.
+    const archive = store.archiveTournament();
+    room.broadcast(ActionTypes.TOURNAMENT_RESET, { archive });
 
     // Reset for new tournament (keeps participants and history)
     store.resetForNewTournament();
 
-    // For peers that didn't receive archive (e.g., tournament wasn't complete),
-    // send regular reset
-    if (status !== 'complete') {
-      room.broadcast(ActionTypes.TOURNAMENT_RESET, {});
-    }
-
-    // Save
+    // Save now rather than after autoSave's debounce, so closing the tab cannot lose the archive.
     saveTournament(store.get('meta.id'), store.serialize());
 
     showView(VIEWS.LOBBY);
     showSuccess('Ready for new tournament!');
   } else {
-    // Leave current room and go home
-    await disconnectFromRoom();
     navigateToHome();
   }
 }

@@ -21,7 +21,6 @@ Deno.test("Store initial state", async (t) => {
     assertEquals(store.get("meta.id"), null);
     assertEquals(store.get("meta.status"), "lobby");
     assertEquals(store.get("meta.type"), "single");
-    assertEquals(store.get("meta.version"), 0);
   });
 });
 
@@ -172,6 +171,17 @@ Deno.test("Store.addManualParticipant", async (t) => {
   });
 });
 
+Deno.test("Store.addParticipant", async (t) => {
+  await t.step("new participants default to connected but keep an explicit isConnected: false", () => {
+    const store = new Store();
+    store.addParticipant({ id: "online", name: "Online" });
+    store.addParticipant({ id: "manual", name: "Manual", isManual: true, isConnected: false });
+
+    assertEquals(store.getParticipant("online").isConnected, true);
+    assertEquals(store.getParticipant("manual").isConnected, false);
+  });
+});
+
 Deno.test("Store events", async (t) => {
   await t.step("addParticipant emits participant:join for a new participant", () => {
     const store = new Store();
@@ -208,7 +218,7 @@ Deno.test("Store.serialize/deserialize", async (t) => {
   await t.step("deserializes state from plain object", () => {
     const store = new Store();
     const data = {
-      meta: { id: "restored-room", type: "double", version: 5 },
+      meta: { id: "restored-room", type: "double" },
       participants: [["user-1", { id: "user-1", name: "Bob" }]],
     };
 
@@ -315,7 +325,7 @@ Deno.test("Store.merge - participant OR-Set", async (t) => {
   await t.step("partitioned stores converge after merging both ways", () => {
     const participants = createParticipants(4);
     const initial = () => ({
-      meta: { version: 1, status: "lobby", adminId: "admin" },
+      meta: { status: "lobby", adminId: "admin" },
       participants: participants.map((p) => [p.id, { ...p }]),
     });
     const storeA = new Store();
@@ -428,7 +438,7 @@ Deno.test("Store.merge - emits events", async (t) => {
     let emitted = false;
     store.on("change", () => { emitted = true; });
 
-    store.merge({ meta: { version: 1 } }, null);
+    store.merge({ meta: { status: "active" } }, null);
 
     assert(emitted, "change event should be emitted");
   });
@@ -495,13 +505,5 @@ Deno.test("Store - additional methods", async (t) => {
     const assignments = store.getTeamAssignments();
     assertEquals(assignments.get("user-1"), undefined);
     assertEquals(assignments.get("user-2"), "team-b");
-  });
-
-  await t.step("version increments by 1 on addParticipant", () => {
-    const store = new Store();
-    const v1 = store.get("meta.version");
-    store.addParticipant({ id: "user-1", name: "Alice" });
-    const v2 = store.get("meta.version");
-    assertEquals(v2, v1 + 1, "version should increment by exactly 1");
   });
 });

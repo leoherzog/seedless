@@ -112,5 +112,3 @@ export function formatRoomSlugInput(input) {
     .replace(/^-/, '')
     .slice(0, 50);
 }
-
-window.addEventListener('popstate', notifyUrlChange);
