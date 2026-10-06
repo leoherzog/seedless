@@ -437,15 +437,12 @@ Deno.test('TOURNAMENT_START handler', testOpts, async (t) => {
     const mockRoom = connectAs({ userId: adminId, adminId });
     mapAdmin(mockRoom, adminId);
 
-    const tournament = generateMarioKartTournament(createParticipants(4), { playersPerGame: 4, gamesPerPlayer: 1 });
+    const { matches, standings, ...race } = generateMarioKartTournament(createParticipants(4), { playersPerGame: 4, gamesPerPlayer: 1 });
 
     await mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, {
-      bracket: {
-        ...tournament,
-        matches: undefined,
-        standings: Array.from(tournament.standings.entries()),
-      },
-      matches: Array.from(tournament.matches.entries()),
+      bracket: race,
+      matches: Array.from(matches.entries()),
+      standings: Array.from(standings.entries()),
     }, 'admin-peer');
 
     assertEquals(store.get('standings').size, 4);
@@ -462,7 +459,7 @@ Deno.test('TOURNAMENT_RESET handler', testOpts, async (t) => {
     store.set('meta.status', 'active');
     store.set('bracket', { type: 'single', rounds: [] });
     store.setMatches(new Map([['m1', { id: 'm1' }]]));
-    store.deserialize({ standings: [['p1', { points: 5, gamesCompleted: 1, wins: 1, name: 'P1', history: [] }]] });
+    store.deserialize({ standings: [['p1', { points: 5, gamesCompleted: 1, wins: 1, name: 'P1' }]] });
     store.setTeamAssignment('p1', 'team-1');
 
     await mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, {}, 'admin-peer');
@@ -745,6 +742,34 @@ Deno.test('RACE_RESULT handler', testOpts, async (t) => {
     await mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results, reportedAt: Date.now() }, 'peer-1');
     assertEquals(store.getMatch(gameId).reportedAt, guardedReportedAt);
   });
+
+  await t.step('a later concurrent report of a completed game wins without double counting', async () => {
+    const mockRoom = connectAs({ userId: 'local-user', adminId: 'admin-1' });
+    const participants = createParticipants(4);
+    const { matches, standings, ...race } = generateMarioKartTournament(participants, { playersPerGame: 4, gamesPerPlayer: 1 });
+    const gameId = matches.keys().next().value;
+    store.set('bracket', race);
+    store.setMatches(matches);
+    store.set('standings', standings);
+
+    const [a, b] = participants;
+    for (const [p, peer] of [[a, 'peer-a'], [b, 'peer-b']]) {
+      mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, { name: p.name, localUserId: p.id }, peer);
+    }
+    const order = (first) => [first, ...participants.map(p => p.id).filter(id => id !== first)]
+      .map(participantId => ({ participantId }));
+
+    await mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results: order(a.id), reportedAt: 1000, version: 1 }, 'peer-a');
+    await mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results: order(b.id), reportedAt: 2000, version: 1 }, 'peer-b');
+
+    const game = store.getMatch(gameId);
+    assertEquals(game.winnerId, b.id);
+    assertEquals(game.reportedBy, b.id);
+    assertEquals(game.reportedAt, 2000);
+    assertEquals(store.get('standings').get(b.id).wins, 1);
+    assertEquals(store.get('standings').get(a.id).wins, 0);
+    assertEquals(store.get('standings').get(a.id).gamesCompleted, 1);
+  });
 });
 
 Deno.test('VERSION_CHECK handler', testOpts, async (t) => {
@@ -896,19 +921,45 @@ Deno.test('startTournament', testOpts, async (t) => {
 });
 
 Deno.test('reportRaceResult', testOpts, async (t) => {
-  await t.step('broadcasts race result', () => {
-    const mockRoom = createMockRoom();
+  /** Load a one-game, 4-player race into the store. */
+  function loadRace() {
+    const participants = createParticipants(4);
+    const { matches, standings, ...race } = generateMarioKartTournament(participants, { playersPerGame: 4, gamesPerPlayer: 1 });
+    store.set('bracket', race);
+    store.setMatches(matches);
+    store.set('standings', standings);
+    store.set('meta.type', 'mariokart');
+    store.set('meta.status', 'active');
+    const gameId = matches.keys().next().value;
+    const results = matches.get(gameId).participants.map(participantId => ({ participantId }));
+    return { gameId, results };
+  }
 
-    const results = [
-      { participantId: 'p1', position: 1 },
-      { participantId: 'p2', position: 2 },
-    ];
+  await t.step('applies locally, completes the race and broadcasts the same clock', () => {
+    const mockRoom = connectAs({ userId: 'player-1', adminId: 'admin-1' });
+    const { gameId, results } = loadRace();
+    mockRoom._clearMessages();
 
-    reportRaceResult(mockRoom, 'game-1', results);
+    reportRaceResult(mockRoom, gameId, results);
+
+    const game = store.getMatch(gameId);
+    assertEquals(game.complete, true);
+    assertEquals(game.reportedBy, 'player-1');
+    assertEquals(game.version, 1);
+    assertEquals(store.get('standings').get(results[0].participantId).wins, 1);
+    assertEquals(store.get('meta.status'), 'complete');
 
     assertEquals(mockRoom._broadcasts.length, 1);
     assertEquals(mockRoom._broadcasts[0].type, ActionTypes.RACE_RESULT);
-    assertEquals(mockRoom._broadcasts[0].payload.gameId, 'game-1');
-    assertEquals(mockRoom._broadcasts[0].payload.results, results);
+    assertEquals(mockRoom._broadcasts[0].payload, { gameId, results, reportedAt: game.reportedAt, version: 1 });
+  });
+
+  await t.step('records locally without a room', () => {
+    connectAs({ userId: 'player-1', adminId: 'admin-1' });
+    const { gameId, results } = loadRace();
+
+    reportRaceResult(null, gameId, results);
+
+    assertEquals(store.getMatch(gameId).complete, true);
   });
 });

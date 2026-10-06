@@ -11,6 +11,7 @@ import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
 import { CONFIG } from '../../config.js';
 import { planGames, suggestEvenGamesPerPlayer } from '../tournament/mario-kart.js';
+import { bySeed, seedParticipants } from '../utils/tournament-helpers.js';
 
 // Upper bound of the games-per-player input
 const MAX_GAMES_PER_PLAYER = 20;
@@ -548,8 +549,7 @@ function renderParticipantList(participants) {
   const seedingMode = store.get('meta.config.seedingMode');
   const isAdmin = store.isAdmin();
 
-  // Sort by seed
-  const sorted = [...participants].sort((a, b) => (a.seed || 999) - (b.seed || 999));
+  const sorted = participants.toSorted(bySeed);
 
   list.innerHTML = sorted.map(p => {
     // Show "Offline" badge for manual participants that haven't been claimed
@@ -649,24 +649,9 @@ async function onStartTournament() {
     return;
   }
 
-  // Apply seeding
-  let seededParticipants = [...participants];
-  if (seedingMode === 'random') {
-    // Shuffle
-    for (let i = seededParticipants.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [seededParticipants[i], seededParticipants[j]] = [seededParticipants[j], seededParticipants[i]];
-    }
-  } else if (seedingMode === 'manual') {
-    // Preserve the admin's drag-drop order (existing seed values), matching the displayed order
-    seededParticipants.sort((a, b) => (a.seed || 999) - (b.seed || 999));
-  }
-
-  // Assign seeds
-  seededParticipants.forEach((p, i) => {
-    p.seed = i + 1;
-    store.updateParticipant(p.id, { seed: i + 1 });
-  });
+  // updateParticipant writes seeds onto these same objects, so the generators keep this order.
+  const seededParticipants = seedParticipants(participants, seedingMode);
+  seededParticipants.forEach((p, i) => store.updateParticipant(p.id, { seed: i + 1 }));
 
   try {
     // Generate bracket based on type
@@ -674,17 +659,16 @@ async function onStartTournament() {
 
     if (tournamentType === 'single') {
       const { generateSingleEliminationBracket } = await import('../tournament/single-elimination.js');
-      ({ bracket, matches } = generateSingleEliminationBracket(seededParticipants, store.get('meta.config')));
+      ({ bracket, matches } = generateSingleEliminationBracket(seededParticipants));
     } else if (tournamentType === 'double') {
       const { generateDoubleEliminationBracket } = await import('../tournament/double-elimination.js');
-      ({ bracket, matches } = generateDoubleEliminationBracket(seededParticipants, store.get('meta.config')));
+      ({ bracket, matches } = generateDoubleEliminationBracket(seededParticipants));
     } else if (tournamentType === 'mariokart') {
       const { generateMarioKartTournament } = await import('../tournament/mario-kart.js');
       const { matches: games, standings, ...race } = generateMarioKartTournament(seededParticipants, store.get('meta.config'));
-      // Include standings in bracket for broadcast (serialized as array for transmission)
-      bracket = { ...race, standings: Array.from(standings.entries()) };
+      bracket = race;
       matches = games;
-      store.deserialize({ standings: bracket.standings });
+      store.set('standings', standings);
     } else if (tournamentType === 'doubles') {
       const teamAssignments = store.getTeamAssignments();
       const teamSize = store.get('meta.config.teamSize') || 2;

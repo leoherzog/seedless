@@ -134,10 +134,11 @@ function createCompleteMarioKartTournament() {
     "player-1"
   );
 
-  store.set("bracket", tournament);
+  const { matches, standings, ...race } = tournament;
+  store.set("bracket", race);
   store.deserialize({
-    matches: Array.from(tournament.matches.entries()),
-    standings: Array.from(tournament.standings.entries()),
+    matches: Array.from(matches.entries()),
+    standings: Array.from(standings.entries()),
   });
   store.set("meta.status", "complete");
   store.set("meta.type", "mariokart");
@@ -280,14 +281,18 @@ Deno.test("archiveTournament - Double Elimination", async (t) => {
     assertEquals(entry.winner.name, "Player 2");
   });
 
-  await t.step("includes correct type and standings", () => {
+  await t.step("includes correct type and every place", () => {
     const store = createCompleteDoubleElimTournament(false);
 
     const entry = store.archiveTournament();
 
     assertEquals(entry.type, "double");
-    assert(entry.standings.length >= 2, "Should have at least 2 standings");
-    assertEquals(entry.standings[0].place, 1);
+    assertEquals(entry.standings.map((s) => [s.place, s.name]), [
+      [1, "Player 1"],
+      [2, "Player 2"],
+      [3, "Player 3"],
+      [4, "Player 4"],
+    ]);
   });
 });
 
@@ -314,21 +319,14 @@ Deno.test("archiveTournament - Mario Kart", async (t) => {
     assertExists(entry.standings[0].points, "Standings should include points");
   });
 
-  await t.step("archives the first-inserted player when points tie", () => {
+  await t.step("breaks a points tie on wins, like the results card", () => {
     const store = new Store();
     const participants = createParticipants(2);
     participants.forEach((p) => store.addParticipant(p));
 
-    // Create standings with equal points
     const standings = new Map([
-      [
-        "player-1",
-        { participantId: "player-1", name: "Player 1", points: 10 },
-      ],
-      [
-        "player-2",
-        { participantId: "player-2", name: "Player 2", points: 10 },
-      ],
+      ["player-1", { participantId: "player-1", name: "Player 1", points: 10, wins: 0, gamesCompleted: 2 }],
+      ["player-2", { participantId: "player-2", name: "Player 2", points: 10, wins: 1, gamesCompleted: 2 }],
     ]);
 
     store.deserialize({ standings: Array.from(standings.entries()) });
@@ -337,7 +335,8 @@ Deno.test("archiveTournament - Mario Kart", async (t) => {
 
     const entry = store.archiveTournament();
 
-    assertEquals(entry.winner.id, "player-1");
+    assertEquals(entry.winner.id, "player-2");
+    assertEquals(entry.standings.map((s) => s.name), ["Player 2", "Player 1"]);
   });
 });
 
@@ -371,7 +370,18 @@ Deno.test("archiveTournament - Doubles", async (t) => {
 
     assertExists(entry, "Should create history entry");
     assertEquals(entry.type, "doubles");
-    assertExists(entry.winner, "Should have winner");
+    assertEquals(entry.winner.id, "team-1");
+  });
+
+  await t.step("archives with no winner when the bracket cannot be ranked", () => {
+    const store = createCompleteDoublesTournament("single");
+    store.set("bracket", { type: "doubles", rounds: [] });
+
+    const entry = store.archiveTournament();
+
+    assertExists(entry, "A malformed bracket must not block archiving");
+    assertEquals(entry.winner, null);
+    assertEquals(entry.standings, []);
   });
 });
 

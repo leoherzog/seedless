@@ -3,49 +3,28 @@
  * Wraps other bracket types to work with teams
  */
 
+import { shuffle } from '../utils/tournament-helpers.js';
 import { generateSingleEliminationBracket, getStandings as getSingleStandings } from './single-elimination.js';
 import { generateDoubleEliminationBracket, getStandings as getDoubleStandings } from './double-elimination.js';
 
 /**
- * Form teams from participants
+ * Form full teams from participants; incomplete teams are left out.
  * @param {Object[]} participants - All participants
  * @param {Map} teamAssignments - Map of participantId -> teamId
  * @param {number} teamSize - Required team size
- * @returns {Object[]} Array of teams
+ * @returns {Object[]} Teams named after their members, best average seed first
  */
-export function formTeams(participants, teamAssignments, teamSize = 2) {
-  const teams = new Map();
-
-  for (const participant of participants) {
-    const teamId = teamAssignments.get(participant.id);
-    if (!teamId) continue;
-
-    if (!teams.has(teamId)) {
-      teams.set(teamId, {
-        id: teamId,
-        name: `Team ${teamId}`,
-        members: [],
-        seed: null,
-      });
-    }
-
-    teams.get(teamId).members.push(participant);
-  }
-
-  // Validate team sizes
-  const validTeams = [];
-  for (const team of teams.values()) {
-    if (team.members.length === teamSize) {
-      // Set team name from members
-      team.name = team.members.map(m => m.name).join(' & ');
-      // Set seed as average of member seeds
-      const avgSeed = team.members.reduce((sum, m) => sum + (m.seed || 999), 0) / teamSize;
-      team.seed = avgSeed;
-      validTeams.push(team);
-    }
-  }
-
-  return validTeams.sort((a, b) => a.seed - b.seed);
+export function formTeams(participants, teamAssignments, teamSize) {
+  const groups = Map.groupBy(participants, p => teamAssignments.get(p.id));
+  return [...groups]
+    .filter(([id, members]) => id && members.length === teamSize)
+    .map(([id, members]) => ({
+      id,
+      name: members.map(m => m.name).join(' & '),
+      members,
+      seed: members.reduce((sum, m) => sum + (m.seed || 999), 0) / teamSize,
+    }))
+    .sort((a, b) => a.seed - b.seed);
 }
 
 /**
@@ -59,50 +38,32 @@ export function generateDoublesTournament(participants, teamAssignments, config 
   const teamSize = config.teamSize || 2;
   const bracketType = config.bracketType || 'single';
 
-  // Form teams
   const teams = formTeams(participants, teamAssignments, teamSize);
 
   if (teams.length < 2) {
     throw new Error('Need at least 2 complete teams');
   }
 
-  // Generate underlying bracket using teams as "participants"
   const generate = bracketType === 'double' ? generateDoubleEliminationBracket : generateSingleEliminationBracket;
-  const { bracket, matches } = generate(teams, config);
+  const { bracket, matches } = generate(teams);
 
   return {
-    bracket: {
-      ...bracket,
-      type: 'doubles',
-      bracketType,
-      teams,
-      teamSize,
-      teamAssignments: Array.from(teamAssignments.entries()),
-      participants,
-    },
+    bracket: { ...bracket, type: 'doubles', bracketType, teams },
     matches,
   };
 }
 
 /**
- * Validate team assignments
+ * Check that every participant is on a team of exactly teamSize.
+ * @param {Object[]} participants - All participants
+ * @param {Map} teamAssignments - Map of participantId -> teamId
+ * @param {number} teamSize - Required team size
+ * @returns {{valid: boolean, errors: string[], teamCount: number, completeTeams: number}}
  */
 export function validateTeamAssignments(participants, teamAssignments, teamSize) {
-  const teams = new Map();
-  const errors = [];
-
-  for (const participant of participants) {
-    const teamId = teamAssignments.get(participant.id);
-    if (!teamId) {
-      errors.push(`${participant.name} is not assigned to a team`);
-      continue;
-    }
-
-    if (!teams.has(teamId)) {
-      teams.set(teamId, []);
-    }
-    teams.get(teamId).push(participant);
-  }
+  const teams = Map.groupBy(participants, p => teamAssignments.get(p.id));
+  const errors = (teams.get(undefined) ?? []).map(p => `${p.name} is not assigned to a team`);
+  teams.delete(undefined);
 
   for (const [teamId, members] of teams) {
     if (members.length !== teamSize) {
@@ -119,10 +80,13 @@ export function validateTeamAssignments(participants, teamAssignments, teamSize)
 }
 
 /**
- * Auto-assign teams (random pairing)
+ * Randomly split participants into teams of teamSize; the last team may be short.
+ * @param {Object[]} participants - All participants
+ * @param {number} teamSize - Players per team
+ * @returns {Map} participantId -> teamId
  */
-export function autoAssignTeams(participants, teamSize = 2) {
-  const shuffled = [...participants].sort(() => Math.random() - 0.5);
+export function autoAssignTeams(participants, teamSize) {
+  const shuffled = shuffle([...participants]);
   const assignments = new Map();
 
   let teamNumber = 1;

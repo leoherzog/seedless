@@ -1,12 +1,14 @@
 /**
  * Bracket Utility Functions
- * Shared utilities for tournament bracket generation
+ * Seeding, knockout round building and round naming shared by the bracket generators.
  */
+
+import { bySeed } from '../utils/tournament-helpers.js';
 
 /**
  * Calculate next power of 2
  * @param {number} n - Input number
- * @returns {number} Next power of 2 >= n
+ * @returns {number} Smallest power of 2 that is >= max(n, 2)
  */
 export function nextPowerOf2(n) {
   if (n <= 1) return 2;
@@ -14,54 +16,53 @@ export function nextPowerOf2(n) {
 }
 
 /**
- * Get seeding positions for proper bracket distribution
- * Standard seeding: 1v16, 8v9, 5v12, 4v13, etc.
- * Seeds that sum to (bracketSize + 1) are paired together
- * @param {number} bracketSize - Size of the bracket (must be power of 2)
- * @returns {number[]} Array mapping seed index to bracket position
+ * Seeds in bracket-position order for standard seeding.
+ * Seeds summing to size + 1 meet in round 1, and seeds 1 and 2 can only meet in the final.
+ * @param {number} size - Bracket size (power of 2)
+ * @returns {number[]} Seeds in bracket position order
  */
-export function getSeedPositions(bracketSize) {
-  // Generate the correct matchup order for standard tournament seeding
-  // For 4 teams: [1, 4, 2, 3] - so 1v4 at positions 0,1 and 2v3 at positions 2,3
-  // For 8 teams: [1, 8, 4, 5, 3, 6, 2, 7]
-  const order = generateMatchupOrder(bracketSize);
+export function seedOrder(size) {
+  if (size === 2) return [1, 2];
 
-  // Map seed to position: positions[seed-1] = bracket_position
-  const positions = new Array(bracketSize);
-  for (let pos = 0; pos < bracketSize; pos++) {
-    const seed = order[pos];
-    positions[seed - 1] = pos;
-  }
-
-  return positions;
+  const pairs = seedOrder(size / 2).map(s => [s, size + 1 - s]);
+  const half = pairs.length / 2;
+  return [...pairs.slice(0, half).flat(), ...pairs.slice(half).reverse().flat()];
 }
 
 /**
- * Generate the matchup order for standard bracket seeding
- * This ensures proper bracket structure where:
- * - Seeds 1 and 2 are on opposite halves (meet only in finals)
- * - Seeds 1v(n), 2v(n-1), etc. are first round matchups
- * - Higher seeds get favorable bracket positions
- * @param {number} n - Bracket size (must be power of 2)
- * @returns {number[]} Seeds in bracket position order
+ * Seed participants into knockout rounds and advance round-1 byes.
+ * @param {Object[]} participants - At least 2, each with id and optional seed
+ * @param {Function} makeMatch - (round, position, numRounds) => empty match with participants [null, null]
+ * @param {Function} nameRound - (round, numRounds) => round name
+ * @returns {{bracketSize: number, numRounds: number, rounds: Object[]}} Rounds holding match objects
  */
-function generateMatchupOrder(n) {
-  if (n === 2) return [1, 2];
+export function buildKnockout(participants, makeMatch, nameRound) {
+  if (participants.length < 2) {
+    throw new Error('Need at least 2 participants');
+  }
 
-  // Get the matchup order for half the bracket size
-  const prev = generateMatchupOrder(n / 2);
+  const seeded = participants.toSorted(bySeed);
+  const bracketSize = nextPowerOf2(seeded.length);
+  const numRounds = Math.log2(bracketSize);
 
-  // Expand each seed s to a pair [s, n+1-s] (opponents in round 1)
-  const pairs = prev.map(s => [s, n + 1 - s]);
+  const rounds = Array.from({ length: numRounds }, (_, i) => ({
+    number: i + 1,
+    name: nameRound(i + 1, numRounds),
+    matches: Array.from({ length: bracketSize / 2 ** (i + 1) }, (_, m) => makeMatch(i + 1, m, numRounds)),
+  }));
 
-  // Split pairs into top and bottom halves
-  // Bottom half pairs are reversed to maintain proper bracket structure
-  const half = pairs.length / 2;
-  const top = pairs.slice(0, half);
-  const bottom = pairs.slice(half).reverse();
+  const order = seedOrder(bracketSize);
+  rounds[0].matches.forEach((match, i) => {
+    match.participants = [seeded[order[2 * i] - 1]?.id ?? null, seeded[order[2 * i + 1] - 1]?.id ?? null];
+    match.isBye = match.participants.includes(null);
+    // The higher seed always exists, so a bye's player sits in slot 0.
+    if (match.isBye) {
+      match.winnerId = match.participants[0];
+      rounds[1].matches[i >> 1].participants[i % 2] = match.winnerId;
+    }
+  });
 
-  // Flatten and return: top half matches, then bottom half matches
-  return [...top.flat(), ...bottom.flat()];
+  return { bracketSize, numRounds, rounds };
 }
 
 /**

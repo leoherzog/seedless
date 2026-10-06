@@ -115,9 +115,8 @@ Deno.test("Doubles - single elimination run to completion (even participant coun
       assertEquals(bracket.type, "doubles");
       assertEquals(bracket.bracketType, "single");
       assertEquals(bracket.teams.length, expectedTeamCount, "team bracket should use every complete team");
-      assertEquals(bracket.bracketSize, expectedBracketSize, "team bracket size");
-      assertEquals(bracket.numRounds, expectedNumRounds, "team bracket rounds");
-      assertEquals(bracket.rounds.length, expectedNumRounds);
+      assertEquals(bracket.rounds[0].matchIds.length * 2, expectedBracketSize, "team bracket size");
+      assertEquals(bracket.rounds.length, expectedNumRounds, "team bracket rounds");
 
       const finalRound = bracket.rounds[bracket.rounds.length - 1];
       assertEquals(finalRound.matchIds.length, 1, "final round should have exactly one match");

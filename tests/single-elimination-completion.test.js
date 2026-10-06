@@ -43,11 +43,14 @@ Deno.test("Single Elimination - parametric run to completion", async (t) => {
       const expectedByes = expectedBracketSize - n;
 
       // --- Structural sanity of the freshly generated bracket ---
-      assertEquals(bracket.bracketSize, expectedBracketSize, "bracket size");
-      assertEquals(bracket.numRounds, expectedNumRounds, "number of rounds");
+      assertEquals(bracket.rounds[0].matchIds.length * 2, expectedBracketSize, "bracket size");
       assertEquals(bracket.rounds.length, expectedNumRounds, "rounds array length");
       assertEquals(matches.size, expectedTotalMatches, "total match count");
-      assertEquals(bracket.participantCount, n, "participant count");
+      assertEquals(
+        roundMatches(bracket.rounds[0]).flatMap((m) => m.participants).filter(Boolean).length,
+        n,
+        "every participant is seeded into round 1",
+      );
 
       const byeMatches = roundMatches(bracket.rounds[0]).filter((m) => m.isBye);
       assertEquals(byeMatches.length, expectedByes, "round 1 bye count");

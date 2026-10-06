@@ -113,7 +113,6 @@ Deno.test('Single elimination: 15 tennis players play to a champion', () => {
   const tournament = generateSingleEliminationBracket(participants);
   const { bracket, matches } = tournament;
 
-  assertEquals(bracket.bracketSize, 16);
   assertEquals(bracket.rounds.map((r) => r.name), ['Round 1', 'Quarter-Finals', 'Semi-Finals', 'Finals']);
   // Seeds 1 and 2 start in opposite halves, so they can meet only in the final.
   const inTopHalf = (id) => bracket.rounds[0].matchIds.map((mid) => matches.get(mid))
@@ -210,15 +209,15 @@ Deno.test('Points race: 15 racers finish every game', () => {
     pointsTable: CONFIG.pointsTables.standard,
   });
 
-  assertEquals(tournament.totalGames, Math.ceil((15 * 6) / 4));
+  assertEquals(tournament.matches.size, Math.ceil((15 * 6) / 4));
 
   const seedOf = (id) => participantMap.get(id).seed;
-  for (const [gameId, game] of tournament.matches) {
+  const done = [...tournament.matches].map(([gameId, game]) => {
     const order = seedWeightedOrder(game.participants, seedOf, random);
-    recordRaceResult(tournament, gameId, order.map((participantId) => ({ participantId })), order[0]);
-  }
+    return recordRaceResult(tournament, gameId, order.map((participantId) => ({ participantId })), order[0]);
+  });
 
-  assert(tournament.isComplete);
+  assertEquals(done.indexOf(true), done.length - 1, 'only the last result completes the race');
   const standings = getRaceStandings(tournament);
   assertSequentialPlaces(standings, 15);
   for (const s of standings) assertEquals(s.gamesCompleted, 6);
@@ -230,6 +229,6 @@ Deno.test('Points race: 15 racers finish every game', () => {
   const copy = roundTrip(store);
   assertEquals(copy.get('meta.type'), 'mariokart');
   assertEquals(copy.getParticipantList().length, 15);
-  assertEquals(copy.get('matches').size, tournament.totalGames);
+  assertEquals(copy.get('matches').size, tournament.matches.size);
   assertEquals(copy.get('standings').size, 15);
 });

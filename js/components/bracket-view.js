@@ -8,7 +8,8 @@ import { getRoom } from '../network/room.js';
 import { showSuccess, showError } from './toast.js';
 import { escapeHtml } from '../utils/html.js';
 import { getDragAfterElement } from '../utils/drag-drop.js';
-import { formatOrdinal, determineMatchStatus, sortStandings, getPointsForPosition } from '../utils/tournament-helpers.js';
+import { formatOrdinal, determineMatchStatus, sortStandings, getPointsForPosition, isInMatch } from '../utils/tournament-helpers.js';
+import { getFinalStandings } from '../tournament/standings.js';
 
 // Track subscriptions for cleanup
 let bracketSubscriptions = [];
@@ -181,7 +182,7 @@ function renderBracket(bracketFilter = null) {
   } else if (type === 'double') {
     renderDoubleEliminationBracket(container, bracket, bracketFilter || 'winners');
   } else if (type === 'mariokart') {
-    renderMarioKartRaces(container, bracket);
+    renderMarioKartRaces(container);
   } else if (type === 'doubles') {
     // Doubles can use either single or double elimination as underlying bracket
     const bracketType = bracket.bracketType || 'single';
@@ -243,7 +244,7 @@ function renderDoubleEliminationBracket(container, bracket, filter) {
 /**
  * Render Mario Kart / Points Race games
  */
-function renderMarioKartRaces(container, bracket) {
+function renderMarioKartRaces(container) {
   const matches = store.get('matches');
   const participants = store.get('participants');
   const localUserId = store.get('local.localUserId');
@@ -259,15 +260,14 @@ function renderMarioKartRaces(container, bracket) {
     .sort((a, b) => a.gameNumber - b.gameNumber);
 
   const gamesComplete = gamesArray.filter(g => g.complete).length;
-  const totalGames = bracket.totalGames || gamesArray.length;
 
   container.innerHTML = `
     <div class="games-header">
       <span class="progress-text">
         <span class="fa-solid fa-flag-checkered"></span>
-        ${gamesComplete} / ${totalGames} games complete
+        ${gamesComplete} / ${gamesArray.length} games complete
       </span>
-      ${bracket.isComplete ? '<mark>Tournament Complete!</mark>' : ''}
+      ${store.get('meta.status') === 'complete' ? '<mark>Tournament Complete!</mark>' : ''}
     </div>
     <div class="games-grid">
       ${gamesArray.map(game => renderGameCard(game, participants, localUserId, isAdmin)).join('')}
@@ -383,12 +383,7 @@ function renderMatchCard(match, participants, localUserId) {
 
   const isAdmin = store.isAdmin();
 
-  // Allow reporting if: user is a participant, OR admin
-  const actions = computeMatchActions(
-    match,
-    () => match.participants.includes(localUserId),
-    isAdmin
-  );
+  const actions = computeMatchActions(match, () => isInMatch(match, localUserId), isAdmin);
   const { status } = actions;
 
   return `
@@ -422,24 +417,13 @@ function renderTeamMatchCard(match, localUserId) {
   const bracket = store.get('bracket');
   const teams = bracket?.teams || [];
   const teamMap = new Map(teams.map(t => [t.id, t]));
-  const participants = store.get('participants');
 
   const team1 = teamMap.get(match.participants[0]);
   const team2 = teamMap.get(match.participants[1]);
 
   const isAdmin = store.isAdmin();
 
-  // Check if local user can report (is on one of the teams)
-  const localUserTeams = teams
-    .filter(t => t.members.some(m => m.id === localUserId))
-    .map(t => t.id);
-
-  // Allow reporting if: user is on a team, OR admin
-  const actions = computeMatchActions(
-    match,
-    () => match.participants.some(teamId => localUserTeams.includes(teamId)),
-    isAdmin
-  );
+  const actions = computeMatchActions(match, () => isInMatch(match, localUserId, teams), isAdmin);
   const { status } = actions;
 
   return `
@@ -495,32 +479,22 @@ function addRaceCardHandlers(container) {
 }
 
 /**
+ * The team (doubles) or participant behind a match participant id.
+ */
+function getSide(id) {
+  return store.get('meta.type') === 'doubles'
+    ? store.get('bracket')?.teams?.find(t => t.id === id)
+    : store.getParticipant(id);
+}
+
+/**
  * Open score modal for a match
  */
 function openScoreModal(matchId) {
   const match = store.getMatch(matchId);
   if (!match) return;
 
-  const tournamentType = store.get('meta.type');
-  let p1Name, p2Name;
-
-  if (tournamentType === 'doubles') {
-    // For doubles, show team names
-    const bracket = store.get('bracket');
-    const teams = bracket?.teams || [];
-    const teamMap = new Map(teams.map(t => [t.id, t]));
-    const team1 = teamMap.get(match.participants[0]);
-    const team2 = teamMap.get(match.participants[1]);
-    p1Name = team1?.name || 'Team 1';
-    p2Name = team2?.name || 'Team 2';
-  } else {
-    // For individual modes, show participant names
-    const participants = store.get('participants');
-    const p1 = participants.get(match.participants[0]);
-    const p2 = participants.get(match.participants[1]);
-    p1Name = p1?.name || 'Player 1';
-    p2Name = p2?.name || 'Player 2';
-  }
+  const [p1Name, p2Name] = match.participants.map(id => getSide(id)?.name || 'Unknown');
 
   // Update modal content
   document.getElementById('player1-name').textContent = p1Name;
@@ -589,17 +563,7 @@ async function verifyMatch(matchId) {
   const match = store.getMatch(matchId);
   if (!match || !match.winnerId) return;
 
-  // Get winner name for confirmation dialog
-  const tournamentType = store.get('meta.type');
-  let winnerName;
-  if (tournamentType === 'doubles') {
-    const bracket = store.get('bracket');
-    const team = bracket?.teams?.find(t => t.id === match.winnerId);
-    winnerName = team?.name || match.winnerId;
-  } else {
-    const winner = store.getParticipant(match.winnerId);
-    winnerName = winner?.name || match.winnerId;
-  }
+  const winnerName = getSide(match.winnerId)?.name || match.winnerId;
 
   // Confirmation dialog to prevent accidental verification
   const scoresDisplay = match.scores ? match.scores.join(' - ') : 'N/A';
@@ -660,8 +624,7 @@ function openRaceResultModal(gameId) {
   }
 
   const participants = store.get('participants');
-  const bracket = store.get('bracket');
-  const pointsTable = bracket?.pointsTable || [15, 12, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+  const pointsTable = store.get('bracket').pointsTable;
   const totalPlayers = game.participants.length;
   const standIns = game.standIns || [];
 
@@ -803,45 +766,8 @@ async function onSubmitRaceResult() {
   }));
 
   try {
-    // Import and call the mario-kart module
-    const { recordRaceResult } = await import('../tournament/mario-kart.js');
-
-    // Get current tournament/bracket state
-    const bracket = store.get('bracket');
-    const matches = store.get('matches');
-    const standings = store.get('standings');
-    const reportedBy = store.get('local.localUserId');
-
-    // Reconstruct tournament object for recordRaceResult
-    const tournament = {
-      ...bracket,
-      matches: matches,
-      standings: standings,
-    };
-
-    // Record the result
-    recordRaceResult(tournament, gameId, results, reportedBy);
-
-    // Update store with modified data
-    store.set('bracket', {
-      ...bracket,
-      gamesComplete: tournament.gamesComplete,
-      isComplete: tournament.isComplete,
-    });
-    store.setMatches(tournament.matches);
-    store.deserialize({ standings: Array.from(tournament.standings.entries()) });
-
-    // Broadcast to peers
-    const room = getRoom();
-    if (room) {
-      const { reportRaceResult } = await import('../network/sync.js');
-      reportRaceResult(room, gameId, results);
-    }
-
-    // Update tournament status if complete
-    if (tournament.isComplete) {
-      store.set('meta.status', 'complete');
-    }
+    const { reportRaceResult } = await import('../network/sync.js');
+    reportRaceResult(getRoom(), gameId, results);
 
     // Close modal
     document.getElementById('race-result-modal').close();
@@ -902,7 +828,7 @@ function renderStandings() {
 /**
  * Render final standings when tournament is complete
  */
-async function renderFinalStandings() {
+function renderFinalStandings() {
   const container = document.getElementById('final-standings');
   if (!container) return;
 
@@ -913,47 +839,22 @@ async function renderFinalStandings() {
   }
 
   const type = store.get('meta.type');
-  const bracket = store.get('bracket');
-  const matches = store.get('matches');
-  const participants = store.get('participants');
 
-  if (!bracket) {
+  if (!store.get('bracket')) {
     container.innerHTML = '<p>No bracket data available</p>';
     return;
   }
 
-  let standings = [];
-
+  let standings;
   try {
-    if (type === 'mariokart') {
-      // Mario Kart uses standings from store
-      const storeStandings = store.get('standings');
-      if (storeStandings && storeStandings.size > 0) {
-        const { getStandings } = await import('../tournament/mario-kart.js');
-        standings = getStandings({
-          ...bracket,
-          standings: storeStandings,
-        });
-      }
-    } else if (type === 'doubles') {
-      const { getStandings } = await import('../tournament/doubles.js');
-      standings = getStandings(bracket, matches);
-    } else if (type === 'double') {
-      // Double elimination
-      const { getStandings } = await import('../tournament/double-elimination.js');
-      standings = getStandings(bracket, matches, participants);
-    } else {
-      // Single elimination (default)
-      const { getStandings } = await import('../tournament/single-elimination.js');
-      standings = getStandings(bracket, matches, participants);
-    }
+    standings = getFinalStandings(store.getState());
   } catch (e) {
     console.error('[Bracket] Failed to get standings:', e);
     container.innerHTML = '<p>Could not load standings</p>';
     return;
   }
 
-  if (!standings || standings.length === 0) {
+  if (standings.length === 0) {
     container.innerHTML = '<p>No standings available</p>';
     return;
   }

@@ -78,8 +78,8 @@ Deno.test("generateMarioKartTournament", async (t) => {
       gamesPerPlayer: 5,
     });
 
-    // totalSlots = 8 * 5 = 40, totalGames = ceil(40 / 4) = 10
-    assertEquals(tournament.totalGames, 10);
+    // totalSlots = 8 * 5 = 40, games = ceil(40 / 4) = 10
+    assertEquals(tournament.matches.size, 10);
   });
 
   await t.step("includes points table", () => {
@@ -92,12 +92,11 @@ Deno.test("generateMarioKartTournament", async (t) => {
     assert(tournament.pointsTable[0] > tournament.pointsTable[1]);
   });
 
-  await t.step("starts not complete", () => {
+  await t.step("starts with no game complete", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants);
 
-    assertEquals(tournament.isComplete, false);
-    assertEquals(tournament.gamesComplete, 0);
+    assert([...tournament.matches.values()].every((m) => !m.complete));
   });
 
   await t.step("game matches have correct structure", () => {
@@ -147,7 +146,7 @@ Deno.test("recordRaceResult", async (t) => {
     );
   });
 
-  await t.step("records results, points, wins, history and gamesComplete", () => {
+  await t.step("records results, points and wins, and reports completion", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -157,9 +156,8 @@ Deno.test("recordRaceResult", async (t) => {
 
     const gameId = tournament.matches.keys().next().value;
     const game = tournament.matches.get(gameId);
-    assertEquals(tournament.gamesComplete, 0);
 
-    recordRaceResult(tournament, gameId, inOrder(game), "player-1");
+    assertEquals(recordRaceResult(tournament, gameId, inOrder(game), "player-1"), true);
 
     assertEquals(game.results.length, game.participants.length);
     assertEquals(game.complete, true);
@@ -168,9 +166,7 @@ Deno.test("recordRaceResult", async (t) => {
     assertEquals(winner.points, 15);
     assertEquals(winner.wins, 1);
     assertEquals(winner.gamesCompleted, 1);
-    assertEquals(winner.history[0].gameId, gameId);
-    assertEquals(winner.history[0].position, 1);
-    assertEquals(tournament.gamesComplete, 1);
+    assertEquals(game.results[0].position, 1);
   });
 
   await t.step("sets winnerId to first place finisher", () => {
@@ -247,11 +243,8 @@ Deno.test("scoring systems", async (t) => {
       const playerCount = game.participants.length;
       recordRaceResult(tournament, game.id, inOrder(game), "player-1");
 
-      const firstPlaceStanding = tournament.standings.get(game.participants[0]);
-      const lastPlaceStanding = tournament.standings.get(game.participants[playerCount - 1]);
-
-      const firstHistory = firstPlaceStanding.history.find(h => h.gameId === game.id);
-      const lastHistory = lastPlaceStanding.history.find(h => h.gameId === game.id);
+      const firstHistory = game.results[0];
+      const lastHistory = game.results[playerCount - 1];
 
       assertEquals(firstHistory.points, playerCount, `1st place should get ${playerCount} points in ${playerCount}-player game`);
       assertEquals(lastHistory.points, 1, `Last place should get 1 point in ${playerCount}-player game`);

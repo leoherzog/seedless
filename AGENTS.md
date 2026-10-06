@@ -66,7 +66,8 @@ js/
 │   ├── double-elimination.js  # Losers bracket support
 │   ├── mario-kart.js          # Points race mode with balanced scheduling
 │   ├── doubles.js             # Team-based tournament adapter
-│   └── bracket-utils.js       # Seeding positions, round names
+│   ├── standings.js           # Final standings for any type (results card, history)
+│   └── bracket-utils.js       # Seed order, shared knockout builder, round names
 ├── components/
 │   ├── lobby.js         # Pre-tournament participant management
 │   ├── bracket-view.js  # Tournament bracket rendering
@@ -76,7 +77,7 @@ js/
     ├── debounce.js      # Debounce utility
     ├── drag-drop.js     # Drag-and-drop helpers
     ├── random-names.js  # Default room slugs and player names
-    └── tournament-helpers.js # Match status, ordinals, team helpers
+    └── tournament-helpers.js # Match status, ordinals, seeding, shuffle, team membership
 ```
 
 ### State Flow
@@ -112,6 +113,6 @@ Messages travel as `{ payload }`. Sender identity comes from Trystero's `peerId`
 
 **View System**: HTML sections have `data-view` attributes. `showView()` in `main.js` hides/shows by toggling `hidden` attribute.
 
-**Bracket Generation**: `single-elimination.js` creates bracket structure with seeding positions calculated to ensure high seeds don't meet until later rounds. Byes are placed to give high seeds the advantage. Generators return `{ bracket, matches }`: the store's `matches` Map is the only copy of each match, and bracket rounds hold match ids. `bracket.startedAt` marks the tournament, so a merge never mixes matches from two tournaments.
+**Bracket Generation**: `buildKnockout()` in `bracket-utils.js` seeds the single-elimination bracket and the double-elimination winners bracket so high seeds don't meet until later rounds, and gives byes to the top seeds. Generators return `{ bracket, matches }`: the store's `matches` Map is the only copy of each match, and bracket rounds hold match ids. `bracket.startedAt` marks the tournament, so a merge never mixes matches from two tournaments.
 
 **Match Advancement**: Each elimination module exports `advance()`, the only advancement engine. `advanceWinner()` in `sync.js` runs it with `store.updateMatch` as the writer and sets `meta.status` to `'complete'` once the champion is decided.

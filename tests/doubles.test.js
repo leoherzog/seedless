@@ -181,6 +181,23 @@ Deno.test("autoAssignTeams", async (t) => {
     // All 5 should be assigned (one team will be incomplete)
     assertEquals(assignments.size, 5);
   });
+
+  await t.step("deals every order with equal probability", () => {
+    // A comparator shuffle lands near 1500 on two of the six orders; uniform is 1000 each.
+    const participants = createParticipants(3);
+    const counts = new Map();
+    for (let i = 0; i < 6000; i++) {
+      const assignments = autoAssignTeams(participants, 1);
+      const order = participants.toSorted((a, b) => assignments.get(a.id).localeCompare(assignments.get(b.id)));
+      const key = order.map((p) => p.id).join();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+
+    assertEquals(counts.size, 6);
+    for (const [order, count] of counts) {
+      assert(count > 800 && count < 1200, `${order} dealt ${count} times`);
+    }
+  });
 });
 
 Deno.test("generateDoublesTournament", async (t) => {
@@ -239,16 +256,6 @@ Deno.test("generateDoublesTournament", async (t) => {
     assert(bracket.losers !== undefined, "Should have losers bracket");
   });
 
-  await t.step("stores team assignments in tournament", () => {
-    const participants = createParticipants(4);
-    const assignments = createTeamAssignments(participants, 2);
-
-    const { bracket } = generateDoublesTournament(participants, assignments);
-
-    assert(Array.isArray(bracket.teamAssignments), "Should store team assignments");
-    assertEquals(bracket.teamAssignments.length, 4);
-  });
-
   await t.step("configurable team size", () => {
     const participants = createParticipants(6);
     const assignments = new Map([
@@ -264,7 +271,6 @@ Deno.test("generateDoublesTournament", async (t) => {
       teamSize: 3,
     });
 
-    assertEquals(bracket.teamSize, 3);
     assertEquals(bracket.teams.length, 2);
     assertEquals(bracket.teams[0].members.length, 3);
   });

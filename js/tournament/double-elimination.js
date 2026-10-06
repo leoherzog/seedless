@@ -3,30 +3,32 @@
  * Winners bracket + losers bracket + grand finals
  */
 
-import { nextPowerOf2, getSeedPositions, toMatchIds } from './bracket-utils.js';
+import { buildKnockout, toMatchIds } from './bracket-utils.js';
 
 /**
  * Generate a double elimination bracket
  * @param {Object[]} participants - Array of participants
- * @param {Object} config - Tournament configuration
  * @returns {{bracket: Object, matches: Map}} Bracket of round match ids, and the matches by id
  */
-export function generateDoubleEliminationBracket(participants, config = {}) {
-  if (participants.length < 2) {
-    throw new Error('Need at least 2 participants');
-  }
-
-  const seeded = [...participants].sort((a, b) => (a.seed || 999) - (b.seed || 999));
-  const bracketSize = nextPowerOf2(seeded.length);
-  const winnersRounds = Math.log2(bracketSize);
-  const losersRounds = 2 * (winnersRounds - 1);
-
-  const winners = generateWinnersBracket(seeded, bracketSize);
-  const losers = generateLosersBracket(bracketSize, losersRounds);
+export function generateDoubleEliminationBracket(participants) {
+  const { bracketSize, numRounds, rounds } = buildKnockout(
+    participants,
+    (round, position, numRounds) => ({
+      id: `w${round}m${position}`,
+      bracket: 'winners',
+      round,
+      position,
+      participants: [null, null],
+      scores: [0, 0],
+      winnerId: null,
+      isBye: false,
+      dropsTo: calculateDropTarget(round, position, numRounds),
+    }),
+    (round, numRounds) => round === 1 ? 'Winners R1' : getWinnersRoundName(round, numRounds),
+  );
+  const winners = { rounds };
+  const losers = generateLosersBracket(bracketSize, 2 * (numRounds - 1));
   const grandFinals = generateGrandFinals();
-
-  // Process winners bracket byes
-  processWinnersByes(winners);
 
   // Mark losers-bracket slots that can never be filled because their feeding
   // winners match was a bye (a bye produces no loser to drop down).
@@ -40,89 +42,20 @@ export function generateDoubleEliminationBracket(participants, config = {}) {
       winners: { rounds: toMatchIds(winners.rounds) },
       losers: { rounds: toMatchIds(losers.rounds) },
       grandFinals: grandFinals.map(m => m.id),
-      bracketSize,
-      winnersRounds,
-      losersRounds,
-      participantCount: seeded.length,
     },
     matches: new Map(matches.map(m => [m.id, m])),
   };
 }
 
-/**
- * Generate winners bracket (same as single elimination)
- */
-function generateWinnersBracket(seeded, bracketSize) {
-  const numRounds = Math.log2(bracketSize);
-  const rounds = [];
-
-  // Round 1
-  const positions = getSeedPositions(bracketSize);
-  const slots = new Array(bracketSize).fill(null);
-  seeded.forEach((p, i) => {
-    slots[positions[i]] = p;
-  });
-
-  const round1Matches = [];
-  for (let i = 0; i < bracketSize / 2; i++) {
-    const p1 = slots[i * 2];
-    const p2 = slots[i * 2 + 1];
-
-    round1Matches.push({
-      id: `w1m${i}`,
-      bracket: 'winners',
-      round: 1,
-      position: i,
-      participants: [p1?.id || null, p2?.id || null],
-      scores: [0, 0],
-      winnerId: null,
-      isBye: !p1 || !p2,
-      dropsTo: calculateDropTarget(1, i, numRounds),
-    });
-  }
-
-  rounds.push({ number: 1, name: 'Winners R1', matches: round1Matches });
-
-  // Subsequent rounds
-  let matchesInRound = bracketSize / 2;
-  for (let r = 1; r < numRounds; r++) {
-    matchesInRound = matchesInRound / 2;
-    const roundMatches = [];
-
-    for (let m = 0; m < matchesInRound; m++) {
-      roundMatches.push({
-        id: `w${r + 1}m${m}`,
-        bracket: 'winners',
-        round: r + 1,
-        position: m,
-        participants: [null, null],
-        scores: [0, 0],
-        winnerId: null,
-        isBye: false,
-        dropsTo: calculateDropTarget(r + 1, m, numRounds),
-      });
-    }
-
-    rounds.push({
-      number: r + 1,
-      name: getWinnersRoundName(r + 1, numRounds),
-      matches: roundMatches,
-    });
-  }
-
-  return { rounds };
-}
-
-/**
- * Generate losers bracket
- */
 function generateLosersBracket(bracketSize, losersRounds) {
   const rounds = [];
 
   let currentSize = bracketSize / 2;
 
   for (let r = 0; r < losersRounds; r++) {
-    const isMinorRound = r % 2 === 0; // Minor = receives dropdowns
+    // Minor rounds pair off losers-bracket players; each major round adds a
+    // winners-bracket drop-in to slot 1 of every match.
+    const isMinorRound = r % 2 === 0;
     const roundNum = r + 1;
 
     if (isMinorRound && r > 0) {
@@ -194,52 +127,11 @@ function calculateDropTarget(winnersRound, position, winnersRounds) {
     return { round: 2 * (winnersRounds - 1), position: 0, slot: 1 };
   }
 
-  // W1 losers pair up in L1, W2 losers mix in L2, etc.
-  // Formula: losersRound = winnersRound for early rounds
-  // For L1: W1 losers pair up (slot determined by position % 2)
-  // For L2+: losers go to slot 1 to mix with previous losers winners
+  // W1 losers pair up in L1; a Wr loser (r >= 2) drops into slot 1 of major round L(2r-2).
   if (winnersRound === 1) {
-    // W1 losers pair up in L1
-    const losersPosition = Math.floor(position / 2);
-    const slot = position % 2;
-    return { round: 1, position: losersPosition, slot };
-  } else {
-    // W2+ losers go to slot 1, mixing with previous round winners.
-    // Standard double-elimination routing drops a winners-round-r loser into
-    // the major losers round 2*(r-1). (For r === 2 this equals 2, matching the
-    // old formula; for r >= 3 the old `round: winnersRound` dropped into an
-    // already-filled minor round and corrupted the bracket.)
-    return { round: 2 * (winnersRound - 1), position: position, slot: 1 };
+    return { round: 1, position: Math.floor(position / 2), slot: position % 2 };
   }
-}
-
-/**
- * Process byes in winners bracket
- */
-function processWinnersByes(winners) {
-  for (let r = 0; r < winners.rounds.length - 1; r++) {
-    const round = winners.rounds[r];
-
-    for (const match of round.matches) {
-      if (match.isBye) {
-        const winnerId = match.participants.find(p => p !== null);
-        if (winnerId) {
-          match.winnerId = winnerId;
-
-          // Advance in winners
-          const nextMatchIdx = Math.floor(match.position / 2);
-          const nextRound = winners.rounds[r + 1];
-          const nextMatch = nextRound?.matches[nextMatchIdx];
-          if (nextMatch) {
-            const slot = match.position % 2;
-            nextMatch.participants[slot] = winnerId;
-          }
-
-          // No loser drops (bye match)
-        }
-      }
-    }
-  }
+  return { round: 2 * (winnersRound - 1), position, slot: 1 };
 }
 
 /**
@@ -284,9 +176,6 @@ function addDeadSlot(match, slot) {
   if (!match.deadSlots.includes(slot)) match.deadSlots.push(slot);
 }
 
-/**
- * Get winners round name
- */
 function getWinnersRoundName(roundNumber, totalRounds) {
   const fromFinals = totalRounds - roundNumber;
   switch (fromFinals) {
@@ -397,7 +286,6 @@ export function getStandings(bracket, matches, participants) {
   const p = participants.get(champion);
   standings.push({ place: 1, participantId: champion, name: p?.name || 'Unknown' });
 
-  // Runner-up
   const runnerUp = matches.get(bracket.grandFinals[0]).participants.find(id => id !== champion);
   if (runnerUp) {
     const p2 = participants.get(runnerUp);
@@ -412,7 +300,6 @@ export function getStandings(bracket, matches, participants) {
     if (loserId && !eliminated.has(loserId)) eliminated.set(loserId, match.round);
   }
 
-  // Sort by elimination round
   const remaining = Array.from(eliminated.entries())
     .filter(([id]) => !standings.find(s => s.participantId === id))
     .sort((a, b) => b[1] - a[1]);

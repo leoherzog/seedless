@@ -4,7 +4,7 @@
  */
 
 import { CONFIG } from '../../config.js';
-import { sortStandings, getPointsForPosition } from '../utils/tournament-helpers.js';
+import { sortStandings, getPointsForPosition, shuffle } from '../utils/tournament-helpers.js';
 
 // Randomized schedules are retried within this budget; the fewest repeat pairings wins.
 const SCHEDULE_BUDGET_MS = 40;
@@ -14,7 +14,7 @@ const SCHEDULE_MAX_ATTEMPTS = 64;
  * Generate a Points Race tournament
  * @param {Object[]} participants - Array of participants
  * @param {Object} config - Tournament configuration
- * @returns {Object} Tournament structure
+ * @returns {Object} Race settings plus the games and zeroed standings, as Maps
  */
 export function generateMarioKartTournament(participants, config = {}) {
   if (participants.length < 2) {
@@ -28,7 +28,6 @@ export function generateMarioKartTournament(participants, config = {}) {
   const plan = planGames(playerCount, config);
   const games = scheduleGames(participants.map(p => p.id), plan, gamesPerPlayer);
 
-  // Initialize standings
   const standings = new Map();
   for (const p of participants) {
     standings.set(p.id, {
@@ -37,11 +36,9 @@ export function generateMarioKartTournament(participants, config = {}) {
       points: 0,
       gamesCompleted: 0,
       wins: 0,
-      history: [],
     });
   }
 
-  // Create matches map
   const matches = new Map();
   games.forEach((game, idx) => {
     const id = `game${idx + 1}`;
@@ -65,10 +62,6 @@ export function generateMarioKartTournament(participants, config = {}) {
     pointsTable,
     playersPerGame,
     gamesPerPlayer,
-    totalGames: games.length,
-    gamesComplete: 0,
-    participantCount: playerCount,
-    isComplete: false,
   };
 }
 
@@ -245,30 +238,15 @@ function leastMet(candidates, field, met) {
 }
 
 /**
- * Fisher-Yates shuffle in place
- * @param {any[]} items - Array to shuffle
- * @returns {any[]} The same array
- */
-function shuffle(items) {
-  for (let i = items.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [items[i], items[j]] = [items[j], items[i]];
-  }
-  return items;
-}
-
-/**
- * Record game result
- * Idempotent per gameId: if this game already had a result applied, its prior
- * contribution to standings (points/gamesCompleted/wins/history) is reversed
- * before the new result is applied, so re-recording (or correcting) a game's
- * result never double-counts. Stand-ins hold a finishing position but score nothing.
- * @param {Object} tournament - Tournament structure
+ * Record a game result into the game and the standings, both mutated in place.
+ * Re-recording a game first reverses its previous contribution, so corrections never
+ * double-count. Stand-ins hold a finishing position but score nothing.
+ * @param {{matches: Map, standings: Map, pointsTable: Array|string}} tournament
  * @param {string} gameId - Game ID
- * @param {Object[]} results - Array of { participantId, position }
+ * @param {Object[]} results - Array of { participantId }, in finishing order
  * @param {string} reportedBy - Reporter ID
  * @param {number} [reportedAt] - Timestamp to persist for this result; defaults to now
- * @returns {Object} Updated tournament
+ * @returns {boolean} True once every game is complete
  */
 export function recordRaceResult(tournament, gameId, results, reportedBy, reportedAt = Date.now()) {
   const game = tournament.matches.get(gameId);
@@ -276,7 +254,6 @@ export function recordRaceResult(tournament, gameId, results, reportedBy, report
     throw new Error(`Game not found: ${gameId}`);
   }
 
-  // Validate results
   const participantSet = new Set(game.participants);
   for (const r of results) {
     if (!participantSet.has(r.participantId)) {
@@ -284,8 +261,6 @@ export function recordRaceResult(tournament, gameId, results, reportedBy, report
     }
   }
 
-  // If this game already had a result applied, reverse its prior contribution
-  // to standings before applying the new one, so re-recording never double-counts.
   const previousResults = game.results;
   if (previousResults) {
     for (const prev of previousResults) {
@@ -297,13 +272,10 @@ export function recordRaceResult(tournament, gameId, results, reportedBy, report
         if (prev.position === 1) {
           standing.wins--;
         }
-        standing.history = standing.history.filter(h => h.gameId !== gameId);
       }
     }
   }
 
-  // Calculate points based on position (0-based idx)
-  // Sequential mode: N players = N, N-1, ..., 1 points (dynamic per-game)
   const standIns = new Set(game.standIns || []);
   game.results = results.map((r, idx) => {
     if (standIns.has(r.participantId)) {
@@ -321,7 +293,6 @@ export function recordRaceResult(tournament, gameId, results, reportedBy, report
   game.reportedAt = reportedAt;
   game.complete = true;
 
-  // Update standings
   for (const result of game.results) {
     if (result.standIn) continue;
     const standing = tournament.standings.get(result.participantId);
@@ -331,32 +302,18 @@ export function recordRaceResult(tournament, gameId, results, reportedBy, report
       if (result.position === 1) {
         standing.wins++;
       }
-      standing.history.push({
-        gameId,
-        gameNumber: game.gameNumber,
-        position: result.position,
-        points: result.points,
-      });
     }
   }
 
-  // Update games complete count
-  tournament.gamesComplete = Array.from(tournament.matches.values())
-    .filter(m => m.complete).length;
-
-  // Check if tournament is complete
-  if (tournament.gamesComplete >= tournament.totalGames) {
-    tournament.isComplete = true;
-  }
-
-  return tournament;
+  return [...tournament.matches.values()].every(m => m.complete);
 }
 
 /**
- * Get sorted standings
+ * Rank standings by points, then wins, then games completed.
+ * @param {{standings: Map}} tournament
+ * @returns {Object[]} Standings with place
  */
 export function getStandings(tournament) {
-  // Sort by points, then wins, then games completed
   const standings = sortStandings(Array.from(tournament.standings.values()));
 
   return standings.map((s, i) => ({

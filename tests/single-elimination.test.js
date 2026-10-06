@@ -43,9 +43,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     const { bracket } = tournament;
 
     assertEquals(bracket.type, "single");
-    assertEquals(bracket.bracketSize, 2);
-    assertEquals(bracket.numRounds, 1);
-    assertEquals(bracket.participantCount, 2);
     assertEquals(bracket.rounds.length, 1);
     // Note: Round 1 is always named "Round 1" even if it's also the finals
     assertEquals(bracket.rounds[0].name, "Round 1");
@@ -62,9 +59,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     const tournament = generateSingleEliminationBracket(participants3);
     const { bracket } = tournament;
 
-    assertEquals(bracket.bracketSize, 4);
-    assertEquals(bracket.numRounds, 2);
-    assertEquals(bracket.participantCount, 3);
     assertEquals(bracket.rounds.length, 2);
 
     // Round 1 should have 2 matches, one being a bye
@@ -86,8 +80,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     const tournament = generateSingleEliminationBracket(participants4);
     const { bracket } = tournament;
 
-    assertEquals(bracket.bracketSize, 4);
-    assertEquals(bracket.numRounds, 2);
     assertEquals(bracket.rounds[0].matchIds.length, 2);
     assertEquals(bracket.rounds[1].matchIds.length, 1);
     assertEquals(bracket.rounds[1].name, "Finals");
@@ -110,8 +102,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     const tournament = generateSingleEliminationBracket(participants8);
     const { bracket } = tournament;
 
-    assertEquals(bracket.bracketSize, 8);
-    assertEquals(bracket.numRounds, 3);
     assertEquals(bracket.rounds.map((r) => r.matchIds.length), [4, 2, 1]);
     assertEquals(bracket.rounds[2].name, "Finals");
 
@@ -122,8 +112,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
   await t.step("generates 32-player bracket with 5 rounds", () => {
     const { bracket } = generateSingleEliminationBracket(createParticipants(32));
 
-    assertEquals(bracket.bracketSize, 32);
-    assertEquals(bracket.numRounds, 5);
     assertEquals(bracket.rounds.map((r) => r.matchIds.length), [16, 8, 4, 2, 1]);
   });
 
@@ -131,8 +119,6 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     const tournament = generateSingleEliminationBracket(createParticipants(64));
     const { bracket, matches } = tournament;
 
-    assertEquals(bracket.bracketSize, 64);
-    assertEquals(bracket.numRounds, 6);
     assertEquals(bracket.rounds.length, 6);
     assertEquals(matches.size, 63);
     assertEquals(roundMatches(tournament, 0)[0].participants[0], "player-1");

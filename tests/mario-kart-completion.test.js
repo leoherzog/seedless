@@ -14,13 +14,16 @@ import { createParticipants } from "./fixtures.js";
 // Play every remaining game in a deterministic order: results follow the
 // order participants already appear in `game.participants`, so first listed
 // participant always finishes 1st, etc. This makes the run fully
-// reproducible regardless of the random matchmaking.
+// reproducible regardless of the random matchmaking. Returns the last
+// recordRaceResult completion flag.
 function playAllGames(tournament) {
+  let complete = false;
   for (const [gameId, game] of tournament.matches) {
     if (game.complete) continue;
     const results = game.participants.map((pId) => ({ participantId: pId }));
-    recordRaceResult(tournament, gameId, results, results[0].participantId);
+    complete = recordRaceResult(tournament, gameId, results, results[0].participantId);
   }
+  return complete;
 }
 
 Deno.test("Mario Kart parametric completion", async (t) => {
@@ -45,9 +48,7 @@ Deno.test("Mario Kart parametric completion", async (t) => {
           pointsTable: "sequential",
         });
 
-        assertEquals(tournament.isComplete, false);
-
-        playAllGames(tournament);
+        assert(playAllGames(tournament), "the last result should report the race complete");
 
         // Every match should have been played; none left unplayable.
         for (const [gameId, game] of tournament.matches) {
@@ -55,9 +56,6 @@ Deno.test("Mario Kart parametric completion", async (t) => {
           assert(game.results !== null, `Game ${gameId} should have results`);
           assert(game.winnerId, `Game ${gameId} should have a winnerId`);
         }
-
-        assertEquals(tournament.gamesComplete, tournament.totalGames);
-        assertEquals(tournament.isComplete, true);
 
         const standings = getStandings(tournament);
 
@@ -77,11 +75,6 @@ Deno.test("Mario Kart parametric completion", async (t) => {
         const totalGamesCompleted = standings.reduce((sum, s) => sum + s.gamesCompleted, 0);
         assertEquals(totalGamesCompleted, totalParticipantSlots);
 
-        // history length matches gamesCompleted for every participant.
-        for (const s of standings) {
-          assertEquals(s.history.length, s.gamesCompleted);
-        }
-
         // Standings sorted descending by points, sequential place numbers.
         for (let i = 0; i < standings.length - 1; i++) {
           assert(standings[i].points >= standings[i + 1].points);
@@ -99,7 +92,7 @@ Deno.test("Mario Kart parametric completion", async (t) => {
 });
 
 Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) => {
-  await t.step("does not double-count points/gamesCompleted/wins/history", () => {
+  await t.step("does not double-count points/gamesCompleted/wins", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -119,7 +112,6 @@ Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) =
       points: s.points,
       gamesCompleted: s.gamesCompleted,
       wins: s.wins,
-      historyLength: s.history.length,
     }));
 
     // Re-apply the exact same result for the same gameId.
@@ -130,7 +122,6 @@ Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) =
       points: s.points,
       gamesCompleted: s.gamesCompleted,
       wins: s.wins,
-      historyLength: s.history.length,
     }));
 
     assertEquals(snapshotAfterSecond, snapshotAfterFirst, "Re-recording the same result must be a no-op");
@@ -140,10 +131,6 @@ Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) =
     assertEquals(winner.gamesCompleted, 1);
     assertEquals(winner.wins, 1);
     assertEquals(winner.points, 15);
-    assertEquals(winner.history.length, 1);
-
-    // gamesComplete count on the tournament itself should also not double count.
-    assertEquals(tournament.gamesComplete, 1);
   });
 });
 
@@ -187,27 +174,17 @@ Deno.test("Mario Kart correction: different result for same gameId replaces prio
     assertEquals(tournament.standings.get(a).points, 12, "a should now have 2nd place points, not 15+12");
     assertEquals(tournament.standings.get(a).wins, 0, "a's win should be reversed");
 
-    // gamesCompleted / history length must remain 1 (not 2) for everyone in the game.
+    // gamesCompleted must remain 1 (not 2) for everyone in the game.
     for (const pId of game.participants) {
       const standing = tournament.standings.get(pId);
       assertEquals(standing.gamesCompleted, 1, `${pId} gamesCompleted should stay at 1 after correction`);
-      assertEquals(standing.history.length, 1, `${pId} history should stay at length 1 after correction`);
     }
 
-    // Only one history entry for this gameId per participant, and it reflects
-    // the corrected position/points.
-    const bHistory = tournament.standings.get(b).history.filter((h) => h.gameId === gameId);
-    assertEquals(bHistory.length, 1);
-    assertEquals(bHistory[0].position, 1);
-    assertEquals(bHistory[0].points, 15);
-
-    const aHistory = tournament.standings.get(a).history.filter((h) => h.gameId === gameId);
-    assertEquals(aHistory.length, 1);
-    assertEquals(aHistory[0].position, 2);
-    assertEquals(aHistory[0].points, 12);
-
-    // gamesComplete count on the tournament should not have grown from the correction.
-    assertEquals(tournament.gamesComplete, 1);
+    // The game's results reflect the corrected positions and points.
+    assertEquals(game.results.slice(0, 2), [
+      { participantId: b, position: 1, points: 15 },
+      { participantId: a, position: 2, points: 12 },
+    ]);
 
     // Winner id updated to reflect the new first-place finisher.
     assertEquals(game.winnerId, b);
@@ -249,7 +226,6 @@ Deno.test("Mario Kart correction: different result for same gameId replaces prio
     // of the result.
     assertEquals(tournament.standings.get(d).points, 0);
     assertEquals(tournament.standings.get(d).gamesCompleted, 0);
-    assertEquals(tournament.standings.get(d).history.length, 0);
 
     // a, b, c reflect only the new (single) result.
     assertEquals(tournament.standings.get(a).points, 15);

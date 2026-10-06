@@ -40,7 +40,6 @@ function assertValidSchedule(tournament, { players, playersPerGame, gamesPerPlay
   for (const [id, count] of scoredRaces) {
     assertEquals(count, gamesPerPlayer, `${id} should score exactly ${gamesPerPlayer} races`);
   }
-  assertEquals(tournament.totalGames, tournament.matches.size);
 }
 
 Deno.test("planGames", async (t) => {
@@ -123,7 +122,7 @@ Deno.test("generateMarioKartTournament uneven splits", async (t) => {
       for (let run = 0; run < 25; run++) {
         const tournament = generateMarioKartTournament(createParticipants(7), cfg);
         assertValidSchedule(tournament, cfg);
-        assertEquals(tournament.totalGames, 6);
+        assertEquals(tournament.matches.size, 6);
       }
     }
   });
@@ -179,7 +178,6 @@ Deno.test("recordRaceResult with stand-ins", async (t) => {
     assertEquals(standing.points, 0);
     assertEquals(standing.wins, 0);
     assertEquals(standing.gamesCompleted, 0);
-    assertEquals(standing.history, []);
 
     const standInResult = game.results.find(r => r.participantId === standIn);
     assertEquals(standInResult, { participantId: standIn, position: 1, points: 0, standIn: true });

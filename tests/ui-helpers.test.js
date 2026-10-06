@@ -7,7 +7,8 @@ import {
   getOrdinalSuffix,
   formatOrdinal,
   determineMatchStatus,
-  sortStandings
+  sortStandings,
+  isInMatch,
 } from '../js/utils/tournament-helpers.js';
 
 Deno.test('getOrdinalSuffix', async (t) => {
@@ -167,5 +168,32 @@ Deno.test('sortStandings', async (t) => {
     const sorted = sortStandings(standings);
     assertEquals(sorted.length, 1);
     assertEquals(sorted[0].name, 'A');
+  });
+});
+
+Deno.test('isInMatch', async (t) => {
+  const teams = [
+    { id: 'team-1', members: [{ id: 'p1' }, { id: 'p2' }] },
+    { id: 'team-2', members: [{ id: 'p3' }, { id: 'p4' }] },
+    { id: 'team-3', members: [{ id: 'p5' }, { id: 'p6' }] },
+  ];
+  const teamMatch = { participants: ['team-1', 'team-2'] };
+
+  await t.step('matches a player id directly without teams', () => {
+    assertEquals(isInMatch({ participants: ['p1', 'p2'] }, 'p1'), true);
+    assertEquals(isInMatch({ participants: ['p1', 'p2'] }, 'p3'), false);
+  });
+
+  await t.step('matches a member of either team', () => {
+    assertEquals(isInMatch(teamMatch, 'p2', teams), true);
+    assertEquals(isInMatch(teamMatch, 'p4', teams), true);
+  });
+
+  await t.step('rejects a member of a team not in the match', () => {
+    assertEquals(isInMatch(teamMatch, 'p5', teams), false);
+  });
+
+  await t.step('rejects everyone when doubles has no teams', () => {
+    assertEquals(isInMatch({ participants: ['p1', 'p2'] }, 'p1', []), false);
   });
 });

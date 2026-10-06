@@ -1,6 +1,7 @@
 /**
  * Tournament Helper Functions
- * Pure utility functions for tournament UI logic
+ * Pure helpers shared by the tournament modules and the UI: match status, ordinals,
+ * standings order, seeding and shuffling.
  */
 
 /**
@@ -65,4 +66,45 @@ export function sortStandings(standings) {
     if (b.wins !== a.wins) return b.wins - a.wins;
     return b.gamesCompleted - a.gamesCompleted;
   });
+}
+
+/**
+ * Fisher-Yates shuffle in place
+ * @param {any[]} items - Array to shuffle
+ * @returns {any[]} The same array
+ */
+export function shuffle(items) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+/**
+ * Comparator ordering participants by seed; unseeded participants sort last.
+ */
+export const bySeed = (a, b) => (a.seed || 999) - (b.seed || 999);
+
+/**
+ * Order participants for seeding: shuffled in 'random' mode, by current seed otherwise.
+ * @param {Object[]} participants - Participants with optional seed
+ * @param {string} mode - meta.config.seedingMode
+ * @returns {Object[]} A new array, best seed first
+ */
+export function seedParticipants(participants, mode) {
+  return mode === 'random' ? shuffle([...participants]) : participants.toSorted(bySeed);
+}
+
+/**
+ * Whether a user plays in a match, directly or as a member of one of its teams.
+ * @param {Object} match - Match whose participants are player or team ids
+ * @param {string} userId - Persistent user id
+ * @param {Object[]} [teams] - Bracket teams; pass an array for doubles, omit otherwise
+ * @returns {boolean}
+ */
+export function isInMatch(match, userId, teams) {
+  return teams
+    ? teams.some(t => match.participants.includes(t.id) && t.members.some(m => m.id === userId))
+    : match.participants.includes(userId);
 }

@@ -17,6 +17,8 @@ import {
 } from './sync-validators.js';
 import { advance as advanceSingle } from '../tournament/single-elimination.js';
 import { advance as advanceDouble } from '../tournament/double-elimination.js';
+import { recordRaceResult } from '../tournament/mario-kart.js';
+import { isInMatch } from '../utils/tournament-helpers.js';
 
 // Map peerId (transient) to localUserId (persistent)
 // This allows us to identify participants across page refreshes
@@ -383,11 +385,10 @@ export function setupStateSync(room) {
     if (payload.matches) {
       store.deserialize({ matches: payload.matches });
     }
+    if (Array.isArray(payload.standings)) {
+      store.deserialize({ standings: payload.standings });
+    }
     if (payload.bracket) {
-      // Deserialize standings if present (Mario Kart mode)
-      if (payload.bracket.standings) {
-        store.deserialize({ standings: payload.bracket.standings });
-      }
       store.set('bracket', payload.bracket);
       // Sync meta.type from bracket type (handles mariokart, doubles, etc.)
       if (payload.bracket.type) {
@@ -499,21 +500,8 @@ export function setupStateSync(room) {
     }
 
     // Verify reporter is a participant in the match (using persistent ID)
-    let isParticipant;
-    const tournamentType = store.get('meta.type');
-
-    if (tournamentType === 'doubles') {
-      // For doubles, check if user's team is in the match
-      const bracket = store.get('bracket');
-      const teams = bracket?.teams || [];
-      const userTeamIds = teams
-        .filter(t => t.members.some(m => m.id === localUserId))
-        .map(t => t.id);
-      isParticipant = match.participants.some(teamId => userTeamIds.includes(teamId));
-    } else {
-      isParticipant = match.participants.includes(localUserId);
-    }
-
+    const teams = store.get('meta.type') === 'doubles' ? (store.get('bracket')?.teams ?? []) : undefined;
+    const isParticipant = isInMatch(match, localUserId, teams);
     const isAdmin = localUserId === store.get('meta.adminId');
 
     if (!isParticipant && !isAdmin) {
@@ -592,7 +580,7 @@ export function setupStateSync(room) {
   });
 
   // --- Handle race/game results (Points Race mode) ---
-  room.onAction(ActionTypes.RACE_RESULT, async (payload, peerId) => {
+  room.onAction(ActionTypes.RACE_RESULT, (payload, peerId) => {
     if (!payload || typeof payload !== 'object') {
       console.warn(`[Sync] Invalid race result payload from ${peerId}`);
       return;
@@ -603,14 +591,12 @@ export function setupStateSync(room) {
 
     console.info(`[Sync] Race result from ${localUserId}:`, payload);
 
-    // Get game from matches
     const game = store.getMatch(gameId);
     if (!game) {
       console.warn(`[Sync] Unknown game: ${gameId}`);
       return;
     }
 
-    // Verify reporter is a participant in the game
     const isParticipant = game.participants.includes(localUserId);
     const isAdmin = localUserId === store.get('meta.adminId');
 
@@ -620,61 +606,13 @@ export function setupStateSync(room) {
     }
 
     const incomingVersion = version || 0;
-
-    // Idempotency guard: an already-complete game must not be re-applied by a normal
-    // duplicate (which would double-count standings). Only a strictly newer version
-    // (a genuine correction) or an admin override may re-apply.
-    if (game.complete && !isAdmin && incomingVersion <= (game.version || 0)) {
-      console.info(`[Sync] Ignoring duplicate result for completed game ${gameId}`);
-      return;
-    }
-
-    // LWW - only apply if newer (shared logical-clock comparison)
-    const incoming = { version: incomingVersion, reportedAt };
-    if (!shouldUpdateMatch(incoming, game, isAdmin)) {
+    if (!shouldUpdateMatch({ version: incomingVersion, reportedAt }, game, isAdmin)) {
       console.info(`[Sync] Ignoring stale race result`);
       return;
     }
 
-    // Apply the result using mario-kart module
     try {
-      const { recordRaceResult } = await import('../tournament/mario-kart.js');
-
-      const bracket = store.get('bracket');
-      const matches = store.get('matches');
-      const standings = store.get('standings');
-
-      const tournament = {
-        ...bracket,
-        matches: matches,
-        standings: standings,
-      };
-
-      recordRaceResult(tournament, gameId, results, localUserId);
-
-      // Persist the reporter's logical clock and timestamp on the game so LWW
-      // comparisons stay consistent across peers. Do NOT keep a receiver-local
-      // Date.now() stamp (recordRaceResult sets one) - that would make every peer
-      // disagree on the same result's reportedAt.
-      const appliedGame = tournament.matches.get(gameId);
-      if (appliedGame) {
-        appliedGame.reportedAt = reportedAt;
-        appliedGame.version = incomingVersion;
-      }
-
-      // Update store
-      store.set('bracket', {
-        ...bracket,
-        gamesComplete: tournament.gamesComplete,
-        isComplete: tournament.isComplete,
-      });
-      store.setMatches(tournament.matches);
-      store.deserialize({ standings: Array.from(tournament.standings.entries()) });
-
-      if (tournament.isComplete) {
-        store.set('meta.status', 'complete');
-      }
-
+      applyRaceResult(gameId, results, localUserId, reportedAt, incomingVersion);
     } catch (e) {
       console.error('[Sync] Failed to apply race result:', e);
     }
@@ -785,6 +723,24 @@ export function advanceWinner(matchId) {
 }
 
 /**
+ * Apply a race result to the store's game and standings, and mark the tournament
+ * complete after the last game.
+ * @param {string} gameId - Game ID
+ * @param {Object[]} results - Array of { participantId }, in finishing order
+ * @param {string} reportedBy - Reporter's persistent ID
+ * @param {number} reportedAt - Reporter's timestamp
+ * @param {number} version - Per-game logical clock
+ */
+function applyRaceResult(gameId, results, reportedBy, reportedAt, version) {
+  const race = { ...store.get('bracket'), matches: store.get('matches'), standings: store.get('standings') };
+  const complete = recordRaceResult(race, gameId, results, reportedBy, reportedAt);
+  store.updateMatch(gameId, { version });
+  if (complete) {
+    store.set('meta.status', 'complete');
+  }
+}
+
+/**
  * Announce joining a room
  * @param {Object} room - Room connection
  * @param {string} name - Display name
@@ -848,35 +804,21 @@ export function startTournament(room, bracket, matches) {
   room.broadcast(ActionTypes.TOURNAMENT_START, {
     bracket,
     matches: Array.from(matches.entries()),
+    standings: Array.from(store.get('standings')),
   });
 }
 
 /**
- * Report race/game result (Points Race mode)
- * @param {Object} room - Room connection
+ * Record a local race result and broadcast it (Points Race mode)
+ * @param {Object|null} room - Room connection; null records locally only
  * @param {string} gameId - Game ID
- * @param {Object[]} results - Array of { participantId, position }
+ * @param {Object[]} results - Array of { participantId }, in finishing order
  */
 export function reportRaceResult(room, gameId, results) {
-  // Per-game logical clock (monotonic per game, consistent across peers) so the
-  // RACE_RESULT handler's shouldUpdateMatch comparison works and duplicates are
-  // detected. recordRaceResult (called by the reporter before this) stamps
-  // game.reportedAt; reuse it so reporter and receivers agree on the same value.
-  const game = store.getMatch(gameId);
-  const version = (game?.version || 0) + 1;
-  const reportedAt = game?.reportedAt || Date.now();
-
-  // Persist the version on our own game so future comparisons agree with what we broadcast.
-  if (game) {
-    store.updateMatch(gameId, { version });
-  }
-
-  room.broadcast(ActionTypes.RACE_RESULT, {
-    gameId,
-    results,
-    reportedAt,
-    version,
-  });
+  const version = (store.getMatch(gameId)?.version || 0) + 1;
+  const reportedAt = Date.now();
+  applyRaceResult(gameId, results, store.get('local.localUserId'), reportedAt, version);
+  room?.broadcast(ActionTypes.RACE_RESULT, { gameId, results, reportedAt, version });
 }
 
 /**

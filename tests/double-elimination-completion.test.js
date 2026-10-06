@@ -171,7 +171,6 @@ Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
     const participants = createParticipants(2);
     const { bracket } = generateDoubleEliminationBracket(participants);
 
-    assertEquals(bracket.losersRounds, 0);
     assertEquals(bracket.losers.rounds.length, 0);
   });
 

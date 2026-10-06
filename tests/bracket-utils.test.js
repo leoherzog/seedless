@@ -2,8 +2,8 @@
  * Tests for bracket-utils.js
  */
 
-import { assertEquals, assert } from "jsr:@std/assert";
-import { nextPowerOf2, getSeedPositions, getRoundName } from "../js/tournament/bracket-utils.js";
+import { assertEquals, assert, assertThrows } from "jsr:@std/assert";
+import { nextPowerOf2, seedOrder, buildKnockout, getRoundName } from "../js/tournament/bracket-utils.js";
 
 Deno.test("nextPowerOf2", async (t) => {
   await t.step("returns 2 for 1", () => {
@@ -59,52 +59,56 @@ Deno.test("nextPowerOf2", async (t) => {
   });
 });
 
-Deno.test("getSeedPositions", async (t) => {
-  await t.step("returns correct positions for bracket of 2", () => {
-    const positions = getSeedPositions(2);
-    assertEquals(positions.length, 2);
-    assertEquals(positions[0], 0);
-    assertEquals(positions[1], 1);
+Deno.test("seedOrder", async (t) => {
+  await t.step("returns [1, 2] for bracket of 2", () => {
+    assertEquals(seedOrder(2), [1, 2]);
   });
 
-  await t.step("returns correct positions for bracket of 4", () => {
-    const positions = getSeedPositions(4);
-    assertEquals(positions.length, 4);
-    // Standard seeding: 1 vs 4, 2 vs 3
-    // So seed 1 at pos 0, seed 2 at pos 2, seed 3 at pos 3, seed 4 at pos 1
-    assertEquals(positions[0], 0);  // Seed 1
-    assertEquals(positions[3], 1);  // Seed 4
-    assertEquals(positions[1], 2);  // Seed 2
-    assertEquals(positions[2], 3);  // Seed 3
+  await t.step("pairs 1v4 and 2v3 for bracket of 4", () => {
+    assertEquals(seedOrder(4), [1, 4, 2, 3]);
   });
 
-  await t.step("returns correct positions for bracket of 8", () => {
-    const positions = getSeedPositions(8);
-    assertEquals(positions.length, 8);
-    // Expected matchup order: [1, 8, 4, 5, 3, 6, 2, 7]
-    // positions[seed-1] = bracket_position
-    assertEquals(positions[0], 0);  // Seed 1 at position 0
-    assertEquals(positions[7], 1);  // Seed 8 at position 1 (1v8 matchup)
-    assertEquals(positions[3], 2);  // Seed 4 at position 2
-    assertEquals(positions[4], 3);  // Seed 5 at position 3 (4v5 matchup)
-    assertEquals(positions[2], 4);  // Seed 3 at position 4
-    assertEquals(positions[5], 5);  // Seed 6 at position 5 (3v6 matchup)
-    assertEquals(positions[1], 6);  // Seed 2 at position 6
-    assertEquals(positions[6], 7);  // Seed 7 at position 7 (2v7 matchup)
+  await t.step("returns standard order for bracket of 8", () => {
+    assertEquals(seedOrder(8), [1, 8, 4, 5, 3, 6, 2, 7]);
   });
 
-  await t.step("returns correct positions for bracket of 16", () => {
-    const positions = getSeedPositions(16);
-    assertEquals(positions.length, 16);
-    // Verify key seeding properties:
-    // Seed 1 at position 0
-    assertEquals(positions[0], 0);
-    // Seed 16 paired with seed 1 (1v16)
-    assertEquals(positions[15], 1);
-    // Seed 2 in opposite half from seed 1 (position >= 8)
-    assert(positions[1] >= 8, "Seed 2 should be in opposite half");
-    // Seed 2 paired with seed 15 (2v15)
-    assertEquals(positions[14], positions[1] + 1);
+  await t.step("bracket of 16 pairs seeds summing to 17, with 1 and 2 in opposite halves", () => {
+    const order = seedOrder(16);
+    assertEquals(order.length, 16);
+    for (let i = 0; i < 16; i += 2) {
+      assertEquals(order[i] + order[i + 1], 17);
+    }
+    assert(order.indexOf(1) < 8, "Seed 1 should be in the top half");
+    assert(order.indexOf(2) >= 8, "Seed 2 should be in the bottom half");
+  });
+});
+
+Deno.test("buildKnockout", async (t) => {
+  const makeMatch = (round, position) => ({ id: `r${round}m${position}`, participants: [null, null], winnerId: null, isBye: false });
+  const players = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, seed: i + 1 }));
+
+  await t.step("throws with fewer than 2 participants", () => {
+    assertThrows(() => buildKnockout(players(1), makeMatch, () => ""), Error, "Need at least 2 participants");
+  });
+
+  await t.step("sorts by seed with unseeded participants last", () => {
+    const { rounds } = buildKnockout(
+      [{ id: "late" }, { id: "second", seed: 2 }, { id: "first", seed: 1 }, { id: "third", seed: 3 }],
+      makeMatch,
+      () => "",
+    );
+    assertEquals(rounds[0].matches.map((m) => m.participants), [["first", "late"], ["second", "third"]]);
+  });
+
+  await t.step("advances each round-1 bye into slot 0 or 1 of the next round", () => {
+    const { bracketSize, numRounds, rounds } = buildKnockout(players(5), makeMatch, (r, n) => `${r}/${n}`);
+    assertEquals(bracketSize, 8);
+    assertEquals(numRounds, 3);
+    assertEquals(rounds.map((r) => r.name), ["1/3", "2/3", "3/3"]);
+
+    const byes = rounds[0].matches.filter((m) => m.isBye);
+    assertEquals(byes.map((m) => m.winnerId), ["p1", "p3", "p2"]);
+    assertEquals(rounds[1].matches.map((m) => m.participants), [["p1", null], ["p3", "p2"]]);
   });
 });
 

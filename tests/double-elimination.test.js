@@ -66,27 +66,19 @@ Deno.test("generateDoubleEliminationBracket", async (t) => {
   await t.step("4-player bracket has correct structure", () => {
     const { bracket } = generateDoubleEliminationBracket(participants4);
 
-    // 4 players = bracketSize 4
-    assertEquals(bracket.bracketSize, 4);
-    assertEquals(bracket.winnersRounds, 2); // 2 rounds in winners
-    assertEquals(bracket.losersRounds, 2); // 2 * (2-1) = 2 rounds in losers
-
     // Winners: 2 matches in R1, 1 match in R2 (finals)
     assertEquals(bracket.winners.rounds.map((r) => r.matchIds.length), [2, 1]);
-
-    // Losers: should have rounds
-    assert(bracket.losers.rounds.length > 0);
+    // Losers: 2 * (2-1) = 2 rounds
+    assertEquals(bracket.losers.rounds.length, 2);
   });
 
   await t.step("8-player bracket has correct structure", () => {
     const { bracket } = generateDoubleEliminationBracket(participants8);
 
-    assertEquals(bracket.bracketSize, 8);
-    assertEquals(bracket.winnersRounds, 3);
-    assertEquals(bracket.losersRounds, 4); // 2 * (3-1) = 4
-
     // Winners: R1 has 4, R2 has 2, R3 has 1
     assertEquals(bracket.winners.rounds.map((r) => r.matchIds.length), [4, 2, 1]);
+    // Losers: 2 * (3-1) = 4 rounds
+    assertEquals(bracket.losers.rounds.length, 4);
   });
 
   await t.step("every bracket id is in the matches map exactly once", () => {
