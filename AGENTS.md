@@ -34,7 +34,7 @@ Tests are in `tests/` with mocks in `tests/mocks/` and integration tests in `tes
 
 **No Build System**: Pure ES modules loaded directly by the browser. All imports use relative paths with `.js` extensions.
 
-**Admin Authority Model**: The tournament creator (admin) is authoritative for bracket structure. Match results use last-write-wins (LWW) with admin verification override. Admin status persists across page refreshes via localStorage token.
+**Admin Authority Model**: The tournament creator (admin) is authoritative for bracket structure. Match results use last-write-wins (LWW) with admin verification override. Admin status persists across page refreshes because meta.adminId matches the persistent localUserId.
 
 Security considerations in `sync.js` and `store.js`:
 - Admin-only actions (`t:start`, `t:reset`, participant removal) verify sender's `localUserId` matches `meta.adminId`
@@ -55,7 +55,7 @@ js/
 ├── main.js              # App entry point, view routing, room lifecycle
 ├── state/
 │   ├── store.js         # Central event-emitting state store with CRDT-like merge
-│   ├── persistence.js   # localStorage read/write, admin token management
+│   ├── persistence.js   # localStorage read/write
 │   └── url-state.js     # URL query routing (?room=slug&view=bracket)
 ├── network/
 │   ├── room.js          # Trystero room wrapper, action channel setup
@@ -82,7 +82,7 @@ js/
 
 ### State Flow
 
-1. `store.js` is the single source of truth - an event-emitting store with `get()`, `set()`, `batch()` methods
+1. `store.js` is the single source of truth - an event-emitting store with `get()`, `set()` and `on()` methods
 2. Components subscribe to store changes via `store.on('change', callback)`
 3. P2P messages trigger store updates through handlers in `sync.js`
 4. Store changes are persisted to localStorage via `saveTournament()`
@@ -104,9 +104,10 @@ Messages travel as `{ payload }`. Sender identity comes from Trystero's `peerId`
 
 `config.js` exports `CONFIG` object with:
 - `appId` - Must be unique per fork to isolate tournament networks
-- `defaults` - Tournament configuration defaults (bestOf, teamSize, seedingMode)
 - `pointsTables` - Scoring presets for Mario Kart mode
 - `validation` - Input validation limits (maxNameLength, maxMatchIdLength)
+- `storage` - localStorage prefix and retentionDays
+- `ui` - toastDuration
 - `network` - Network settings (stateResponseDelay, turnCredentialsUrl)
 
 ## Important Patterns

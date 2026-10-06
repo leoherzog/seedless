@@ -1,12 +1,11 @@
 /**
- * localStorage Persistence
- * Save and load tournament state
+ * localStorage persistence for tournament snapshots, preferences and the persistent user ID.
  */
 
 import { CONFIG } from '../../config.js';
 
 const STORAGE_PREFIX = CONFIG.storage.prefix;
-const RETENTION_DAYS = CONFIG.storage.retentionDays;
+const RETENTION_MS = CONFIG.storage.retentionDays * 24 * 60 * 60 * 1000;
 
 /**
  * Save tournament state to localStorage
@@ -24,16 +23,27 @@ export function saveTournament(roomId, state) {
 
   try {
     localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.error('Failed to save tournament state:', e);
-    // Try to make room by cleaning up old tournaments
+  } catch {
+    // Make room by cleaning up old tournaments, then retry once
     cleanupOldTournaments();
     try {
       localStorage.setItem(key, JSON.stringify(data));
-    } catch (e2) {
-      console.error('Still failed after cleanup:', e2);
+    } catch (e) {
+      console.error('Failed to save tournament state:', e);
     }
   }
+}
+
+/** Return the stored tournament under key if it is fresh; otherwise remove it and return null. */
+function readTournament(key) {
+  try {
+    const data = JSON.parse(localStorage.getItem(key));
+    if (data?.savedAt >= Date.now() - RETENTION_MS) return data;
+  } catch {
+    // Unparseable entries are removed below.
+  }
+  localStorage.removeItem(key);
+  return null;
 }
 
 /**
@@ -42,76 +52,21 @@ export function saveTournament(roomId, state) {
  * @returns {Object|null} Stored state or null
  */
 export function loadTournament(roomId) {
-  if (!roomId) return null;
-
-  const key = STORAGE_PREFIX + roomId;
-  const stored = localStorage.getItem(key);
-
-  if (!stored) return null;
-
-  try {
-    const data = JSON.parse(stored);
-
-    // Check if data is too old
-    const cutoff = Date.now() - (RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    if (!data.savedAt || data.savedAt < cutoff) {
-      localStorage.removeItem(key);
-      return null;
-    }
-
-    return data;
-  } catch (e) {
-    console.error('Failed to parse stored tournament:', e);
-    localStorage.removeItem(key);
-    return null;
-  }
+  return roomId ? readTournament(STORAGE_PREFIX + roomId) : null;
 }
 
-/**
- * Clean up old tournaments
- * Removes tournaments older than retention period
- * Also removes corrupted data and entries without savedAt timestamp
- * Preserves preferences, admin tokens, and other non-tournament data
- */
+/** Remove expired, corrupted and undated tournaments. Preserves the preferences key. */
 export function cleanupOldTournaments() {
-  const cutoff = Date.now() - (RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  let cleaned = 0;
-
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const key = localStorage.key(i);
-    if (key && key.startsWith(STORAGE_PREFIX)) {
-      // Skip special keys (admin tokens, preferences)
-      if (key.endsWith('_admin') || key.endsWith('_preferences')) {
-        continue;
-      }
-
-      try {
-        const stored = localStorage.getItem(key);
-        if (stored) {
-          const data = JSON.parse(stored);
-          // Remove entries that don't have savedAt or are older than cutoff
-          if (!data || typeof data !== 'object' || !data.savedAt || data.savedAt < cutoff) {
-            localStorage.removeItem(key);
-            cleaned++;
-          }
-        }
-      } catch (e) {
-        // Invalid JSON - remove it
-        localStorage.removeItem(key);
-        cleaned++;
-      }
+    if (key?.startsWith(STORAGE_PREFIX) && !key.endsWith('_preferences')) {
+      readTournament(key);
     }
   }
-
-  if (cleaned > 0) {
-    console.info(`[Seedless] Cleaned up ${cleaned} old tournament(s)`);
-  }
-
-  return cleaned;
 }
 
 /**
- * Save local preferences (name, settings)
+ * Merge into stored preferences (displayName, localUserId).
  * @param {Object} prefs - Preferences to save
  */
 export function savePreferences(prefs) {
@@ -165,48 +120,9 @@ export function getLocalUserId() {
   if (prefs.localUserId) {
     return prefs.localUserId;
   }
-  // Generate a new persistent ID
-  const localUserId = 'user_' + generateAdminToken().slice(0, 16);
-  savePreferences({ localUserId: localUserId });
+  const localUserId = `user_${crypto.randomUUID()}`;
+  savePreferences({ localUserId });
   return localUserId;
 }
 
-/**
- * Save admin token for a room
- * Admin tokens allow the original admin to reclaim admin status after page refresh
- * @param {string} roomId - Room identifier
- * @param {string} token - Admin token (random string)
- */
-export function saveAdminToken(roomId, token) {
-  if (!roomId || !token) return;
-  const key = STORAGE_PREFIX + roomId + '_admin';
-  try {
-    localStorage.setItem(key, token);
-  } catch (e) {
-    console.error('Failed to save admin token:', e);
-  }
-}
-
-/**
- * Load admin token for a room
- * @param {string} roomId - Room identifier
- * @returns {string|null} Admin token or null
- */
-export function loadAdminToken(roomId) {
-  if (!roomId) return null;
-  const key = STORAGE_PREFIX + roomId + '_admin';
-  return localStorage.getItem(key);
-}
-
-/**
- * Generate a random admin token
- * @returns {string} Random token
- */
-export function generateAdminToken() {
-  const array = new Uint8Array(24);
-  crypto.getRandomValues(array);
-  return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
-}
-
-// Run cleanup on module load
 cleanupOldTournaments();

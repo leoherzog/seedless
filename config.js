@@ -11,14 +11,6 @@ export const CONFIG = {
   // value, so every peer on the same appId connects to the same relays.
   appId: 'seedless-tournament-v1',
 
-  // Default tournament settings
-  defaults: {
-    bestOf: 1,
-    numRounds: 4, // For Mario Kart mode
-    teamSize: 2,  // For doubles
-    seedingMode: 'random', // 'random' or 'manual'
-  },
-
   // Mario Kart style point tables
   // Use 'sequential' string for dynamic N, N-1, ..., 1 scoring based on game size
   pointsTables: {
@@ -37,7 +29,6 @@ export const CONFIG = {
   // UI settings
   ui: {
     toastDuration: 3000,
-    reconnectDelay: 2000,
   },
 
   // Network settings

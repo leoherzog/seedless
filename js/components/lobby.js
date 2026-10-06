@@ -610,7 +610,6 @@ function removeParticipant(participantId) {
     }
 
     showToast(`${participant.name} removed`, 'info');
-    updateLobbyUI();
   }
 }
 
@@ -619,7 +618,6 @@ function removeParticipant(participantId) {
  */
 function onParticipantJoin(participant) {
   showSuccess(`${participant.name} joined!`);
-  updateLobbyUI();
 }
 
 /**
@@ -627,7 +625,6 @@ function onParticipantJoin(participant) {
  */
 function onParticipantLeave(participant) {
   showInfo(`${participant.name} disconnected`);
-  updateLobbyUI();
 }
 
 /**

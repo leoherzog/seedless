@@ -3,25 +3,25 @@
  */
 
 import { assertEquals, assert, assertFalse } from "jsr:@std/assert";
-import { Store, createInitialState } from "../js/state/store.js";
+import { Store } from "../js/state/store.js";
 import { createParticipants } from "./fixtures.js";
 
-Deno.test("createInitialState", async (t) => {
-  await t.step("returns object with expected properties", () => {
-    const state = createInitialState();
-    assert(state.meta !== undefined, "should have meta");
-    assert(state.participants instanceof Map, "participants should be Map");
-    assert(state.matches instanceof Map, "matches should be Map");
-    assert(state.standings instanceof Map, "standings should be Map");
-    assert(state.local !== undefined, "should have local");
+Deno.test("Store initial state", async (t) => {
+  await t.step("holds Maps for keyed collections and a local section", () => {
+    const store = new Store();
+    assert(store.get("participants") instanceof Map, "participants should be Map");
+    assert(store.get("matches") instanceof Map, "matches should be Map");
+    assert(store.get("standings") instanceof Map, "standings should be Map");
+    assert(store.get("teamAssignments") instanceof Map, "teamAssignments should be Map");
+    assert(store.get("local") !== undefined, "should have local");
   });
 
   await t.step("meta has default values", () => {
-    const state = createInitialState();
-    assertEquals(state.meta.id, null);
-    assertEquals(state.meta.status, "lobby");
-    assertEquals(state.meta.type, "single");
-    assertEquals(state.meta.version, 0);
+    const store = new Store();
+    assertEquals(store.get("meta.id"), null);
+    assertEquals(store.get("meta.status"), "lobby");
+    assertEquals(store.get("meta.type"), "single");
+    assertEquals(store.get("meta.version"), 0);
   });
 });
 
@@ -39,7 +39,7 @@ Deno.test("Store.get", async (t) => {
 
   await t.step("returns nested value", () => {
     const store = new Store();
-    assertEquals(store.get("meta.config.bestOf"), 1);
+    assertEquals(store.get("meta.config.teamSize"), 2);
   });
 
   await t.step("returns undefined through a missing intermediate", () => {
@@ -56,38 +56,22 @@ Deno.test("Store.set", async (t) => {
 
   await t.step("sets nested value", () => {
     const store = new Store();
-    store.set("meta.config.bestOf", 3);
-    assertEquals(store.get("meta.config.bestOf"), 3);
+    store.set("meta.config.teamSize", 3);
+    assertEquals(store.get("meta.config.teamSize"), 3);
   });
 
-  await t.step("emits change event", () => {
+  await t.step("creates missing parent objects", () => {
     const store = new Store();
-    let emitted = false;
-    store.on("change", () => { emitted = true; });
+    store.set("nonexistent.deep.path", 1);
+    assertEquals(store.get("nonexistent.deep.path"), 1);
+  });
+
+  await t.step("emits change event with the path", () => {
+    const store = new Store();
+    const paths = [];
+    store.on("change", (e) => paths.push(e.path));
     store.set("meta.id", "test");
-    assert(emitted, "change event should be emitted");
-  });
-});
-
-Deno.test("Store.batch", async (t) => {
-  await t.step("sets multiple values", () => {
-    const store = new Store();
-    store.batch({
-      "meta.id": "room-1",
-      "meta.name": "Test Tournament",
-      "meta.type": "double",
-    });
-    assertEquals(store.get("meta.id"), "room-1");
-    assertEquals(store.get("meta.name"), "Test Tournament");
-    assertEquals(store.get("meta.type"), "double");
-  });
-
-  await t.step("emits batch event", () => {
-    const store = new Store();
-    let emitted = false;
-    store.on("batch", () => { emitted = true; });
-    store.batch({ "meta.id": "test" });
-    assert(emitted, "batch event should be emitted");
+    assertEquals(paths, ["meta.id"]);
   });
 });
 
@@ -99,14 +83,6 @@ Deno.test("Store.reset", async (t) => {
     store.reset();
     assertEquals(store.get("meta.id"), null);
     assertEquals(store.get("meta.name"), "");
-  });
-
-  await t.step("emits reset event", () => {
-    const store = new Store();
-    let emitted = false;
-    store.on("reset", () => { emitted = true; });
-    store.reset();
-    assert(emitted, "reset event should be emitted");
   });
 });
 
@@ -205,35 +181,16 @@ Deno.test("Store events", async (t) => {
     assertEquals(joins.map((p) => p.id), ["user-1"]);
   });
 
-  await t.step("updateParticipant emits participant:update with the id", () => {
-    const store = new Store();
-    store.addParticipant({ id: "user-1", name: "Alice" });
-    const updates = [];
-    store.on("participant:update", (data) => updates.push(data));
-    store.updateParticipant("user-1", { name: "Alicia" });
-    assertEquals(updates.length, 1);
-    assertEquals(updates[0].id, "user-1");
-  });
-
-  await t.step("updateMatch emits match:update with the id and updated match", () => {
+  await t.step("updateMatch applies the update and emits change for matches", () => {
     const store = new Store();
     store.deserialize({
       matches: [["r1m0", { id: "r1m0", participants: ["p1", "p2"], scores: [0, 0], winnerId: null }]],
     });
-    const events = [];
-    store.on("match:update", (data) => events.push(data));
+    const paths = [];
+    store.on("change", (e) => paths.push(e.path));
     store.updateMatch("r1m0", { scores: [3, 1], winnerId: "p1" });
-    assertEquals(events.length, 1);
-    assertEquals(events[0].id, "r1m0");
-    assertEquals(events[0].match.winnerId, "p1");
-  });
-
-  await t.step("deserialize emits sync", () => {
-    const store = new Store();
-    let synced = 0;
-    store.on("sync", () => synced++);
-    store.deserialize({});
-    assertEquals(synced, 1);
+    assertEquals(paths, ["matches"]);
+    assertEquals(store.getMatch("r1m0").winnerId, "p1");
   });
 });
 
@@ -466,16 +423,6 @@ Deno.test("Store.merge - match LWW with admin verification", async (t) => {
 });
 
 Deno.test("Store.merge - emits events", async (t) => {
-  await t.step("emits merge event", () => {
-    const store = new Store();
-    let emitted = false;
-    store.on("merge", () => { emitted = true; });
-
-    store.merge({ meta: { version: 1 } }, null);
-
-    assert(emitted, "merge event should be emitted");
-  });
-
   await t.step("emits change event", () => {
     const store = new Store();
     let emitted = false;
@@ -488,18 +435,17 @@ Deno.test("Store.merge - emits events", async (t) => {
 });
 
 Deno.test("Store - additional methods", async (t) => {
-  await t.step("off() removes event listener", () => {
+  await t.step("the function returned by on() removes the listener", () => {
     const store = new Store();
     let count = 0;
-    const handler = () => { count++; };
 
-    store.on("change", handler);
+    const unsubscribe = store.on("change", () => { count++; });
     store.set("meta.id", "test-1");
     assertEquals(count, 1);
 
-    store.off("change", handler);
+    unsubscribe();
     store.set("meta.id", "test-2");
-    assertEquals(count, 1, "handler should not be called after off()");
+    assertEquals(count, 1, "handler should not be called after unsubscribing");
   });
 
   await t.step("getMatch() returns match by id", () => {

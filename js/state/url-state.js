@@ -3,32 +3,27 @@
  * Parse and update URL parameters for shareable links
  */
 
-// URL parameter names
 export const URL_PARAMS = {
   ROOM: 'room',
   VIEW: 'view',
-  BRACKET: 'bracket', // 'winners' | 'losers' for double elim
 };
 
-// View names
 export const VIEWS = {
   HOME: 'home',
   LOBBY: 'lobby',
   BRACKET: 'bracket',
 };
 
-/**
- * Parse current URL state
- * @returns {Object} URL state object
- */
 export function parseUrlState() {
   const params = new URLSearchParams(window.location.search);
   return {
     roomId: params.get(URL_PARAMS.ROOM),
     view: params.get(URL_PARAMS.VIEW) || VIEWS.HOME,
-    bracketType: params.get(URL_PARAMS.BRACKET),
   };
 }
+
+const notifyUrlChange = () =>
+  window.dispatchEvent(new CustomEvent('urlstatechange', { detail: parseUrlState() }));
 
 /**
  * Update URL state
@@ -51,29 +46,8 @@ export function updateUrlState(updates, replace = false) {
     ? `${window.location.pathname}?${queryString}`
     : window.location.pathname;
 
-  if (replace) {
-    window.history.replaceState({ urlState: parseUrlFromParams(params) }, '', newUrl);
-  } else {
-    window.history.pushState({ urlState: parseUrlFromParams(params) }, '', newUrl);
-  }
-
-  // Dispatch custom event for listeners
-  window.dispatchEvent(new CustomEvent('urlstatechange', {
-    detail: parseUrlState(),
-  }));
-}
-
-/**
- * Parse URL state from URLSearchParams
- * @param {URLSearchParams} params
- * @returns {Object}
- */
-function parseUrlFromParams(params) {
-  return {
-    roomId: params.get(URL_PARAMS.ROOM),
-    view: params.get(URL_PARAMS.VIEW) || VIEWS.HOME,
-    bracketType: params.get(URL_PARAMS.BRACKET),
-  };
+  window.history[replace ? 'replaceState' : 'pushState'](null, '', newUrl);
+  notifyUrlChange();
 }
 
 /**
@@ -89,13 +63,9 @@ export function navigateToRoom(roomId) {
 
 /**
  * Navigate to bracket view
- * @param {string} bracketType - Optional bracket type for double elim
  */
-export function navigateToBracket(bracketType = null) {
-  updateUrlState({
-    [URL_PARAMS.VIEW]: VIEWS.BRACKET,
-    [URL_PARAMS.BRACKET]: bracketType,
-  });
+export function navigateToBracket() {
+  updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.BRACKET });
 }
 
 /**
@@ -105,7 +75,6 @@ export function navigateToHome() {
   updateUrlState({
     [URL_PARAMS.ROOM]: null,
     [URL_PARAMS.VIEW]: VIEWS.HOME,
-    [URL_PARAMS.BRACKET]: null,
   }, true);
 }
 
@@ -122,41 +91,16 @@ export function getRoomLink(roomId) {
 }
 
 /**
- * Validate room slug format
- * @param {string} slug - Room slug to validate
- * @returns {boolean}
- */
-export function isValidRoomSlug(slug) {
-  // Lowercase letters, numbers, and hyphens only
-  // Min 3 chars, max 50 chars
-  return /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/.test(slug);
-}
-
-/**
- * Sanitize room slug — the final, canonical form used when a room is created
- * or joined. Trims leading/trailing hyphens so the result satisfies
- * isValidRoomSlug wherever possible.
+ * Canonical slug used when a room is created or joined: the live-typed form without its trailing hyphen.
  * @param {string} input - User input
  * @returns {string} Sanitized slug
  */
 export function sanitizeRoomSlug(input) {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 50)
-    .replace(/^-|-$/g, '');
+  return formatRoomSlugInput(input).replace(/-$/, '');
 }
 
 /**
- * Format a room slug for LIVE input as the user types. Lowercases, turns spaces
- * and other unsupported characters into hyphens, and collapses runs of hyphens —
- * but intentionally keeps a single trailing hyphen so a user can still type the
- * next word (e.g. "friday-" then "smash"). Leading hyphens are stripped since a
- * slug can't start with one. The stricter trailing-hyphen trim is applied later
- * by sanitizeRoomSlug on submit.
+ * Formats a slug while typing. Unlike sanitizeRoomSlug it keeps one trailing hyphen so the next word can be typed.
  * @param {string} input - Raw input value
  * @returns {string} Formatted (in-progress) slug
  */
@@ -169,10 +113,4 @@ export function formatRoomSlugInput(input) {
     .slice(0, 50);
 }
 
-// Handle browser back/forward navigation
-window.addEventListener('popstate', (event) => {
-  const state = event.state?.urlState || parseUrlState();
-  window.dispatchEvent(new CustomEvent('urlstatechange', {
-    detail: state,
-  }));
-});
+window.addEventListener('popstate', notifyUrlChange);

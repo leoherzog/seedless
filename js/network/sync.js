@@ -40,10 +40,8 @@ export function setupStateSync(room) {
   room.onAction(ActionTypes.STATE_REQUEST, (payload, peerId) => {
     console.info(`[Sync] State request from ${peerId}`);
 
-    // Send our current state (network snapshot: strips the admin reclaim secret)
-    const state = store.serializeForNetwork();
     room.sendTo(ActionTypes.STATE_RESPONSE, {
-      state,
+      state: store.serialize(),
       isAdmin: store.isAdmin(),
     }, peerId);
   });
@@ -442,15 +440,8 @@ export function setupStateSync(room) {
 
     console.info('[Sync] Tournament archived:', payload.archive?.id);
 
-    // Add archive entry to local history (merge handles deduplication)
-    if (payload.archive) {
-      const history = store.getHistory();
-      const existingIds = new Set(history.map(h => h.id));
-      if (!existingIds.has(payload.archive.id)) {
-        history.push(payload.archive);
-        store.emit('change', { path: 'history' });
-      }
-    }
+    // Add archive entry to local history (merge deduplicates by id)
+    if (payload.archive) store.merge({ history: [payload.archive] });
 
     // Reset local state for new tournament (keeps participants and history)
     store.resetForNewTournament();

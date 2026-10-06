@@ -8,6 +8,7 @@ import { getFinalStandings } from '../tournament/standings.js';
 /**
  * @typedef {Object} Participant
  * @property {string} id - Unique ID (user_ for connected, manual_ for manual)
+ * @property {string|null} peerId - Transient WebRTC peer ID
  * @property {string} name - Display name
  * @property {string|null} teamId - Team ID for doubles
  * @property {boolean} isConnected - Connection status (always false for manual until claimed)
@@ -15,6 +16,7 @@ import { getFinalStandings } from '../tournament/standings.js';
  * @property {string|null} claimedBy - localUserId of user who claimed this slot
  * @property {number} seed - Seeding position
  * @property {number} joinedAt - Join timestamp
+ * @property {number} [updatedAt] - Set by updateParticipant; the LWW key in merge
  */
 
 /**
@@ -27,7 +29,7 @@ import { getFinalStandings } from '../tournament/standings.js';
  * @property {string|null} winnerId - Winner's participant ID
  * @property {string|null} reportedBy - Who reported the result
  * @property {number|null} reportedAt - Report timestamp
- * @property {string|null} verifiedBy - Admin who verified (if disputed)
+ * @property {string|null} verifiedBy - Admin who verified
  * @property {boolean} isBye - Is this a bye match
  */
 
@@ -38,55 +40,11 @@ import { getFinalStandings } from '../tournament/standings.js';
  * @property {Object|null} bracket - Bracket structure; its rounds hold ids into matches
  * @property {Map<string, Match>} matches - Matches map
  * @property {Map<string, Object>} standings - Standings (Mario Kart)
+ * @property {Map<string, string>} teamAssignments - participantId to teamId
+ * @property {Array<Object>} history - Archived tournament summaries
  * @property {Object} local - Local-only state (not synced)
  */
 
-// Event emitter mixin
-class EventEmitter {
-  constructor() {
-    this._listeners = new Map();
-  }
-
-  on(event, callback) {
-    if (!this._listeners.has(event)) {
-      this._listeners.set(event, new Set());
-    }
-    this._listeners.get(event).add(callback);
-    return () => this.off(event, callback);
-  }
-
-  off(event, callback) {
-    if (this._listeners.has(event)) {
-      this._listeners.get(event).delete(callback);
-    }
-  }
-
-  emit(event, data) {
-    if (this._listeners.has(event)) {
-      for (const callback of this._listeners.get(event)) {
-        try {
-          callback(data);
-        } catch (e) {
-          console.error(`Error in event listener for ${event}:`, e);
-        }
-      }
-    }
-  }
-}
-
-/**
- * Generate a unique ID for a manual participant
- * Uses crypto random values with manual_ prefix
- * @returns {string} Manual participant ID (e.g., 'manual_a1b2c3d4')
- */
-function generateManualParticipantId() {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-  return `manual_${hex}`;
-}
-
-// Initial state factory
 function createInitialState() {
   return {
     meta: {
@@ -96,8 +54,6 @@ function createInitialState() {
       adminId: null,
       status: 'lobby', // 'lobby' | 'active' | 'complete'
       config: {
-        bestOf: 1,
-        numRounds: 4,
         teamSize: 2,
         seedingMode: 'random',
         pointsTable: null,
@@ -109,96 +65,60 @@ function createInitialState() {
     bracket: null,
     matches: new Map(),
     standings: new Map(),
-    teamAssignments: new Map(), // participantId -> teamId
-    history: [], // Array of archived tournament summaries
+    teamAssignments: new Map(),
+    history: [],
     local: {
-      peerId: null,
       name: '',
-      view: 'home',
       isAdmin: false,
-      isConnected: false,
-      pendingActions: [],
     },
   };
 }
 
-// Store implementation
-class Store extends EventEmitter {
+class Store extends EventTarget {
   constructor() {
     super();
     this._state = createInitialState();
   }
 
-  // Get current state (returns reference - callers should not mutate directly)
+  /**
+   * Subscribe to a store event.
+   * @param {string} type - Event name
+   * @param {Function} cb - Called with the event detail
+   * @returns {Function} Unsubscribe
+   */
+  on(type, cb) {
+    const h = (e) => cb(e.detail);
+    this.addEventListener(type, h);
+    return () => this.removeEventListener(type, h);
+  }
+
+  emit(type, detail) {
+    this.dispatchEvent(new CustomEvent(type, { detail }));
+  }
+
+  // Returns the live state; callers must not mutate it.
   getState() {
     return this._state;
   }
 
-  // Get specific state slice
   get(path) {
-    const parts = path.split('.');
-    let value = this._state;
-    for (const part of parts) {
-      if (value == null) return undefined;
-      value = value instanceof Map ? value.get(part) : value[part];
-    }
-    return value;
+    return path.split('.').reduce((v, k) => v?.[k], this._state);
   }
 
-  // Set state and emit change event
+  /** Set a dotted path, creating missing parent objects, and emit 'change'. */
   set(path, value) {
-    const parts = path.split('.');
-    const lastPart = parts.pop();
-    let target = this._state;
-
-    for (const part of parts) {
-      if (target instanceof Map) {
-        if (!target.has(part)) {
-          target.set(part, {});
-        }
-        target = target.get(part);
-      } else {
-        if (target[part] == null) {
-          target[part] = {};
-        }
-        target = target[part];
-      }
-    }
-
-    const oldValue = target instanceof Map ? target.get(lastPart) : target[lastPart];
-
-    if (target instanceof Map) {
-      target.set(lastPart, value);
-    } else {
-      target[lastPart] = value;
-    }
-
-    this.emit('change', { path, value, oldValue });
-    this.emit(`change:${parts.concat(lastPart).join('.')}`, { value, oldValue });
-
+    const keys = path.split('.');
+    const last = keys.pop();
+    const target = keys.reduce((t, k) => (t[k] ??= {}), this._state);
+    target[last] = value;
+    this.emit('change', { path });
     return this;
   }
 
-  // Batch multiple updates
-  batch(updates) {
-    const changes = [];
-    for (const [path, value] of Object.entries(updates)) {
-      const oldValue = this.get(path);
-      this.set(path, value);
-      changes.push({ path, value, oldValue });
-    }
-    this.emit('batch', changes);
-    return this;
-  }
-
-  // Reset to initial state
   reset() {
     this._state = createInitialState();
-    this.emit('reset');
     return this;
   }
-
-  // --- Participant methods ---
 
   addParticipant(participant) {
     const existing = this._state.participants.get(participant.id);
@@ -230,7 +150,6 @@ class Store extends EventEmitter {
       // Add updatedAt timestamp for LWW conflict resolution during state sync
       Object.assign(participant, updates, { updatedAt: Date.now() });
       this._state.meta.version++;
-      this.emit('participant:update', { id, updates });
       this.emit('change', { path: 'participants' });
     }
     return this;
@@ -268,7 +187,7 @@ class Store extends EventEmitter {
    * @returns {Object} The created participant
    */
   addManualParticipant(name) {
-    const id = generateManualParticipantId();
+    const id = `manual_${crypto.randomUUID()}`;
     const participant = {
       id,
       name,
@@ -287,8 +206,6 @@ class Store extends EventEmitter {
 
     return participant;
   }
-
-  // --- Team assignment methods ---
 
   setTeamAssignment(participantId, teamId) {
     this._state.teamAssignments.set(participantId, teamId);
@@ -315,10 +232,8 @@ class Store extends EventEmitter {
     return this._state.teamAssignments;
   }
 
-  // --- Match methods ---
-
   setMatches(matches) {
-    this._state.matches = matches instanceof Map ? matches : new Map(Object.entries(matches));
+    this._state.matches = matches;
     this._state.meta.version++;
     this.emit('change', { path: 'matches' });
     return this;
@@ -333,13 +248,10 @@ class Store extends EventEmitter {
     if (match) {
       Object.assign(match, updates);
       this._state.meta.version++;
-      this.emit('match:update', { id, match, updates });
       this.emit('change', { path: 'matches' });
     }
     return this;
   }
-
-  // --- Admin helpers ---
 
   isAdmin() {
     return this._state.local.isAdmin;
@@ -350,8 +262,6 @@ class Store extends EventEmitter {
     this.emit('change', { path: 'local.isAdmin' });
     return this;
   }
-
-  // --- History methods ---
 
   /**
    * Archive current tournament to history
@@ -394,10 +304,6 @@ class Store extends EventEmitter {
     return historyEntry;
   }
 
-  /**
-   * Get tournament history
-   * @returns {Array} History array
-   */
   getHistory() {
     return this._state.history;
   }
@@ -416,12 +322,7 @@ class Store extends EventEmitter {
     return this;
   }
 
-  // --- Serialization for P2P sync ---
-
   serialize() {
-    // Full snapshot including meta.adminToken. Safe for LOCAL persistence
-    // (the admin's own localStorage). For anything sent to peers use
-    // serializeForNetwork(), which strips the reclaim secret.
     return {
       meta: { ...this._state.meta },
       participants: Array.from(this._state.participants.entries()),
@@ -431,18 +332,6 @@ class Store extends EventEmitter {
       teamAssignments: Array.from(this._state.teamAssignments.entries()),
       history: this._state.history,
     };
-  }
-
-  // Snapshot for broadcasting to peers. Strips admin-only secrets:
-  // meta.adminToken is the room-reclaim secret; leaking it to peers (or into
-  // their localStorage) would let anyone hijack the room. The admin keeps its
-  // own copy locally in this._state.meta AND in a separate localStorage slot
-  // (see saveAdminToken in persistence.js), so omitting it from network state
-  // does not affect the admin's own ability to reclaim.
-  serializeForNetwork() {
-    const snapshot = this.serialize();
-    delete snapshot.meta.adminToken;
-    return snapshot;
   }
 
   deserialize(data) {
@@ -467,27 +356,14 @@ class Store extends EventEmitter {
     if (data.history) {
       this._state.history = data.history;
     }
-    this.emit('sync', data);
     this.emit('change', { path: '*' });
     return this;
   }
 
   /**
-   * Merge remote state (for conflict resolution).
-   *
-   * CONTRACT CHANGE (security): the second argument is now `senderIsAdmin`,
-   * a boolean the CALLER must set to true only when it has verified that the
-   * peer that SENT this state is the room's trusted admin (e.g. via the
-   * STATE_RESPONSE `isAdmin` flag cross-checked against the sending peer's id).
-   *
-   * Previously this argument was the remote state's `meta.adminId` and authority
-   * was granted whenever it equalled our known admin id. That was unsafe: EVERY
-   * peer's serialized state carries `meta.adminId` (it records "who the admin
-   * is"), so any peer — including a stale rejoiner echoing the known adminId —
-   * was accepted as admin-authoritative and could clobber meta/bracket/standings
-   * with no guard. Authority must key off whether the SENDER is the admin, not
-   * off the state merely echoing the known admin id.
-   *
+   * Merge serialized remote state into local state.
+   * `senderIsAdmin` must be true only when the caller has verified that the sending peer is the
+   * room admin. Never derive it from remoteState.meta.adminId, because every peer's state carries it.
    * @param {Object} remoteState - Serialized remote state
    * @param {boolean} [senderIsAdmin=false] - True iff the sending peer is the verified admin
    */
@@ -496,36 +372,17 @@ class Store extends EventEmitter {
     const localAdminId = localState.meta?.adminId;
     const remoteAdminId = remoteState.meta?.adminId;
 
-    // Grant remote admin authority when EITHER:
-    //  1. the caller verified the sending peer is the admin, OR
-    //  2. we are a fresh joiner with no known admin yet and the remote state
-    //     names an admin — this is our initial authoritative snapshot and we
-    //     have nothing of our own to protect, so we bootstrap fully from it.
-    // We deliberately do NOT grant authority merely because remoteAdminId
-    // echoes our known adminId (every honest peer carries that field), which
-    // is what let any peer clobber admin-controlled data before.
+    // Remote is authoritative when the caller verified the sender is admin, or when we are a
+    // fresh joiner with no adminId and the remote names one; that is our bootstrap snapshot.
+    // A remote adminId that matches ours grants nothing, because every peer carries it.
     const isRemoteAdmin = senderIsAdmin === true || (!localAdminId && !!remoteAdminId);
 
-    // Meta: accept when admin-authoritative, or (monotonic guard) when the
-    // remote carries a strictly higher version. The version guard keeps a
-    // stale, non-admin peer from regressing meta.
-    if (remoteState.meta) {
-      const shouldAcceptMeta = isRemoteAdmin ||
-        ((remoteState.meta.version || 0) > (localState.meta.version || 0));
-
-      if (shouldAcceptMeta) {
-        // adminToken is a LOCAL-ONLY secret (stripped from network state by
-        // serializeForNetwork). Never adopt a remote-supplied one: an attacker
-        // could otherwise get meta accepted via the version guard and overwrite
-        // the real admin's local reclaim token. Always keep our own verbatim,
-        // and drop any remote token entirely if we have none.
-        const localAdminToken = this._state.meta?.adminToken;
-        this._state.meta = { ...remoteState.meta };
-        if (localAdminToken) {
-          this._state.meta.adminToken = localAdminToken;
-        } else {
-          delete this._state.meta.adminToken;
-        }
+    // Meta: admin-authoritative
+    if (remoteState.meta && isRemoteAdmin) {
+      this._state.meta = { ...remoteState.meta };
+      // A trusted snapshot may correct a non-admin's adminId, but nothing changes the admin's own.
+      if (this.isAdmin() && localAdminId) {
+        this._state.meta.adminId = localAdminId;
       }
     }
 
@@ -536,7 +393,7 @@ class Store extends EventEmitter {
         if (!localState.participants.has(id)) {
           localState.participants.set(id, participant);
         } else {
-          // LWW for updates - use updatedAt (falls back to joinedAt for older data)
+          // LWW on updatedAt; joinedAt stands in for participants that were never updated.
           const local = localState.participants.get(id);
           const localTimestamp = local.updatedAt || local.joinedAt || 0;
           const remoteTimestamp = participant.updatedAt || participant.joinedAt || 0;
@@ -592,7 +449,7 @@ class Store extends EventEmitter {
     }
 
     // History: union merge (additions win, dedupe by id)
-    if (remoteState.history && Array.isArray(remoteState.history)) {
+    if (Array.isArray(remoteState.history)) {
       const existingIds = new Set(localState.history.map(h => h.id));
       for (const entry of remoteState.history) {
         if (!existingIds.has(entry.id)) {
@@ -600,18 +457,14 @@ class Store extends EventEmitter {
           existingIds.add(entry.id);
         }
       }
-      // Sort by completedAt (most recent last) for consistent ordering
-      localState.history.sort((a, b) => a.completedAt - b.completedAt);
     }
 
-    this.emit('merge', remoteState);
     this.emit('change', { path: '*' });
     return this;
   }
 }
 
-// Singleton store instance
 export const store = new Store();
 
 // Export for testing
-export { Store, createInitialState };
+export { Store };

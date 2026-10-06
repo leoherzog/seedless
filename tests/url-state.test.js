@@ -2,7 +2,7 @@
  * Tests for url-state.js against a mock window installed before the module loads.
  */
 
-import { assertEquals, assert, assertFalse } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert";
 
 function createMockWindow() {
   const listeners = new Map();
@@ -58,7 +58,6 @@ const windowMock = createMockWindow();
 globalThis.window = windowMock;
 
 const {
-  isValidRoomSlug,
   sanitizeRoomSlug,
   formatRoomSlugInput,
   parseUrlState,
@@ -70,80 +69,6 @@ const {
   URL_PARAMS,
   VIEWS,
 } = await import("../js/state/url-state.js");
-
-Deno.test("isValidRoomSlug", async (t) => {
-  // Valid slugs
-  await t.step("accepts lowercase letters", () => {
-    assert(isValidRoomSlug("myroom"));
-    assert(isValidRoomSlug("abc"));
-  });
-
-  await t.step("accepts numbers", () => {
-    assert(isValidRoomSlug("room123"));
-    assert(isValidRoomSlug("123room"));
-    assert(isValidRoomSlug("123"));
-  });
-
-  await t.step("accepts hyphens in middle", () => {
-    assert(isValidRoomSlug("my-room"));
-    assert(isValidRoomSlug("room-123"));
-    assert(isValidRoomSlug("a-b-c"));
-    assert(isValidRoomSlug("my-awesome-room"));
-  });
-
-  await t.step("accepts minimum length (3 chars)", () => {
-    assert(isValidRoomSlug("abc"));
-    assert(isValidRoomSlug("a1b"));
-  });
-
-  await t.step("accepts maximum length (50 chars)", () => {
-    const slug50 = "a".repeat(50);
-    assert(isValidRoomSlug(slug50));
-  });
-
-  // Invalid slugs
-  await t.step("rejects too short (< 3 chars)", () => {
-    assertFalse(isValidRoomSlug("ab"));
-    assertFalse(isValidRoomSlug("a"));
-    assertFalse(isValidRoomSlug(""));
-  });
-
-  await t.step("rejects too long (> 50 chars)", () => {
-    const slug51 = "a".repeat(51);
-    assertFalse(isValidRoomSlug(slug51));
-  });
-
-  await t.step("rejects uppercase letters", () => {
-    assertFalse(isValidRoomSlug("MyRoom"));
-    assertFalse(isValidRoomSlug("ROOM"));
-    assertFalse(isValidRoomSlug("roomA"));
-  });
-
-  await t.step("rejects starting with hyphen", () => {
-    assertFalse(isValidRoomSlug("-room"));
-    assertFalse(isValidRoomSlug("-abc"));
-  });
-
-  await t.step("rejects ending with hyphen", () => {
-    assertFalse(isValidRoomSlug("room-"));
-    assertFalse(isValidRoomSlug("abc-"));
-  });
-
-  await t.step("rejects special characters", () => {
-    assertFalse(isValidRoomSlug("room_name"));
-    assertFalse(isValidRoomSlug("room.name"));
-    assertFalse(isValidRoomSlug("room@name"));
-    assertFalse(isValidRoomSlug("room name"));
-    assertFalse(isValidRoomSlug("room!name"));
-  });
-
-  await t.step("handles null and undefined (coerced to string)", () => {
-    // Note: regex .test() coerces null/undefined to strings
-    // "null" and "undefined" pass the pattern, this is expected JS behavior
-    // In practice, validation should check for truthy input before calling
-    assert(isValidRoomSlug("null") === isValidRoomSlug(null));
-  });
-});
 
 Deno.test("sanitizeRoomSlug", async (t) => {
   await t.step("lowercases input", () => {
@@ -248,53 +173,29 @@ Deno.test("formatRoomSlugInput (live typing)", async (t) => {
   });
 });
 
-Deno.test("isValidRoomSlug after sanitizeRoomSlug", async (t) => {
-  await t.step("sanitized slug is usually valid", () => {
-    const testCases = [
-      "My Room",
-      "UPPERCASE",
-      "with_underscores",
-      "multiple   spaces",
-    ];
-
-    for (const input of testCases) {
-      const sanitized = sanitizeRoomSlug(input);
-      if (sanitized.length >= 3) {
-        assert(
-          isValidRoomSlug(sanitized),
-          `Sanitized "${input}" => "${sanitized}" should be valid`
-        );
-      }
-    }
-  });
-});
-
 Deno.test('url-state behaviors', async (t) => {
   await t.step('parseUrlState reads params and defaults view', () => {
     windowMock.location.search = '';
     assertEquals(parseUrlState(), {
       roomId: null,
       view: VIEWS.HOME,
-      bracketType: null,
     });
 
-    windowMock.location.search = '?room=abc&view=bracket&bracket=losers';
+    windowMock.location.search = '?room=abc&view=bracket';
     assertEquals(parseUrlState(), {
       roomId: 'abc',
       view: 'bracket',
-      bracketType: 'losers',
     });
   });
 
   await t.step('updateUrlState pushes and dispatches urlstatechange', () => {
     windowMock.location.search = '?room=abc&view=lobby';
-    updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.BRACKET, [URL_PARAMS.BRACKET]: 'winners' });
+    updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.BRACKET });
 
     assertEquals(windowMock.history._pushes.length, 1);
     const query = getQuery(windowMock.history._pushes[0].url);
     assertEquals(query.get(URL_PARAMS.ROOM), 'abc');
     assertEquals(query.get(URL_PARAMS.VIEW), 'bracket');
-    assertEquals(query.get(URL_PARAMS.BRACKET), 'winners');
 
     const lastEvent = windowMock._dispatched.at(-1);
     assertEquals(lastEvent.type, 'urlstatechange');
@@ -307,15 +208,14 @@ Deno.test('url-state behaviors', async (t) => {
     assertEquals(query.get(URL_PARAMS.ROOM), 'room-1');
     assertEquals(query.get(URL_PARAMS.VIEW), 'lobby');
 
-    navigateToBracket('losers');
+    navigateToBracket();
     query = new URLSearchParams(windowMock.location.search);
+    assertEquals(query.get(URL_PARAMS.ROOM), 'room-1');
     assertEquals(query.get(URL_PARAMS.VIEW), 'bracket');
-    assertEquals(query.get(URL_PARAMS.BRACKET), 'losers');
 
     navigateToHome();
     const homeQuery = new URLSearchParams(windowMock.location.search);
     assertEquals(homeQuery.get(URL_PARAMS.ROOM), null);
-    assertEquals(homeQuery.get(URL_PARAMS.BRACKET), null);
     assertEquals(homeQuery.get(URL_PARAMS.VIEW), 'home');
     assertEquals(windowMock.history._replaces.length >= 1, true);
   });
@@ -329,9 +229,9 @@ Deno.test('url-state behaviors', async (t) => {
     assertEquals(url.searchParams.get(URL_PARAMS.VIEW), 'lobby');
   });
 
-  await t.step('popstate dispatches urlstatechange', () => {
-    const popEvent = { type: 'popstate', state: { urlState: { roomId: 'x', view: 'lobby', bracketType: null } } };
-    windowMock.dispatchEvent(popEvent);
+  await t.step('popstate dispatches urlstatechange for the restored URL', () => {
+    windowMock.location.search = '?room=x&view=lobby';
+    windowMock.dispatchEvent({ type: 'popstate', state: null });
 
     const lastEvent = windowMock._dispatched.at(-1);
     assertEquals(lastEvent.type, 'urlstatechange');

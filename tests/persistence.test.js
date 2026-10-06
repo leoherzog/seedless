@@ -21,9 +21,6 @@ const {
   getLastDisplayName,
   saveDisplayName,
   getLocalUserId,
-  saveAdminToken,
-  loadAdminToken,
-  generateAdminToken
 } = await import('../js/state/persistence.js');
 
 // Helper to create timestamps
@@ -95,8 +92,7 @@ Deno.test('persistence', async (t) => {
     const noTimestamp = { meta: { id: roomId } };
     localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(noTimestamp));
 
-    // loadTournament checks: if (!data.savedAt || data.savedAt < cutoff)
-    // When savedAt is missing/falsy, this evaluates to true, so data is treated as expired
+    // Data without savedAt counts as expired
     const loaded = loadTournament(roomId);
     assertEquals(loaded, null, 'Data without savedAt should be treated as expired by loadTournament');
     assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete data without savedAt');
@@ -181,64 +177,13 @@ Deno.test('persistence', async (t) => {
     assertEquals(getLastDisplayName(), 'New Name');
   });
 
-  // Admin token tests
-  await t.step('saveAdminToken / loadAdminToken roundtrip', () => {
-    clearSeedlessStorage();
-    const roomId = uniqueRoom();
-    saveAdminToken(roomId, 'secret-token-abc');
-    assertEquals(loadAdminToken(roomId), 'secret-token-abc');
-  });
-
-  await t.step('loadAdminToken returns null for missing token', () => {
-    clearSeedlessStorage();
-    assertEquals(loadAdminToken('nonexistent-room-' + Date.now()), null);
-  });
-
-  await t.step('saveAdminToken skips if roomId is falsy', () => {
-    clearSeedlessStorage();
-    const before = localStorage.length;
-    saveAdminToken(null, 'token');
-    saveAdminToken('', 'token');
-    assertEquals(localStorage.length, before);
-  });
-
-  await t.step('saveAdminToken skips if token is falsy', () => {
-    clearSeedlessStorage();
-    const before = localStorage.length;
-    saveAdminToken('room-' + Date.now(), null);
-    saveAdminToken('room2-' + Date.now(), '');
-    assertEquals(localStorage.length, before);
-  });
-
-  await t.step('loadAdminToken returns null if roomId is falsy', () => {
-    assertEquals(loadAdminToken(null), null);
-    assertEquals(loadAdminToken(''), null);
-  });
-
-  // generateAdminToken tests
-  await t.step('generateAdminToken returns 48-character hex string', () => {
-    const token = generateAdminToken();
-
-    assertEquals(token.length, 48, 'Token should be 48 characters (24 bytes * 2 hex chars)');
-    assertMatch(token, /^[0-9a-f]+$/, 'Token should contain only hex characters');
-  });
-
-  await t.step('generateAdminToken tokens are cryptographically random', () => {
-    const tokens = new Set();
-    for (let i = 0; i < 10; i++) {
-      tokens.add(generateAdminToken());
-    }
-    assertEquals(tokens.size, 10, 'All 10 tokens should be unique');
-  });
-
   // getLocalUserId tests
-  await t.step('getLocalUserId generates user_ plus 16 hex chars', () => {
+  await t.step('getLocalUserId generates user_ plus a UUID', () => {
     clearSeedlessStorage();
 
     const userId = getLocalUserId();
 
-    assertEquals(userId.length, 5 + 16);
-    assertMatch(userId, /^user_[0-9a-f]+$/);
+    assertMatch(userId, /^user_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   await t.step('getLocalUserId returns same ID on subsequent calls', () => {
@@ -295,20 +240,6 @@ Deno.test('persistence', async (t) => {
   });
 
   // cleanupOldTournaments edge cases
-  await t.step('cleanupOldTournaments skips admin token keys', () => {
-    clearSeedlessStorage();
-    const roomId = uniqueRoom();
-    const adminKey = STORAGE_PREFIX + roomId + '_admin';
-
-    // Save an admin token (which doesn't have savedAt)
-    localStorage.setItem(adminKey, 'admin-token-123');
-
-    cleanupOldTournaments();
-
-    assertExists(localStorage.getItem(adminKey), '_admin keys should not be removed');
-    localStorage.removeItem(adminKey); // cleanup
-  });
-
   await t.step('cleanupOldTournaments skips preferences key', () => {
     clearSeedlessStorage();
     const prefsKey = STORAGE_PREFIX + '_preferences';
@@ -342,7 +273,7 @@ Deno.test('persistence', async (t) => {
     assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Non-object data should be removed');
   });
 
-  await t.step('cleanupOldTournaments returns count of cleaned items', () => {
+  await t.step('cleanupOldTournaments removes expired and corrupted entries and keeps recent ones', () => {
     clearSeedlessStorage();
     const room1 = uniqueRoom();
     const room2 = uniqueRoom();
@@ -352,9 +283,10 @@ Deno.test('persistence', async (t) => {
     localStorage.setItem(STORAGE_PREFIX + room2, 'invalid json');
     localStorage.setItem(STORAGE_PREFIX + room3, JSON.stringify({ savedAt: Date.now() }));
 
-    const cleaned = cleanupOldTournaments();
+    cleanupOldTournaments();
 
-    assertEquals(cleaned, 2, 'Should return count of cleaned items');
+    assertEquals(localStorage.getItem(STORAGE_PREFIX + room1), null, 'Expired data should be removed');
+    assertEquals(localStorage.getItem(STORAGE_PREFIX + room2), null, 'Corrupted data should be removed');
     assertExists(localStorage.getItem(STORAGE_PREFIX + room3), 'Recent data should remain');
   });
 
@@ -388,6 +320,36 @@ Deno.test('persistence', async (t) => {
 
     const loaded = loadTournament(roomId);
     assertEquals(loaded.meta.name, 'Second');
+  });
+
+  await t.step('saveTournament retries after cleanup and logs only a final failure', () => {
+    clearSeedlessStorage();
+    const roomId = uniqueRoom();
+    const expired = uniqueRoom();
+    localStorage.setItem(STORAGE_PREFIX + expired, JSON.stringify({ savedAt: daysAgo(60) }));
+
+    const setItem = Storage.prototype.setItem;
+    const consoleError = console.error;
+    const errors = [];
+    console.error = (...args) => errors.push(args);
+    let calls = 0;
+    try {
+      Storage.prototype.setItem = function (...args) {
+        if (calls++ === 0) throw new DOMException('full', 'QuotaExceededError');
+        return setItem.apply(this, args);
+      };
+      saveTournament(roomId, { meta: { name: 'Retried' } });
+      assertEquals(errors.length, 0, 'a quota error fixed by cleanup is not an error');
+      assertEquals(localStorage.getItem(STORAGE_PREFIX + expired), null, 'cleanup ran before the retry');
+
+      Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); };
+      saveTournament(roomId, { meta: { name: 'Lost' } });
+      assertEquals(errors.length, 1, 'a failed retry logs once');
+    } finally {
+      Storage.prototype.setItem = setItem;
+      console.error = consoleError;
+    }
+    assertEquals(loadTournament(roomId).meta.name, 'Retried');
   });
 
   // Final cleanup

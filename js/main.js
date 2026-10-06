@@ -18,9 +18,6 @@ import {
   loadTournament,
   saveDisplayName,
   getLastDisplayName,
-  saveAdminToken,
-  loadAdminToken,
-  generateAdminToken,
   getLocalUserId,
 } from './state/persistence.js';
 import { joinRoom, leaveRoom, getRoom, ActionTypes } from './network/room.js';
@@ -30,18 +27,6 @@ import { initLobby, cleanupLobby } from './components/lobby.js';
 import { initBracketView, cleanupBracketView } from './components/bracket-view.js';
 import { debounce } from './utils/debounce.js';
 import { HOST_NAME, generateRoomSlug, generatePlayerName } from './utils/random-names.js';
-
-/**
- * Check whether a stored admin token matches the existing room's admin token.
- * Both tokens must be present and equal.
- * @param {string|null|undefined} storedAdminToken - Token from localStorage
- * @param {string|null|undefined} existingAdminToken - Token from existing tournament data
- * @returns {boolean}
- */
-function hasMatchingAdminToken(storedAdminToken, existingAdminToken) {
-  return Boolean(storedAdminToken && existingAdminToken &&
-    storedAdminToken === existingAdminToken);
-}
 
 /**
  * Connect to a room and navigate to it, surfacing a friendly error on failure.
@@ -281,14 +266,9 @@ async function onCreateRoom(e) {
     return;
   }
 
-  // Check if room already exists and user is not the original admin
-  const existingData = loadTournament(slug);
-  const storedAdminToken = loadAdminToken(slug);
-  const existingAdminToken = existingData?.meta?.adminToken;
-  const hasMatchingToken = hasMatchingAdminToken(storedAdminToken, existingAdminToken);
-
   // Show confirmation modal if room exists but user is not the admin
-  if (existingData && !hasMatchingToken) {
+  const existingData = loadTournament(slug);
+  if (existingData && existingData.meta?.adminId !== getLocalUserId()) {
     showRoomExistsModal(slug, name);
     return;
   }
@@ -373,9 +353,8 @@ async function connectToRoom(roomId, options = {}) {
   initBracketView();
 
   try {
-    // Check for existing tournament data and admin token
+    // Check for existing tournament data
     const existingData = loadTournament(roomId);
-    const storedAdminToken = loadAdminToken(roomId);
 
     // Join the P2P room
     const room = await joinRoom(roomId);
@@ -403,43 +382,24 @@ async function connectToRoom(roomId, options = {}) {
 
     // Store local peer info
     store.set('local.localUserId', localUserId);
-    store.set('local.peerId', room.selfId);
     store.set('local.name', resolvedName);
-    store.set('local.isConnected', true);
 
     // Setup state sync handlers
     setupStateSync(room);
 
-    // Determine admin status using token-based persistence
-    // Admin is either:
-    // 1. Creating a new room (isAdmin flag from Create form)
-    // 2. Has matching admin token from localStorage (survives page refresh)
-    const existingAdminToken = existingData?.meta?.adminToken;
-    const hasMatchingToken = hasMatchingAdminToken(storedAdminToken, existingAdminToken);
-    const isActualAdmin = isAdmin || hasMatchingToken;
+    // Admin is the room's creator, or the user whose persistent ID matches the saved adminId
+    const isActualAdmin = isAdmin || existingData?.meta?.adminId === localUserId;
 
     store.setAdmin(isActualAdmin);
 
     if (isActualAdmin) {
-      // Generate new admin token if creating room, reuse existing if rejoining
-      const adminToken = hasMatchingToken ? existingAdminToken : generateAdminToken();
-
-      // Save admin token to localStorage for future page refreshes
-      saveAdminToken(roomId, adminToken);
-
-      // Initialize as admin (use persistent ID)
-      store.batch({
-        'meta.id': roomId,
-        'meta.adminId': localUserId,
-        'meta.adminToken': adminToken,
-        'meta.createdAt': existingData?.meta?.createdAt || Date.now(),
-      });
+      store.set('meta.id', roomId);
+      store.set('meta.adminId', localUserId);
+      store.set('meta.createdAt', existingData?.meta?.createdAt || Date.now());
 
       // Restore existing tournament data if any
       if (existingData) {
         store.deserialize(existingData);
-        // Update adminId to current persistent ID (token proves we're the admin)
-        store.set('meta.adminId', localUserId);
         // Reset all participants to disconnected (will be updated as peers actually connect)
         resetAllParticipantsOffline();
       }
@@ -478,7 +438,7 @@ async function connectToRoom(roomId, options = {}) {
       if (store.isAdmin()) {
         setTimeout(() => {
           room.sendTo(ActionTypes.STATE_RESPONSE, {
-            state: store.serializeForNetwork(),
+            state: store.serialize(),
             isAdmin: true,
           }, peerId);
         }, CONFIG.network.stateResponseDelay);

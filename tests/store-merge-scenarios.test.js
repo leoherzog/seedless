@@ -1,5 +1,5 @@
 /**
- * Merge trust rules and the adminToken never leaving local storage.
+ * Merge trust rules: which senders may change meta, bracket, standings and matches.
  */
 
 import { assertEquals, assert } from "jsr:@std/assert";
@@ -102,35 +102,46 @@ Deno.test("Store.merge - boolean senderIsAdmin contract", async (t) => {
     assert(!standings.has("stale"), "stale non-admin standings must be rejected");
   });
 
-  await t.step("monotonic version guard lets strictly-higher-version non-admin meta through", () => {
+  await t.step("non-admin meta is ignored even when its version is higher", () => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
     store.set("meta.version", 5);
     store.set("meta.status", "lobby");
-    store._state.bracket = { type: "single", rounds: [], marker: "local" };
-    store._state.standings = new Map([["local", { participantId: "local", points: 5 }]]);
 
-    const remoteState = {
-      // Same known adminId, but sender is NOT verified as the admin (e.g. a
-      // regular peer merely echoing the adminId it knows about).
-      meta: { adminId: "admin-1", status: "active", version: 6 },
-      bracket: { type: "single", rounds: [], marker: "remote" },
-      standings: [["remote", { participantId: "remote", points: 1 }]],
-    };
+    store.merge({ meta: { adminId: "attacker", status: "active", type: "double", version: 999 } }, false);
 
-    store.merge(remoteState, false);
+    assertEquals(store.get("meta.adminId"), "admin-1", "a non-admin peer must not rewrite adminId");
+    assertEquals(store.get("meta.status"), "lobby", "a non-admin peer must not change status");
+    assertEquals(store.get("meta.type"), "single");
+    assertEquals(store.get("meta.version"), 5);
+  });
+});
 
-    // Meta is let through because its version (6) is strictly higher than
-    // local (5) - the monotonic guard, independent of admin authority.
-    assertEquals(store.get("meta.version"), 6);
-    assertEquals(store.get("meta.status"), "active");
+Deno.test("Store.merge - adminId protection", async (t) => {
+  const foreignMeta = { meta: { adminId: "other-admin", status: "active", version: 999 } };
 
-    // But bracket/standings are admin-authoritative only, and this sender was
-    // never verified as admin, so they must remain untouched.
-    assertEquals(store.get("bracket").marker, "local", "non-admin sender must not adopt bracket even with higher meta version");
-    const standings = store.get("standings");
-    assert(standings.has("local"));
-    assert(!standings.has("remote"), "non-admin sender must not adopt standings even with higher meta version");
+  await t.step("the admin keeps its own adminId against any sender", () => {
+    const store = new Store();
+    store.setAdmin(true);
+    store.set("meta.adminId", "admin-1");
+
+    store.merge(structuredClone(foreignMeta), false);
+    assertEquals(store.get("meta.adminId"), "admin-1");
+
+    store.merge(structuredClone(foreignMeta), true);
+    assertEquals(store.get("meta.adminId"), "admin-1", "a trusted snapshot must not change the admin's own adminId");
+    assertEquals(store.get("meta.status"), "active", "the rest of a trusted meta is adopted");
+  });
+
+  await t.step("a non-admin keeps its known adminId unless a trusted snapshot corrects it", () => {
+    const store = new Store();
+    store.set("meta.adminId", "admin-1");
+
+    store.merge(structuredClone(foreignMeta), false);
+    assertEquals(store.get("meta.adminId"), "admin-1");
+
+    store.merge(structuredClone(foreignMeta), true);
+    assertEquals(store.get("meta.adminId"), "other-admin");
   });
 });
 
@@ -188,107 +199,4 @@ Deno.test("Store.merge - matches belong to one tournament", async (t) => {
     fromAdmin.merge(remote, true);
     assertEquals(fromAdmin.getMatch("r2m0").participants, ["a", "b"], "the admin's slot fill arrives");
   });
-});
-
-Deno.test("Store.serialize / serializeForNetwork - adminToken handling", async (t) => {
-  await t.step("serialize() includes meta.adminToken for local persistence", () => {
-    const store = new Store();
-    store.set("meta.id", "room-1");
-    store.set("meta.adminToken", "super-secret-reclaim-token");
-
-    const snapshot = store.serialize();
-    assertEquals(snapshot.meta.adminToken, "super-secret-reclaim-token");
-  });
-
-  await t.step("serializeForNetwork() strips meta.adminToken before broadcasting to peers", () => {
-    const store = new Store();
-    store.set("meta.id", "room-1");
-    store.set("meta.adminToken", "super-secret-reclaim-token");
-
-    const networkSnapshot = store.serializeForNetwork();
-    assertEquals(networkSnapshot.meta.adminToken, undefined);
-    assert(!("adminToken" in networkSnapshot.meta), "adminToken key must not be present at all");
-
-    // Sanity: the local store's own state is untouched by taking a network snapshot.
-    assertEquals(store.get("meta.adminToken"), "super-secret-reclaim-token");
-  });
-
-  await t.step("serializeForNetwork() does not mutate the underlying serialize() output shape otherwise", () => {
-    const store = new Store();
-    store.set("meta.id", "room-1");
-    store.set("meta.name", "Friday Night Bracket");
-    store.set("meta.adminToken", "secret");
-
-    const networkSnapshot = store.serializeForNetwork();
-    assertEquals(networkSnapshot.meta.id, "room-1");
-    assertEquals(networkSnapshot.meta.name, "Friday Night Bracket");
-  });
-});
-
-Deno.test("Store.merge - preserves local adminToken across meta replacement", async (t) => {
-  await t.step("keeps local adminToken when remote meta (from serializeForNetwork) lacks one", () => {
-    const store = new Store();
-    store.set("meta.adminId", "admin-1");
-    store.set("meta.adminToken", "local-reclaim-secret");
-    store.set("meta.version", 1);
-
-    // Simulate a peer's network snapshot: adminToken stripped by serializeForNetwork().
-    const remoteState = {
-      meta: { adminId: "admin-1", status: "active", version: 5 },
-    };
-    assert(!("adminToken" in remoteState.meta));
-
-    store.merge(remoteState, true);
-
-    assertEquals(store.get("meta.status"), "active", "meta replacement should still occur");
-    assertEquals(
-      store.get("meta.adminToken"),
-      "local-reclaim-secret",
-      "local adminToken must survive a meta replacement that carries none"
-    );
-  });
-
-  await t.step("never adopts an attacker-supplied adminToken via the version guard", () => {
-    // A non-admin peer (senderIsAdmin=false) can still get meta accepted by
-    // sending a strictly-higher version. Its crafted meta must NOT be able to
-    // overwrite the real admin's local reclaim token.
-    const store = new Store();
-    store.set("meta.adminId", "admin-1");
-    store.set("meta.adminToken", "real-admin-secret");
-    store.set("meta.version", 1);
-
-    const attackerState = {
-      meta: {
-        adminId: "admin-1",
-        status: "active",
-        version: 999, // bumped to pass the monotonic guard
-        adminToken: "attacker-planted-token",
-      },
-    };
-
-    store.merge(attackerState, false); // NOT the verified admin
-
-    assertEquals(store.get("meta.version"), 999, "higher-version meta is still accepted");
-    assertEquals(
-      store.get("meta.adminToken"),
-      "real-admin-secret",
-      "the real admin's local token must never be overwritten by remote meta"
-    );
-  });
-
-  await t.step("drops a remote adminToken when we have no local token", () => {
-    // A non-admin peer with no local token must not end up holding a
-    // remote-supplied secret.
-    const store = new Store();
-    store.set("meta.version", 1);
-
-    const remoteState = {
-      meta: { adminId: "admin-1", status: "active", version: 5, adminToken: "leaked-or-forged" },
-    };
-
-    store.merge(remoteState, false);
-
-    assertEquals(store.get("meta.adminToken"), undefined);
-  });
-
 });

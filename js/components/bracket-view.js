@@ -36,7 +36,6 @@ export function initBracketView() {
 
   // Listen for state changes and track subscriptions
   bracketSubscriptions.push(store.on('change', updateBracketUI));
-  bracketSubscriptions.push(store.on('match:update', onMatchUpdate));
 }
 
 /**
@@ -780,13 +779,6 @@ async function onSubmitRaceResult() {
     console.error('Failed to submit race result:', e);
     showError('Failed to submit result: ' + e.message);
   }
-}
-
-/**
- * Handle match update event
- */
-function onMatchUpdate() {
-  updateBracketUI();
 }
 
 /**

@@ -568,17 +568,4 @@ Deno.test("History Merge", async (t) => {
     assertEquals(history.length, 1);
     assertEquals(history[0].id, "local-1");
   });
-
-  await t.step("sorts merged history by completedAt", () => {
-    const store = new Store();
-    store.deserialize({ history: [historyEntry("middle", 2000)] });
-
-    store.merge({ history: [historyEntry("oldest", 1000), historyEntry("newest", 3000)] }, null);
-
-    const history = store.getHistory();
-    assertEquals(history.length, 3);
-    assertEquals(history[0].id, "oldest");
-    assertEquals(history[1].id, "middle");
-    assertEquals(history[2].id, "newest");
-  });
 });
