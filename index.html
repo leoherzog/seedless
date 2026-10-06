@@ -354,7 +354,7 @@
   <dialog id="score-modal">
     <article>
       <header>
-        <button aria-label="Close" rel="prev" class="close-modal"></button>
+        <button aria-label="Close" rel="prev" form="score-dialog-form"></button>
         <h3>Report Match Result</h3>
       </header>
 
@@ -390,8 +390,10 @@
       </form>
 
       <footer>
-        <button class="secondary close-modal">Cancel</button>
-        <button id="submit-score-btn">Submit Result</button>
+        <form method="dialog" id="score-dialog-form">
+          <button class="secondary" value="cancel">Cancel</button>
+          <button type="button" id="submit-score-btn">Submit Result</button>
+        </form>
       </footer>
     </article>
   </dialog>
@@ -399,7 +401,7 @@
   <dialog id="race-result-modal">
     <article>
       <header>
-        <button aria-label="Close" rel="prev" class="close-modal"></button>
+        <button aria-label="Close" rel="prev" form="race-dialog-form"></button>
         <h3>Report Race Results</h3>
         <small id="race-info">Game 1</small>
       </header>
@@ -411,10 +413,12 @@
       <input type="hidden" id="race-id" name="race-id">
 
       <footer>
-        <button class="secondary close-modal">Cancel</button>
-        <button id="submit-race-btn">
-          <span class="fa-solid fa-flag-checkered">🏁</span> Submit Results
-        </button>
+        <form method="dialog" id="race-dialog-form">
+          <button class="secondary" value="cancel">Cancel</button>
+          <button type="button" id="submit-race-btn">
+            <span class="fa-solid fa-flag-checkered">🏁</span> Submit Results
+          </button>
+        </form>
       </footer>
     </article>
   </dialog>
@@ -422,7 +426,7 @@
   <dialog id="room-exists-modal">
     <article>
       <header>
-        <button aria-label="Close" rel="prev" class="close-modal"></button>
+        <button aria-label="Close" rel="prev" form="room-exists-form"></button>
         <h3><span class="fa-solid fa-circle-exclamation">⚠</span> Room Already Exists</h3>
       </header>
 
@@ -430,10 +434,12 @@
       <p>Would you like to join as a participant instead?</p>
 
       <footer>
-        <button class="secondary close-modal">Cancel</button>
-        <button id="join-existing-btn">
-          <span class="fa-solid fa-right-to-bracket">→</span> Join Existing Room
-        </button>
+        <form method="dialog" id="room-exists-form">
+          <button class="secondary" value="cancel">Cancel</button>
+          <button value="join">
+            <span class="fa-solid fa-right-to-bracket">→</span> Join Existing Room
+          </button>
+        </form>
       </footer>
     </article>
   </dialog>

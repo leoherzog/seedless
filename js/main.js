@@ -1,6 +1,6 @@
 /**
- * Seedless - P2P Tournament Brackets
- * Main Application Entry Point
+ * Seedless entry point: wires the home forms, joins or leaves the room named in
+ * the URL, and shows the view that the URL room and meta.status call for.
  */
 
 import { store } from './state/store.js';
@@ -10,7 +10,6 @@ import {
   navigateToHome,
   sanitizeRoomSlug,
   formatRoomSlugInput,
-  VIEWS,
 } from './state/url-state.js';
 import {
   saveTournament,
@@ -22,10 +21,16 @@ import {
 import { joinRoom, leaveRoom, getRoom, ActionTypes } from './network/room.js';
 import { setupStateSync, resetSyncState } from './network/sync.js';
 import { showSuccess, showError, showToast } from './components/toast.js';
-import { initLobby, cleanupLobby } from './components/lobby.js';
-import { initBracketView, cleanupBracketView } from './components/bracket-view.js';
-import { debounce } from './utils/debounce.js';
+import { initLobby } from './components/lobby.js';
+import { initBracketView } from './components/bracket-view.js';
 import { HOST_NAME, generateRoomSlug, generatePlayerName } from './utils/random-names.js';
+
+// Values of the data-view attributes in index.html.
+const VIEWS = {
+  HOME: 'home',
+  LOBBY: 'lobby',
+  BRACKET: 'bracket',
+};
 
 /**
  * Connect to a room and navigate to it, surfacing a friendly error on failure.
@@ -50,96 +55,63 @@ async function joinAndNavigate(slug, name, { isAdmin = false } = {}) {
   }
 }
 
-// Flag to prevent concurrent connection attempts
 let isConnecting = false;
 
-// Auto-save on state changes (debounced to avoid excessive writes)
-const autoSave = debounce(() => {
-  const roomId = store.get('meta.id');
-  if (roomId) {
-    saveTournament(roomId, store.serialize());
-  }
-}, 1000);
+/** @type {string|null} The view showView last displayed */
+let currentView = null;
 
-// Set up auto-save listener
-store.on('change', (event) => {
-  // Don't auto-save for local-only changes
-  if (event.path && event.path.startsWith('local.')) {
-    return;
-  }
-  autoSave();
+// Persist non-local state changes, debounced to batch rapid updates.
+let saveTimer;
+store.on('change', ({ path }) => {
+  if (path?.startsWith('local.')) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const roomId = store.get('meta.id');
+    if (roomId) saveTournament(roomId, store.serialize());
+  }, 1000);
 });
 
-/**
- * Initialize application
- */
 async function init() {
   console.info('[Seedless] Initializing...');
 
-  // Load last used name
   const lastName = getLastDisplayName();
   if (lastName) {
     store.set('local.name', lastName);
-    prefillNameInputs(lastName);
   }
 
-  // Initialize components
   initLobby();
   initBracketView();
-
-  // Setup event listeners
   setupFormHandlers();
   setupNavigationHandlers();
 
-  // Handle initial URL state
-  const urlState = parseUrlState();
-  await handleUrlChange(urlState);
-
-  // Listen for URL changes
-  window.addEventListener('urlstatechange', (e) => {
-    handleUrlChange(e.detail);
+  // st:res, t:start and t:reset change meta.status without touching the URL.
+  store.on('change', () => {
+    const view = viewFor(urlRoomId());
+    if (view !== currentView) showView(view);
   });
-  window.addEventListener('popstate', () => handleUrlChange(parseUrlState()));
+  window.addEventListener('urlstatechange', handleUrlChange);
+  window.addEventListener('popstate', handleUrlChange);
 
-  // Update connection status
-  updateConnectionStatus('disconnected');
+  await handleUrlChange();
 
   console.info('[Seedless] Ready!');
 }
 
-/**
- * Setup form handlers
- */
 function setupFormHandlers() {
-  // Create room form
-  const createForm = document.getElementById('create-room-form');
-  createForm.addEventListener('submit', onCreateRoom);
-
-  // Join room form
-  const joinForm = document.getElementById('join-room-form');
-  joinForm.addEventListener('submit', onJoinRoom);
-
-  // Auto-format room name inputs as the user types, so the value is always a
-  // valid slug (lowercase, spaces -> hyphens, special characters stripped)
-  // instead of forcing the user to enter one that meets the criteria.
+  document.getElementById('create-room-form').addEventListener('submit', onCreateRoom);
+  document.getElementById('join-room-form').addEventListener('submit', onJoinRoom);
   attachSlugFormatter(document.getElementById('room-slug'));
   attachSlugFormatter(document.getElementById('join-slug'));
-
-  // New tournament button
-  const newTournamentBtn = document.getElementById('new-tournament-btn');
-  if (newTournamentBtn) {
-    newTournamentBtn.addEventListener('click', onNewTournament);
-  }
+  document.getElementById('new-tournament-btn').addEventListener('click', onNewTournament);
 }
 
 /**
  * Live-format a room-slug text input on every keystroke while keeping the
  * caret in a sensible place (formatting the text before the caret tells us
  * where it should land in the new value).
- * @param {HTMLInputElement|null} input
+ * @param {HTMLInputElement} input
  */
 function attachSlugFormatter(input) {
-  if (!input) return;
   input.addEventListener('input', () => {
     const caret = input.selectionStart ?? input.value.length;
     const before = input.value.slice(0, caret);
@@ -151,69 +123,70 @@ function attachSlugFormatter(input) {
   });
 }
 
-/**
- * Setup navigation handlers
- */
 function setupNavigationHandlers() {
-  // Home link in nav
-  const homeLink = document.getElementById('home-link');
-  if (homeLink) {
-    homeLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      navigateToHome();
-    });
-  }
+  document.getElementById('home-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    navigateToHome();
+  });
 }
 
 /**
- * Handle URL state changes
+ * @returns {string} The URL's room in canonical slug form, or '' outside a room
  */
-async function handleUrlChange(urlState) {
-  const { view } = urlState;
-  // Normalize any room id arriving via the URL (shared links, hand-typed) to
-  // the same canonical slug the create/join forms produce.
-  const roomId = urlState.roomId ? sanitizeRoomSlug(urlState.roomId) : urlState.roomId;
+function urlRoomId() {
+  // Shared and hand-typed links get the same canonical slug the forms produce.
+  return sanitizeRoomSlug(parseUrlState().roomId ?? '');
+}
 
-  // Update view visibility
-  showView(view || VIEWS.HOME);
+/**
+ * @param {string} roomId - Current room slug, or '' outside a room
+ * @returns {string} HOME outside a room; inside one, BRACKET once the tournament has started, else LOBBY
+ */
+function viewFor(roomId) {
+  if (!roomId) return VIEWS.HOME;
+  const status = store.get('meta.status');
+  return status === 'active' || status === 'complete' ? VIEWS.BRACKET : VIEWS.LOBBY;
+}
 
-  // Handle room connection (with race condition protection)
+/**
+ * Show the view for the URL's room, then join or leave a room to match it.
+ */
+async function handleUrlChange() {
+  const roomId = urlRoomId();
+  showView(viewFor(roomId));
+
   if (roomId && !getRoom() && !isConnecting) {
-    // Need to connect to room
     isConnecting = true;
     try {
       await connectToRoom(roomId);
+    } catch (err) {
+      console.error('Failed to join room:', err);
+      showError('Failed to join room. Please try again.');
+      navigateToHome();
     } finally {
       isConnecting = false;
     }
   } else if (!roomId && getRoom()) {
-    // Need to disconnect
     await disconnectFromRoom();
   }
 }
 
-/**
- * Show specific view
- */
 function showView(viewName) {
-  const views = document.querySelectorAll('[data-view]');
-  views.forEach(view => {
+  currentView = viewName;
+  for (const view of document.querySelectorAll('[data-view]')) {
     view.hidden = view.dataset.view !== viewName;
-  });
+  }
 
   if (viewName === VIEWS.HOME) {
     fillHomeDefaults();
   }
 
-  // Special handling for bracket view with complete tournament
-  if (viewName === VIEWS.BRACKET && store.get('meta.status') === 'complete') {
-    document.getElementById('results-view').hidden = false;
-    document.getElementById('bracket-view').hidden = false;
-  }
-
-  // Trigger bracket update when showing bracket view
   if (viewName === VIEWS.BRACKET) {
-    // Dispatch a change event to trigger bracket re-render
+    // Unhide the results card before rendering so bracket-view's completion scroll fires only on a live finish.
+    if (store.get('meta.status') === 'complete') {
+      document.getElementById('results-view').hidden = false;
+    }
+    // bracket-view skips rendering while hidden, so render now that it is visible.
     store.emit('change', { path: 'view' });
   }
 }
@@ -236,9 +209,6 @@ function fillHomeDefaults() {
   }
 }
 
-/**
- * Create room handler
- */
 async function onCreateRoom(e) {
   e.preventDefault();
 
@@ -262,7 +232,6 @@ async function onCreateRoom(e) {
     return;
   }
 
-  // Show confirmation modal if room exists but user is not the admin
   const existingData = loadTournament(slug);
   if (existingData && existingData.meta?.adminId !== getLocalUserId()) {
     showRoomExistsModal(slug, name);
@@ -272,9 +241,6 @@ async function onCreateRoom(e) {
   await joinAndNavigate(slug, name, { isAdmin: true });
 }
 
-/**
- * Join room handler
- */
 async function onJoinRoom(e) {
   e.preventDefault();
 
@@ -298,71 +264,33 @@ async function onJoinRoom(e) {
   await joinAndNavigate(slug, name, { isAdmin: false });
 }
 
-/**
- * Show room exists confirmation modal
- * @param {string} slug - Room slug
- * @param {string} name - User's display name
- */
 function showRoomExistsModal(slug, name) {
   const modal = document.getElementById('room-exists-modal');
-  const roomNameEl = document.getElementById('existing-room-name');
-  const joinBtn = document.getElementById('join-existing-btn');
+  document.getElementById('existing-room-name').textContent = slug;
 
-  // Set room name in modal
-  roomNameEl.textContent = slug;
-
-  // Handle join button click
-  const handleJoin = async () => {
-    modal.close();
-    joinBtn.removeEventListener('click', handleJoin);
-
+  // Only the Join button closes with returnValue 'join'; Cancel, the close button and Esc do not.
+  modal.returnValue = '';
+  modal.addEventListener('close', () => {
+    if (modal.returnValue !== 'join') return;
     // Joining as a regular player, so drop the host label and let connectToRoom resolve a name
-    await joinAndNavigate(slug, name === HOST_NAME ? '' : name, { isAdmin: false });
-  };
-
-  joinBtn.addEventListener('click', handleJoin);
-
-  // Handle close button and backdrop click
-  const closeHandler = () => {
-    joinBtn.removeEventListener('click', handleJoin);
-  };
-  modal.addEventListener('close', closeHandler, { once: true });
-
-  // Setup close buttons
-  modal.querySelectorAll('.close-modal').forEach(btn => {
-    btn.onclick = () => modal.close();
-  });
+    joinAndNavigate(slug, name === HOST_NAME ? '' : name, { isAdmin: false });
+  }, { once: true });
 
   modal.showModal();
 }
 
-/**
- * Connect to a room
- */
 async function connectToRoom(roomId, options = {}) {
   const { isAdmin = false, name = '' } = options;
 
   updateConnectionStatus('connecting');
 
-  // Re-initialize component listeners (they may have been cleaned up by disconnectFromRoom)
-  initLobby();
-  initBracketView();
-
   try {
-    // Check for existing tournament data
     const existingData = loadTournament(roomId);
-
-    // Join the P2P room
     const room = await joinRoom(roomId);
-
-    // Get persistent local user ID (survives page refresh)
     const localUserId = getLocalUserId();
 
-    // Resolve display name, first match wins:
-    // 1. Provided name (from form submission)
-    // 2. Existing participant data in this tournament (page refresh/rejoin)
-    // 3. Last saved display name (from localStorage preferences)
-    // 4. Random adjective + animal, saved so later joins reuse it
+    // First non-empty wins: form name, this room's saved participant, last display name,
+    // then a random name that is saved so later joins reuse it.
     let resolvedName = name;
     if (!resolvedName && existingData?.participants) {
       const existingParticipant = existingData.participants.find(([id]) => id === localUserId);
@@ -376,42 +304,26 @@ async function connectToRoom(roomId, options = {}) {
       saveDisplayName(resolvedName);
     }
 
-    // Store local peer info
     store.set('local.localUserId', localUserId);
     store.set('local.name', resolvedName);
 
-    // Setup state sync handlers
     setupStateSync(room);
 
     // Admin is the room's creator, or the user whose persistent ID matches the saved adminId
     const isActualAdmin = isAdmin || existingData?.meta?.adminId === localUserId;
-
     store.setAdmin(isActualAdmin);
 
+    store.set('meta.id', roomId);
+    if (existingData) {
+      store.deserialize(existingData);
+      resetAllParticipantsOffline();
+    }
     if (isActualAdmin) {
-      store.set('meta.id', roomId);
       store.set('meta.adminId', localUserId);
       store.set('meta.createdAt', existingData?.meta?.createdAt || Date.now());
-
-      // Restore existing tournament data if any
-      if (existingData) {
-        store.deserialize(existingData);
-        // Reset all participants to disconnected (will be updated as peers actually connect)
-        resetAllParticipantsOffline();
-      }
-    } else {
-      // Store room ID for non-admin
-      store.set('meta.id', roomId);
-
-      // Restore existing local data
-      if (existingData) {
-        store.deserialize(existingData);
-        // Reset all participants to disconnected (will be updated as peers actually connect)
-        resetAllParticipantsOffline();
-      }
     }
 
-    // Add self as participant (use persistent ID, not transient peerId)
+    // Keyed by the persistent ID, not the transient peerId.
     store.addParticipant({
       id: localUserId,
       peerId: room.selfId,
@@ -419,12 +331,7 @@ async function connectToRoom(roomId, options = {}) {
       isConnected: true,
     });
 
-    // Setup peer event handlers
-    room.onPeerJoin(() => {
-      updateConnectionStatus('connected');
-      updatePeerCount();
-    });
-
+    room.onPeerJoin(updatePeerCount);
     room.onPeerLeave((peerId) => {
       updatePeerCount();
       const participant = store.getParticipantByPeerId(peerId);
@@ -433,52 +340,31 @@ async function connectToRoom(roomId, options = {}) {
       }
     });
 
-    // Save to localStorage
     saveTournament(roomId, store.serialize());
 
     updateConnectionStatus('connected');
     updatePeerCount();
     showSuccess(`Joined room: ${roomId}`);
-
-    // Show appropriate view based on tournament status
-    const status = store.get('meta.status');
-    if (status === 'active' || status === 'complete') {
-      showView(VIEWS.BRACKET);
-    } else {
-      showView(VIEWS.LOBBY);
-    }
-
   } catch (err) {
     updateConnectionStatus('disconnected');
     throw err;
   }
 }
 
-/**
- * Disconnect from current room
- */
 async function disconnectFromRoom() {
   await leaveRoom();
 
-  // Cleanup component listeners before resetting state
-  cleanupLobby();
-  cleanupBracketView();
-
-  // Reset local state (keep preferences)
+  // The display name outlives the room. Setting it also emits the change that clears the room UI.
   const localName = store.get('local.name');
   store.reset();
   store.set('local.name', localName);
 
-  // Reset sync state (clear peerId mappings and initialization flag)
   resetSyncState();
 
   updateConnectionStatus('disconnected');
   updatePeerCount();
 }
 
-/**
- * New tournament handler
- */
 function onNewTournament() {
   const room = getRoom();
   if (room && store.isAdmin()) {
@@ -486,52 +372,26 @@ function onNewTournament() {
     const archive = store.archiveTournament();
     room.broadcast(ActionTypes.TOURNAMENT_RESET, { archive });
 
-    // Reset for new tournament (keeps participants and history)
+    // Keeps participants and history. The status change returns everyone to the lobby.
     store.resetForNewTournament();
 
-    // Save now rather than after autoSave's debounce, so closing the tab cannot lose the archive.
+    // Save now rather than after the debounced auto-save, so closing the tab cannot lose the archive.
     saveTournament(store.get('meta.id'), store.serialize());
 
-    showView(VIEWS.LOBBY);
     showSuccess('Ready for new tournament!');
   } else {
     navigateToHome();
   }
 }
 
-/**
- * Update connection status indicator
- */
 function updateConnectionStatus(status) {
-  const statusEl = document.getElementById('connection-status');
-  const icon = document.getElementById('status-icon');
-
-  if (statusEl) {
-    statusEl.hidden = status === 'disconnected' && !getRoom();
-  }
-
-  if (icon) {
-    // Use setAttribute for SVG compatibility (FontAwesome JS replaces <i> with <svg>)
-    try {
-      icon.setAttribute('class', `fa-solid fa-circle ${status}`);
-    } catch (e) {
-      // Fallback if setAttribute fails
-      console.warn('[Seedless] Could not update status icon:', e.message);
-    }
-  }
+  document.getElementById('connection-status').hidden = status === 'disconnected' && !getRoom();
+  // setAttribute because Font Awesome may swap the <span> for an <svg>, whose className is read-only.
+  document.getElementById('status-icon').setAttribute('class', `fa-solid fa-circle ${status}`);
 }
 
-/**
- * Update peer count display
- */
 function updatePeerCount() {
-  const countEl = document.getElementById('peer-count');
-  const peerCount = getRoom()?.getPeers().length ?? 0;
-  // Add 1 to include yourself in the total
-  const totalInRoom = peerCount + 1;
-  if (countEl) {
-    countEl.textContent = totalInRoom;
-  }
+  document.getElementById('peer-count').textContent = (getRoom()?.getPeers().length ?? 0) + 1;
 }
 
 /**
@@ -545,19 +405,4 @@ function resetAllParticipantsOffline() {
   }
 }
 
-/**
- * Prefill the in-room name input with the last used name
- */
-function prefillNameInputs(name) {
-  const input = document.getElementById('my-name');
-  if (input && !input.value) {
-    input.value = name;
-  }
-}
-
-// Initialize on DOM ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
+init();

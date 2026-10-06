@@ -4,7 +4,7 @@
  */
 
 import { store } from '../state/store.js';
-import { getRoomLink, navigateToHome, navigateToBracket } from '../state/url-state.js';
+import { getRoomLink, navigateToHome } from '../state/url-state.js';
 import { getRoom } from '../network/room.js';
 import { startTournament } from '../network/sync.js';
 import { showSuccess, showError, showInfo, showToast } from './toast.js';
@@ -20,54 +20,26 @@ import { bySeed, seedParticipants } from '../utils/tournament-helpers.js';
 // Upper bound of the games-per-player input
 const MAX_GAMES_PER_PLAYER = 20;
 
-// Track subscriptions for cleanup
-let lobbySubscriptions = [];
-
-// AbortController for DOM event listeners
-let lobbyDomController = null;
-
 /**
- * Initialize lobby view
+ * Wire the lobby's DOM and store listeners. Call once; they live for the page.
  */
 export function initLobby() {
-  // Clean up any existing subscriptions first
-  cleanupLobby();
-
-  // Create new AbortController for DOM listeners
-  lobbyDomController = new AbortController();
-
   setupAdminPanel();
   setupParticipantPanel();
   setupParticipantList();
   setupShareLink();
-  setupTeamAssignmentDelegation(); // Event delegation for team assignment (set up once)
+  setupTeamAssignmentDelegation();
   setupManualParticipantForm(); // Admin-only: add offline participants
 
-  // Listen for state changes and track subscriptions
-  lobbySubscriptions.push(store.on('change', updateLobbyUI));
-  lobbySubscriptions.push(store.on('participant:join', onParticipantJoin));
-  lobbySubscriptions.push(store.on('participant:leave', onParticipantLeave));
-}
-
-/**
- * Clean up lobby subscriptions and DOM event listeners
- */
-export function cleanupLobby() {
-  lobbySubscriptions.forEach(unsubscribe => unsubscribe());
-  lobbySubscriptions = [];
-
-  // Abort all DOM event listeners
-  if (lobbyDomController) {
-    lobbyDomController.abort();
-    lobbyDomController = null;
-  }
+  store.on('change', updateLobbyUI);
+  store.on('participant:join', onParticipantJoin);
+  store.on('participant:leave', onParticipantLeave);
 }
 
 /**
  * Setup admin panel event handlers
  */
 function setupAdminPanel() {
-  const { signal } = lobbyDomController;
   const configForm = document.getElementById('tournament-config');
   const startBtn = document.getElementById('start-tournament-btn');
 
@@ -89,7 +61,7 @@ function setupAdminPanel() {
 
       // Show/hide team assignment panel for doubles
       updateTeamAssignmentPanel();
-    }, { signal });
+    });
   });
 
   // Seeding mode selection
@@ -98,14 +70,14 @@ function setupAdminPanel() {
     radio.addEventListener('change', (e) => {
       store.set('meta.config.seedingMode', e.target.value);
       updateParticipantListSortable();
-    }, { signal });
+    });
   });
 
   // Tournament name
   const nameInput = document.getElementById('tournament-name');
   nameInput.addEventListener('input', (e) => {
     store.set('meta.name', e.target.value);
-  }, { signal });
+  });
 
   // Players per game (for Points Race)
   const playersPerGameInput = document.getElementById('players-per-game');
@@ -113,7 +85,7 @@ function setupAdminPanel() {
     playersPerGameInput.addEventListener('input', (e) => {
       const value = parseInt(e.target.value) || 4;
       store.set('meta.config.playersPerGame', Math.min(12, Math.max(2, value)));
-    }, { signal });
+    });
   }
 
   // Games per player (for Points Race)
@@ -122,7 +94,7 @@ function setupAdminPanel() {
     gamesPerPlayerInput.addEventListener('input', (e) => {
       const value = parseInt(e.target.value) || 5;
       store.set('meta.config.gamesPerPlayer', Math.min(MAX_GAMES_PER_PLAYER, Math.max(1, value)));
-    }, { signal });
+    });
   }
 
   // Even-split suggestions apply their games-per-player count
@@ -134,7 +106,7 @@ function setupAdminPanel() {
       const value = Number(suggestion.dataset.gamesPerPlayer);
       gamesPerPlayerInput.value = value;
       store.set('meta.config.gamesPerPlayer', value);
-    }, { signal });
+    });
   }
 
   // Uneven split handling (for Points Race)
@@ -142,7 +114,7 @@ function setupAdminPanel() {
   if (leftoverSeatsSelect) {
     leftoverSeatsSelect.addEventListener('change', (e) => {
       store.set('meta.config.leftoverSeats', e.target.value);
-    }, { signal });
+    });
   }
 
   // Points table (for Points Race)
@@ -151,11 +123,11 @@ function setupAdminPanel() {
     pointsTableSelect.addEventListener('change', (e) => {
       const tableKey = e.target.value;
       store.set('meta.config.pointsTable', CONFIG.pointsTables[tableKey]);
-    }, { signal });
+    });
   }
 
   // Start button
-  startBtn.addEventListener('click', onStartTournament, { signal });
+  startBtn.addEventListener('click', onStartTournament);
 
   // Team size input (for Doubles)
   const teamSizeInput = document.getElementById('team-size');
@@ -164,7 +136,7 @@ function setupAdminPanel() {
       const value = parseInt(e.target.value) || 2;
       store.set('meta.config.teamSize', Math.min(4, Math.max(2, value)));
       renderTeamAssignmentUI();
-    }, { signal });
+    });
   }
 
   // Doubles bracket type
@@ -172,19 +144,19 @@ function setupAdminPanel() {
   if (doublesBracketType) {
     doublesBracketType.addEventListener('change', (e) => {
       store.set('meta.config.bracketType', e.target.value);
-    }, { signal });
+    });
   }
 
   // Auto-assign teams button
   const autoAssignBtn = document.getElementById('auto-assign-teams-btn');
   if (autoAssignBtn) {
-    autoAssignBtn.addEventListener('click', onAutoAssignTeams, { signal });
+    autoAssignBtn.addEventListener('click', onAutoAssignTeams);
   }
 
   // Clear teams button
   const clearTeamsBtn = document.getElementById('clear-teams-btn');
   if (clearTeamsBtn) {
-    clearTeamsBtn.addEventListener('click', onClearTeams, { signal });
+    clearTeamsBtn.addEventListener('click', onClearTeams);
   }
 }
 
@@ -192,44 +164,15 @@ function setupAdminPanel() {
  * Setup participant panel (non-admin view)
  */
 function setupParticipantPanel() {
-  const { signal } = lobbyDomController;
   const updateForm = document.getElementById('update-name-form');
   const leaveBtn = document.getElementById('leave-tournament-btn');
   const nameInput = document.getElementById('my-name');
-  const submitBtn = updateForm.querySelector('button[type="submit"]');
-
-  // Track if name is locked (read-only mode)
-  let nameLocked = false;
-
-  /**
-   * Lock the name input (make disabled)
-   */
-  function lockNameInput() {
-    nameLocked = true;
-    nameInput.disabled = true;
-    submitBtn.innerHTML = '<span class="fa-solid fa-pen"></span>';
-    submitBtn.setAttribute('aria-label', 'Edit name');
-    submitBtn.setAttribute('data-tooltip', 'Edit name');
-  }
-
-  /**
-   * Unlock the name input (make editable)
-   */
-  function unlockNameInput() {
-    nameLocked = false;
-    nameInput.disabled = false;
-    submitBtn.innerHTML = '<span class="fa-solid fa-check"></span>';
-    submitBtn.setAttribute('aria-label', 'Update name');
-    submitBtn.setAttribute('data-tooltip', 'Update name');
-    nameInput.focus();
-    nameInput.select();
-  }
 
   updateForm.addEventListener('submit', (e) => {
     e.preventDefault();
 
-    // If locked, unlock and return
-    if (nameLocked) {
+    // A disabled input means locked: the first click unlocks it for editing.
+    if (nameInput.disabled) {
       unlockNameInput();
       return;
     }
@@ -257,14 +200,7 @@ function setupParticipantPanel() {
         lockNameInput();
       }
     }
-  }, { signal });
-
-  // If user already has a name saved, lock it initially
-  const existingName = store.get('local.name');
-  if (existingName && nameInput) {
-    nameInput.value = existingName;
-    lockNameInput();
-  }
+  });
 
   // Leave tournament button
   if (leaveBtn) {
@@ -274,22 +210,46 @@ function setupParticipantPanel() {
         navigateToHome();
         showInfo('Left tournament');
       }
-    }, { signal });
+    });
   }
+}
+
+/**
+ * Make #my-name read-only, with the submit button offering to edit it.
+ */
+function lockNameInput() {
+  const submitBtn = document.querySelector('#update-name-form button[type="submit"]');
+  document.getElementById('my-name').disabled = true;
+  submitBtn.innerHTML = '<span class="fa-solid fa-pen"></span>';
+  submitBtn.setAttribute('aria-label', 'Edit name');
+  submitBtn.setAttribute('data-tooltip', 'Edit name');
+}
+
+/**
+ * Make #my-name editable and focus it, with the submit button saving it.
+ */
+function unlockNameInput() {
+  const nameInput = document.getElementById('my-name');
+  const submitBtn = document.querySelector('#update-name-form button[type="submit"]');
+  nameInput.disabled = false;
+  submitBtn.innerHTML = '<span class="fa-solid fa-check"></span>';
+  submitBtn.setAttribute('aria-label', 'Update name');
+  submitBtn.setAttribute('data-tooltip', 'Update name');
+  nameInput.focus();
+  nameInput.select();
 }
 
 /**
  * Setup participant list with drag-and-drop for manual seeding
  */
 function setupParticipantList() {
-  const { signal } = lobbyDomController;
   const list = document.getElementById('participant-list');
 
   // Drag and drop for manual seeding
-  list.addEventListener('dragstart', onDragStart, { signal });
-  list.addEventListener('dragover', onDragOver, { signal });
-  list.addEventListener('drop', onDrop, { signal });
-  list.addEventListener('dragend', onDragEnd, { signal });
+  list.addEventListener('dragstart', onDragStart);
+  list.addEventListener('dragover', onDragOver);
+  list.addEventListener('drop', onDrop);
+  list.addEventListener('dragend', onDragEnd);
 }
 
 /**
@@ -317,7 +277,6 @@ function updateParticipantListSortable() {
  * Setup share link functionality
  */
 function setupShareLink() {
-  const { signal } = lobbyDomController;
   const shareInput = document.getElementById('share-link');
   const copyBtn = document.getElementById('copy-link-btn');
   const shareBtn = document.getElementById('share-btn');
@@ -331,7 +290,7 @@ function setupShareLink() {
       shareInput.select();
       showInfo('Press Ctrl+C to copy');
     }
-  }, { signal });
+  });
 
   shareBtn.addEventListener('click', async () => {
     const roomId = store.get('meta.id');
@@ -355,14 +314,13 @@ function setupShareLink() {
         showError('Could not copy link');
       }
     }
-  }, { signal });
+  });
 }
 
 /**
  * Setup manual participant form (admin only)
  */
 function setupManualParticipantForm() {
-  const { signal } = lobbyDomController;
   const form = document.getElementById('add-manual-participant-form');
   if (!form) return;
 
@@ -407,7 +365,7 @@ function setupManualParticipantForm() {
     nameInput.value = '';
     showSuccess(`${name} added as offline player`);
     updateLobbyUI();
-  }, { signal });
+  });
 }
 
 /**
@@ -460,10 +418,12 @@ function updateLobbyUI() {
     startBtn.title = participants.length < 2 ? 'Need at least 2 participants' : '';
   }
 
-  // Update participant name in non-admin panel
+  // Show the current name unless the user is editing it.
   const myNameInput = document.getElementById('my-name');
-  if (myNameInput && !myNameInput.value) {
-    myNameInput.value = store.get('local.name') || '';
+  if (myNameInput.disabled || !myNameInput.value) {
+    const localName = store.get('local.name') || '';
+    myNameInput.value = localName;
+    if (localName && !myNameInput.disabled) lockNameInput();
   }
 
   // Update tournament name display for non-admins
@@ -683,10 +643,6 @@ function onStartTournament() {
     }
 
     showSuccess('Tournament started!');
-
-    // Navigate to bracket view
-    navigateToBracket();
-
   } catch (e) {
     console.error('Failed to start tournament:', e);
     showError('Failed to start tournament');
@@ -862,8 +818,7 @@ function updateTeamValidationStatus() {
 }
 
 /**
- * Setup event delegation for team assignment drag-and-drop and remove buttons.
- * Called once during initLobby() to avoid memory leaks from repeated listener attachment.
+ * Delegated drag-and-drop and remove-button handlers for the team assignment panel.
  */
 function setupTeamAssignmentDelegation() {
   const fieldset = document.getElementById('team-assignment-fieldset');

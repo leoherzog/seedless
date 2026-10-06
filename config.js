@@ -5,10 +5,7 @@
  * Users with different appIds will not see each other's rooms.
  */
 export const CONFIG = {
-  // IMPORTANT: Change this for your fork!
-  // This ensures your tournaments are isolated from other Seedless instances.
-  // Note: Trystero's Nostr strategy also seeds its relay selection from this
-  // value, so every peer on the same appId connects to the same relays.
+  // Trystero's Nostr strategy also picks relays from appId, so peers on one appId share relays.
   appId: 'seedless-tournament-v1',
 
   // Mario Kart style point tables
@@ -20,18 +17,15 @@ export const CONFIG = {
     sequential: 'sequential',
   },
 
-  // localStorage settings
   storage: {
     prefix: 'seedless_',
     retentionDays: 30,
   },
 
-  // UI settings
   ui: {
     toastDuration: 3000,
   },
 
-  // Network settings
   network: {
     // TURN credential endpoint (see turn-worker/). Set to your deployed
     // Worker URL to enable TURN relay for peers behind strict NATs (e.g.
@@ -39,17 +33,8 @@ export const CONFIG = {
     turnCredentialsUrl: 'https://turn.tournament.thehopegang.com',
   },
 
-  // Validation limits
   validation: {
     maxNameLength: 100,
     maxMatchIdLength: 50,
   },
 };
-
-// Warn if using default appId (helps remind forkers to change it)
-if (CONFIG.appId === 'seedless-tournament-v1') {
-  console.info(
-    '%c[Seedless] Using default appId. Fork users should change CONFIG.appId in config.js',
-    'color: #888'
-  );
-}

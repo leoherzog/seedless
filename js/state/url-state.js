@@ -5,25 +5,17 @@
 
 export const URL_PARAMS = {
   ROOM: 'room',
-  VIEW: 'view',
-};
-
-export const VIEWS = {
-  HOME: 'home',
-  LOBBY: 'lobby',
-  BRACKET: 'bracket',
 };
 
 export function parseUrlState() {
   const params = new URLSearchParams(window.location.search);
   return {
     roomId: params.get(URL_PARAMS.ROOM),
-    view: params.get(URL_PARAMS.VIEW) || VIEWS.HOME,
   };
 }
 
-const notifyUrlChange = () =>
-  window.dispatchEvent(new CustomEvent('urlstatechange', { detail: parseUrlState() }));
+// pushState and replaceState fire no event of their own.
+const notifyUrlChange = () => window.dispatchEvent(new Event('urlstatechange'));
 
 /**
  * Update URL state
@@ -51,31 +43,18 @@ export function updateUrlState(updates, replace = false) {
 }
 
 /**
- * Navigate to room lobby
+ * Navigate to a room
  * @param {string} roomId - Room ID/slug
  */
 export function navigateToRoom(roomId) {
-  updateUrlState({
-    [URL_PARAMS.ROOM]: roomId,
-    [URL_PARAMS.VIEW]: VIEWS.LOBBY,
-  });
-}
-
-/**
- * Navigate to bracket view
- */
-export function navigateToBracket() {
-  updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.BRACKET });
+  updateUrlState({ [URL_PARAMS.ROOM]: roomId });
 }
 
 /**
  * Navigate to home (clear room)
  */
 export function navigateToHome() {
-  updateUrlState({
-    [URL_PARAMS.ROOM]: null,
-    [URL_PARAMS.VIEW]: VIEWS.HOME,
-  }, true);
+  updateUrlState({ [URL_PARAMS.ROOM]: null }, true);
 }
 
 /**
@@ -86,7 +65,6 @@ export function navigateToHome() {
 export function getRoomLink(roomId) {
   const url = new URL(window.location.origin + window.location.pathname);
   url.searchParams.set(URL_PARAMS.ROOM, roomId);
-  url.searchParams.set(URL_PARAMS.VIEW, VIEWS.LOBBY);
   return url.toString();
 }
 

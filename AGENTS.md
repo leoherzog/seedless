@@ -56,7 +56,7 @@ js/
 ├── state/
 │   ├── store.js         # Central event-emitting state store with CRDT-like merge
 │   ├── persistence.js   # localStorage read/write
-│   └── url-state.js     # URL query routing (?room=slug&view=bracket)
+│   └── url-state.js     # URL query routing (?room=slug)
 ├── network/
 │   ├── room.js          # Trystero room wrapper, action channel setup
 │   ├── sync.js          # P2P state sync, conflict resolution, message handlers
@@ -74,7 +74,6 @@ js/
 │   └── toast.js         # Notification system
 └── utils/
     ├── html.js          # HTML escaping
-    ├── debounce.js      # Debounce utility
     ├── drag-drop.js     # Drag-and-drop helpers
     ├── random-names.js  # Default room slugs and player names
     └── tournament-helpers.js # Match status, ordinals, seeding, shuffle, team membership
@@ -111,7 +110,7 @@ Messages travel as `{ payload }`, and `room.js` drops any whose payload is not a
 
 ## Important Patterns
 
-**View System**: HTML sections have `data-view` attributes. `showView()` in `main.js` hides/shows by toggling `hidden` attribute.
+**View System**: HTML sections have `data-view` attributes. `showView()` in `main.js` toggles their `hidden` attribute. Inside a room the view follows `meta.status`: lobby until the tournament starts, then bracket.
 
 **Bracket Generation**: `buildKnockout()` in `bracket-utils.js` seeds the single-elimination bracket and the double-elimination winners bracket so high seeds don't meet until later rounds, and gives byes to the top seeds. Generators return `{ bracket, matches }`: the store's `matches` Map is the only copy of each match, and bracket rounds hold match ids. `bracket.startedAt` marks the tournament, so a merge never mixes matches from two tournaments.
 

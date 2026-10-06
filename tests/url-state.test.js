@@ -9,11 +9,9 @@ import {
   parseUrlState,
   updateUrlState,
   navigateToRoom,
-  navigateToBracket,
   navigateToHome,
   getRoomLink,
   URL_PARAMS,
-  VIEWS,
 } from "../js/state/url-state.js";
 
 function createMockWindow() {
@@ -172,58 +170,39 @@ Deno.test("formatRoomSlugInput (live typing)", async (t) => {
 });
 
 Deno.test('url-state behaviors', async (t) => {
-  await t.step('parseUrlState reads params and defaults view', () => {
+  await t.step('parseUrlState reads the room param', () => {
     windowMock.location.search = '';
-    assertEquals(parseUrlState(), {
-      roomId: null,
-      view: VIEWS.HOME,
-    });
+    assertEquals(parseUrlState(), { roomId: null });
 
-    windowMock.location.search = '?room=abc&view=bracket';
-    assertEquals(parseUrlState(), {
-      roomId: 'abc',
-      view: 'bracket',
-    });
+    windowMock.location.search = '?room=abc';
+    assertEquals(parseUrlState(), { roomId: 'abc' });
   });
 
   await t.step('updateUrlState pushes and dispatches urlstatechange', () => {
-    windowMock.location.search = '?room=abc&view=lobby';
-    updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.BRACKET });
+    windowMock.location.search = '?room=abc';
+    updateUrlState({ extra: 'x' });
 
     assertEquals(windowMock.history._pushes.length, 1);
     const query = getQuery(windowMock.history._pushes[0].url);
     assertEquals(query.get(URL_PARAMS.ROOM), 'abc');
-    assertEquals(query.get(URL_PARAMS.VIEW), 'bracket');
+    assertEquals(query.get('extra'), 'x');
 
-    const lastEvent = windowMock._dispatched.at(-1);
-    assertEquals(lastEvent.type, 'urlstatechange');
-    assertEquals(lastEvent.detail.view, 'bracket');
+    assertEquals(windowMock._dispatched.at(-1).type, 'urlstatechange');
   });
 
-  await t.step('navigate helpers set expected params', () => {
+  await t.step('navigate helpers set only the room param', () => {
+    windowMock.location.search = '';
     navigateToRoom('room-1');
-    let query = new URLSearchParams(windowMock.location.search);
-    assertEquals(query.get(URL_PARAMS.ROOM), 'room-1');
-    assertEquals(query.get(URL_PARAMS.VIEW), 'lobby');
-
-    navigateToBracket();
-    query = new URLSearchParams(windowMock.location.search);
-    assertEquals(query.get(URL_PARAMS.ROOM), 'room-1');
-    assertEquals(query.get(URL_PARAMS.VIEW), 'bracket');
+    assertEquals(windowMock.location.search, '?room=room-1');
 
     navigateToHome();
-    const homeQuery = new URLSearchParams(windowMock.location.search);
-    assertEquals(homeQuery.get(URL_PARAMS.ROOM), null);
-    assertEquals(homeQuery.get(URL_PARAMS.VIEW), 'home');
+    assertEquals(windowMock.location.search, '');
     assertEquals(windowMock.history._replaces.length >= 1, true);
   });
 
-  await t.step('getRoomLink builds a lobby URL', () => {
+  await t.step('getRoomLink builds a room URL', () => {
     windowMock.location.origin = 'https://example.test';
     windowMock.location.pathname = '/index.html';
-    const link = getRoomLink('share-room');
-    const url = new URL(link);
-    assertEquals(url.searchParams.get(URL_PARAMS.ROOM), 'share-room');
-    assertEquals(url.searchParams.get(URL_PARAMS.VIEW), 'lobby');
+    assertEquals(getRoomLink('share-room'), 'https://example.test/index.html?room=share-room');
   });
 });

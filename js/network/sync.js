@@ -4,7 +4,7 @@
  */
 
 import { store } from '../state/store.js';
-import { navigateToHome, navigateToBracket, updateUrlState, URL_PARAMS, VIEWS } from '../state/url-state.js';
+import { navigateToHome } from '../state/url-state.js';
 import { showToast } from '../components/toast.js';
 import { ActionTypes } from './room.js';
 import {
@@ -233,10 +233,6 @@ export function setupStateSync(room) {
       store.set('meta.type', payload.bracket.type);
     }
     store.set('meta.status', 'active');
-
-    if (!store.isAdmin()) {
-      navigateToBracket();
-    }
   });
 
   room.onAction(ActionTypes.TOURNAMENT_RESET, (payload, peerId) => {
@@ -252,7 +248,6 @@ export function setupStateSync(room) {
     store.resetForNewTournament();
 
     if (!store.isAdmin()) {
-      updateUrlState({ [URL_PARAMS.VIEW]: VIEWS.LOBBY });
       showToast('Ready for new tournament!', 'info');
     }
   });

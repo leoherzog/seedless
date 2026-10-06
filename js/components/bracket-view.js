@@ -83,15 +83,9 @@ function setupBracketTabs() {
  */
 function setupScoreModal() {
   const { signal } = bracketDomController;
-  const modal = document.getElementById('score-modal');
-  const closeButtons = modal.querySelectorAll('.close-modal');
   const submitBtn = document.getElementById('submit-score-btn');
   const score1Input = document.getElementById('score1');
   const score2Input = document.getElementById('score2');
-
-  closeButtons.forEach(btn => {
-    btn.addEventListener('click', () => modal.close(), { signal });
-  });
 
   // Auto-select winner based on scores
   [score1Input, score2Input].forEach(input => {
@@ -596,15 +590,6 @@ function verifyMatch(matchId) {
  */
 function setupRaceResultModal() {
   const { signal } = bracketDomController;
-  const modal = document.getElementById('race-result-modal');
-  if (!modal) return;
-
-  // Close button handlers
-  modal.querySelectorAll('.close-modal').forEach(btn => {
-    btn.addEventListener('click', () => modal.close(), { signal });
-  });
-
-  // Submit handler
   const submitBtn = document.getElementById('submit-race-btn');
   if (submitBtn) {
     submitBtn.addEventListener('click', onSubmitRaceResult, { signal });
