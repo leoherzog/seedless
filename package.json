@@ -1,0 +1,13 @@
+{
+  "name": "seedless",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --import ./tests/register-hooks.js --experimental-webstorage --localstorage-file=:memory: --test \"tests/**/*.test.js\"",
+    "test:watch": "node --import ./tests/register-hooks.js --experimental-webstorage --localstorage-file=:memory: --test --watch \"tests/**/*.test.js\"",
+    "test:coverage": "node --import ./tests/register-hooks.js --experimental-webstorage --localstorage-file=:memory: --test --experimental-test-coverage --test-coverage-exclude=\"tests/**\" \"tests/**/*.test.js\""
+  }
+}

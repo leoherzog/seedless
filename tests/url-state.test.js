@@ -2,7 +2,8 @@
  * Tests for url-state.js against a mock window.
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import {
   sanitizeRoomSlug,
   formatRoomSlugInput,
@@ -54,142 +55,142 @@ function getQuery(url) {
 const windowMock = createMockWindow();
 globalThis.window = windowMock;
 
-Deno.test("sanitizeRoomSlug", async (t) => {
-  await t.step("lowercases input", () => {
-    assertEquals(sanitizeRoomSlug("MyRoom"), "myroom");
-    assertEquals(sanitizeRoomSlug("ROOM"), "room");
-    assertEquals(sanitizeRoomSlug("RooM123"), "room123");
+test("sanitizeRoomSlug", async (t) => {
+  await t.test("lowercases input", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("MyRoom"), "myroom");
+    assert.deepStrictEqual(sanitizeRoomSlug("ROOM"), "room");
+    assert.deepStrictEqual(sanitizeRoomSlug("RooM123"), "room123");
   });
 
-  await t.step("trims whitespace", () => {
-    assertEquals(sanitizeRoomSlug("  room  "), "room");
-    assertEquals(sanitizeRoomSlug("\troom\n"), "room");
+  await t.test("trims whitespace", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("  room  "), "room");
+    assert.deepStrictEqual(sanitizeRoomSlug("\troom\n"), "room");
   });
 
-  await t.step("replaces invalid characters with hyphen", () => {
-    assertEquals(sanitizeRoomSlug("room_name"), "room-name");
-    assertEquals(sanitizeRoomSlug("room.name"), "room-name");
-    assertEquals(sanitizeRoomSlug("room@name"), "room-name");
-    assertEquals(sanitizeRoomSlug("room!name"), "room-name");
+  await t.test("replaces invalid characters with hyphen", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("room_name"), "room-name");
+    assert.deepStrictEqual(sanitizeRoomSlug("room.name"), "room-name");
+    assert.deepStrictEqual(sanitizeRoomSlug("room@name"), "room-name");
+    assert.deepStrictEqual(sanitizeRoomSlug("room!name"), "room-name");
   });
 
-  await t.step("replaces spaces with hyphen", () => {
-    assertEquals(sanitizeRoomSlug("room name"), "room-name");
-    assertEquals(sanitizeRoomSlug("my cool room"), "my-cool-room");
+  await t.test("replaces spaces with hyphen", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("room name"), "room-name");
+    assert.deepStrictEqual(sanitizeRoomSlug("my cool room"), "my-cool-room");
   });
 
-  await t.step("collapses multiple hyphens", () => {
-    assertEquals(sanitizeRoomSlug("room--name"), "room-name");
-    assertEquals(sanitizeRoomSlug("room---name"), "room-name");
-    assertEquals(sanitizeRoomSlug("a--b--c"), "a-b-c");
+  await t.test("collapses multiple hyphens", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("room--name"), "room-name");
+    assert.deepStrictEqual(sanitizeRoomSlug("room---name"), "room-name");
+    assert.deepStrictEqual(sanitizeRoomSlug("a--b--c"), "a-b-c");
   });
 
-  await t.step("removes leading hyphens", () => {
-    assertEquals(sanitizeRoomSlug("-room"), "room");
-    assertEquals(sanitizeRoomSlug("--room"), "room");
-    assertEquals(sanitizeRoomSlug("---room"), "room");
+  await t.test("removes leading hyphens", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("-room"), "room");
+    assert.deepStrictEqual(sanitizeRoomSlug("--room"), "room");
+    assert.deepStrictEqual(sanitizeRoomSlug("---room"), "room");
   });
 
-  await t.step("removes trailing hyphens", () => {
-    assertEquals(sanitizeRoomSlug("room-"), "room");
-    assertEquals(sanitizeRoomSlug("room--"), "room");
-    assertEquals(sanitizeRoomSlug("room---"), "room");
+  await t.test("removes trailing hyphens", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("room-"), "room");
+    assert.deepStrictEqual(sanitizeRoomSlug("room--"), "room");
+    assert.deepStrictEqual(sanitizeRoomSlug("room---"), "room");
   });
 
-  await t.step("truncates to 50 characters", () => {
+  await t.test("truncates to 50 characters", () => {
     const longInput = "a".repeat(100);
     const result = sanitizeRoomSlug(longInput);
-    assertEquals(result.length, 50);
+    assert.deepStrictEqual(result.length, 50);
   });
 
-  await t.step("handles complex input", () => {
-    assertEquals(sanitizeRoomSlug("  My_Cool.Room!  "), "my-cool-room");
-    assertEquals(sanitizeRoomSlug("---ROOM___NAME---"), "room-name");
-    assertEquals(sanitizeRoomSlug("Hello World 123"), "hello-world-123");
+  await t.test("handles complex input", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("  My_Cool.Room!  "), "my-cool-room");
+    assert.deepStrictEqual(sanitizeRoomSlug("---ROOM___NAME---"), "room-name");
+    assert.deepStrictEqual(sanitizeRoomSlug("Hello World 123"), "hello-world-123");
   });
 
-  await t.step("preserves already valid slugs", () => {
-    assertEquals(sanitizeRoomSlug("my-valid-room"), "my-valid-room");
-    assertEquals(sanitizeRoomSlug("room123"), "room123");
-    assertEquals(sanitizeRoomSlug("a-b-c"), "a-b-c");
+  await t.test("preserves already valid slugs", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug("my-valid-room"), "my-valid-room");
+    assert.deepStrictEqual(sanitizeRoomSlug("room123"), "room123");
+    assert.deepStrictEqual(sanitizeRoomSlug("a-b-c"), "a-b-c");
   });
 
-  await t.step("handles empty string", () => {
-    assertEquals(sanitizeRoomSlug(""), "");
+  await t.test("handles empty string", () => {
+    assert.deepStrictEqual(sanitizeRoomSlug(""), "");
   });
 
-  await t.step("handles string with only invalid chars", () => {
+  await t.test("handles string with only invalid chars", () => {
     // Invalid chars become hyphens, which are then trimmed away.
-    assertEquals(sanitizeRoomSlug("___"), "");
-    assertEquals(sanitizeRoomSlug("@#$"), "");
+    assert.deepStrictEqual(sanitizeRoomSlug("___"), "");
+    assert.deepStrictEqual(sanitizeRoomSlug("@#$"), "");
   });
 });
 
-Deno.test("formatRoomSlugInput (live typing)", async (t) => {
-  await t.step("lowercases and turns spaces into hyphens", () => {
-    assertEquals(formatRoomSlugInput("Friday Smash"), "friday-smash");
-    assertEquals(formatRoomSlugInput("My Cool Room"), "my-cool-room");
+test("formatRoomSlugInput (live typing)", async (t) => {
+  await t.test("lowercases and turns spaces into hyphens", () => {
+    assert.deepStrictEqual(formatRoomSlugInput("Friday Smash"), "friday-smash");
+    assert.deepStrictEqual(formatRoomSlugInput("My Cool Room"), "my-cool-room");
   });
 
-  await t.step("strips unsupported characters", () => {
-    assertEquals(formatRoomSlugInput("room!@#name"), "room-name");
-    assertEquals(formatRoomSlugInput("café_night"), "caf-night");
+  await t.test("strips unsupported characters", () => {
+    assert.deepStrictEqual(formatRoomSlugInput("room!@#name"), "room-name");
+    assert.deepStrictEqual(formatRoomSlugInput("café_night"), "caf-night");
   });
 
-  await t.step("keeps a single trailing hyphen so typing can continue", () => {
-    assertEquals(formatRoomSlugInput("friday "), "friday-");
-    assertEquals(formatRoomSlugInput("friday-"), "friday-");
+  await t.test("keeps a single trailing hyphen so typing can continue", () => {
+    assert.deepStrictEqual(formatRoomSlugInput("friday "), "friday-");
+    assert.deepStrictEqual(formatRoomSlugInput("friday-"), "friday-");
   });
 
-  await t.step("collapses repeated hyphens and strips a leading hyphen", () => {
-    assertEquals(formatRoomSlugInput("  hello"), "hello");
-    assertEquals(formatRoomSlugInput("a---b"), "a-b");
+  await t.test("collapses repeated hyphens and strips a leading hyphen", () => {
+    assert.deepStrictEqual(formatRoomSlugInput("  hello"), "hello");
+    assert.deepStrictEqual(formatRoomSlugInput("a---b"), "a-b");
   });
 
-  await t.step("caps length at 50 characters", () => {
-    assertEquals(formatRoomSlugInput("a".repeat(100)).length, 50);
+  await t.test("caps length at 50 characters", () => {
+    assert.deepStrictEqual(formatRoomSlugInput("a".repeat(100)).length, 50);
   });
 
-  await t.step("finishing the slug matches sanitizeRoomSlug", () => {
+  await t.test("finishing the slug matches sanitizeRoomSlug", () => {
     // Submitting runs sanitizeRoomSlug on whatever the live value is.
-    assertEquals(sanitizeRoomSlug(formatRoomSlugInput("Friday Smash ")), "friday-smash");
+    assert.deepStrictEqual(sanitizeRoomSlug(formatRoomSlugInput("Friday Smash ")), "friday-smash");
   });
 });
 
-Deno.test('url-state behaviors', async (t) => {
-  await t.step('parseUrlState reads the room param', () => {
+test('url-state behaviors', async (t) => {
+  await t.test('parseUrlState reads the room param', () => {
     windowMock.location.search = '';
-    assertEquals(parseUrlState(), { roomId: null });
+    assert.deepStrictEqual(parseUrlState(), { roomId: null });
 
     windowMock.location.search = '?room=abc';
-    assertEquals(parseUrlState(), { roomId: 'abc' });
+    assert.deepStrictEqual(parseUrlState(), { roomId: 'abc' });
   });
 
-  await t.step('navigateToRoom pushes, keeps other params and dispatches urlstatechange', () => {
+  await t.test('navigateToRoom pushes, keeps other params and dispatches urlstatechange', () => {
     windowMock.location.search = '?room=abc&extra=x';
     navigateToRoom('def');
 
-    assertEquals(windowMock.history._pushes.length, 1);
+    assert.deepStrictEqual(windowMock.history._pushes.length, 1);
     const query = getQuery(windowMock.history._pushes[0].url);
-    assertEquals(query.get('room'), 'def');
-    assertEquals(query.get('extra'), 'x');
+    assert.deepStrictEqual(query.get('room'), 'def');
+    assert.deepStrictEqual(query.get('extra'), 'x');
 
-    assertEquals(windowMock._dispatched.at(-1).type, 'urlstatechange');
+    assert.deepStrictEqual(windowMock._dispatched.at(-1).type, 'urlstatechange');
   });
 
-  await t.step('navigate helpers set only the room param', () => {
+  await t.test('navigate helpers set only the room param', () => {
     windowMock.location.search = '';
     navigateToRoom('room-1');
-    assertEquals(windowMock.location.search, '?room=room-1');
+    assert.deepStrictEqual(windowMock.location.search, '?room=room-1');
 
     navigateToHome();
-    assertEquals(windowMock.location.search, '');
-    assertEquals(windowMock.history._replaces.length >= 1, true);
+    assert.deepStrictEqual(windowMock.location.search, '');
+    assert.deepStrictEqual(windowMock.history._replaces.length >= 1, true);
   });
 
-  await t.step('getRoomLink builds a room URL', () => {
+  await t.test('getRoomLink builds a room URL', () => {
     windowMock.location.origin = 'https://example.test';
     windowMock.location.pathname = '/index.html';
-    assertEquals(getRoomLink('share-room'), 'https://example.test/index.html?room=share-room');
+    assert.deepStrictEqual(getRoomLink('share-room'), 'https://example.test/index.html?room=share-room');
   });
 });

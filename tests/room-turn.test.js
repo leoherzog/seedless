@@ -2,7 +2,8 @@
  * Tests for TURN credential fetching in joinRoom (turn-worker integration).
  */
 
-import { assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { joinRoom, leaveRoom } from '../js/network/room.js';
 import { CONFIG } from '../config.js';
 import { _getLastRoom } from './mocks/trystero-mock.js';
@@ -31,11 +32,11 @@ function installMockFetch(handler) {
   };
 }
 
-Deno.test('joinRoom TURN credential fetching', async (t) => {
+test('joinRoom TURN credential fetching', async (t) => {
   const previousUrl = CONFIG.network.turnCredentialsUrl;
 
   try {
-    await t.step('passes fetched iceServers as turnConfig', async () => {
+    await t.test('passes fetched iceServers as turnConfig', async () => {
       CONFIG.network.turnCredentialsUrl = 'https://turn.example.workers.dev';
       const mockFetch = installMockFetch(() =>
         Promise.resolve(new Response(JSON.stringify({ iceServers: MOCK_ICE_SERVERS }), {
@@ -45,28 +46,28 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
 
       try {
         await joinRoom('room-turn');
-        assertEquals(mockFetch.getCalls(), 1);
-        assertEquals(_getLastRoom().config.turnConfig, MOCK_ICE_SERVERS);
+        assert.deepStrictEqual(mockFetch.getCalls(), 1);
+        assert.deepStrictEqual(_getLastRoom().config.turnConfig, MOCK_ICE_SERVERS);
         await leaveRoom();
       } finally {
         mockFetch.restore();
       }
     });
 
-    await t.step('joins without turnConfig when fetch fails', async () => {
+    await t.test('joins without turnConfig when fetch fails', async () => {
       CONFIG.network.turnCredentialsUrl = 'https://turn.example.workers.dev';
       const mockFetch = installMockFetch(() => Promise.reject(new Error('network down')));
 
       try {
         await joinRoom('room-turn');
-        assertEquals(_getLastRoom().config.turnConfig, undefined);
+        assert.deepStrictEqual(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();
       }
     });
 
-    await t.step('joins without turnConfig on non-OK response', async () => {
+    await t.test('joins without turnConfig on non-OK response', async () => {
       CONFIG.network.turnCredentialsUrl = 'https://turn.example.workers.dev';
       const mockFetch = installMockFetch(() =>
         Promise.resolve(new Response('Forbidden', { status: 403 }))
@@ -74,14 +75,14 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
 
       try {
         await joinRoom('room-turn');
-        assertEquals(_getLastRoom().config.turnConfig, undefined);
+        assert.deepStrictEqual(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();
       }
     });
 
-    await t.step('joins without turnConfig on malformed response', async () => {
+    await t.test('joins without turnConfig on malformed response', async () => {
       CONFIG.network.turnCredentialsUrl = 'https://turn.example.workers.dev';
       const mockFetch = installMockFetch(() =>
         Promise.resolve(new Response(JSON.stringify({ iceServers: [] }), {
@@ -91,14 +92,14 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
 
       try {
         await joinRoom('room-turn');
-        assertEquals(_getLastRoom().config.turnConfig, undefined);
+        assert.deepStrictEqual(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();
       }
     });
 
-    await t.step('does not fetch when turnCredentialsUrl is empty', async () => {
+    await t.test('does not fetch when turnCredentialsUrl is empty', async () => {
       CONFIG.network.turnCredentialsUrl = '';
       const mockFetch = installMockFetch(() => {
         throw new Error('fetch should not be called');
@@ -106,8 +107,8 @@ Deno.test('joinRoom TURN credential fetching', async (t) => {
 
       try {
         await joinRoom('room-turn');
-        assertEquals(mockFetch.getCalls(), 0);
-        assertEquals(_getLastRoom().config.turnConfig, undefined);
+        assert.deepStrictEqual(mockFetch.getCalls(), 0);
+        assert.deepStrictEqual(_getLastRoom().config.turnConfig, undefined);
         await leaveRoom();
       } finally {
         mockFetch.restore();

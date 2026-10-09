@@ -2,7 +2,8 @@
  * Tests for the drag-and-drop list helpers.
  */
 
-import { assert, assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { getDragAfterElement, makeSortable } from '../js/utils/drag-drop.js';
 import { createMockElement as createMockDomElement } from './fixtures.js';
 
@@ -35,7 +36,7 @@ function createMockContainer(elements) {
   };
 }
 
-Deno.test('getDragAfterElement', async (t) => {
+test('getDragAfterElement', async (t) => {
   // Midpoints at y=125, 225 and 325.
   const container = createMockContainer([
     createMockElement(100, 50, 'elem1'),
@@ -43,27 +44,27 @@ Deno.test('getDragAfterElement', async (t) => {
     createMockElement(300, 50, 'elem3'),
   ]);
 
-  await t.step('returns first element when dragging above all', () => {
-    assertEquals(getDragAfterElement(container, 50).id, 'elem1');
+  await t.test('returns first element when dragging above all', () => {
+    assert.deepStrictEqual(getDragAfterElement(container, 50).id, 'elem1');
   });
 
-  await t.step('returns second element when dragging between first and second', () => {
-    assertEquals(getDragAfterElement(container, 160).id, 'elem2');
+  await t.test('returns second element when dragging between first and second', () => {
+    assert.deepStrictEqual(getDragAfterElement(container, 160).id, 'elem2');
   });
 
-  await t.step('returns third element when dragging between second and third', () => {
-    assertEquals(getDragAfterElement(container, 260).id, 'elem3');
+  await t.test('returns third element when dragging between second and third', () => {
+    assert.deepStrictEqual(getDragAfterElement(container, 260).id, 'elem3');
   });
 
-  await t.step('returns undefined when dragging below all elements', () => {
-    assertEquals(getDragAfterElement(container, 400), undefined);
+  await t.test('returns undefined when dragging below all elements', () => {
+    assert.deepStrictEqual(getDragAfterElement(container, 400), undefined);
   });
 
-  await t.step('returns undefined for empty container', () => {
-    assertEquals(getDragAfterElement(createMockContainer([]), 100), undefined);
+  await t.test('returns undefined for empty container', () => {
+    assert.deepStrictEqual(getDragAfterElement(createMockContainer([]), 100), undefined);
   });
 
-  await t.step('returns next element when dragging at exact center', () => {
+  await t.test('returns next element when dragging at exact center', () => {
     const elements = [
       createMockElement(100, 50, 'elem1'), // center at 125
       createMockElement(200, 50, 'elem2'), // center at 225
@@ -72,10 +73,10 @@ Deno.test('getDragAfterElement', async (t) => {
 
     // At exactly elem1's center, the row goes after elem1.
     const result = getDragAfterElement(container, 125);
-    assertEquals(result.id, 'elem2');
+    assert.deepStrictEqual(result.id, 'elem2');
   });
 
-  await t.step('returns element just above when dragging slightly above center', () => {
+  await t.test('returns element just above when dragging slightly above center', () => {
     const elements = [
       createMockElement(100, 50, 'elem1'), // center at 125
       createMockElement(200, 50, 'elem2'), // center at 225
@@ -83,20 +84,20 @@ Deno.test('getDragAfterElement', async (t) => {
     const container = createMockContainer(elements);
 
     const result = getDragAfterElement(container, 124);
-    assertEquals(result.id, 'elem1');
+    assert.deepStrictEqual(result.id, 'elem1');
   });
 
-  await t.step('handles single element container', () => {
+  await t.test('handles single element container', () => {
     const elements = [
       createMockElement(100, 50, 'only'),
     ];
     const container = createMockContainer(elements);
 
-    assertEquals(getDragAfterElement(container, 50).id, 'only');
-    assertEquals(getDragAfterElement(container, 200), undefined);
+    assert.deepStrictEqual(getDragAfterElement(container, 50).id, 'only');
+    assert.deepStrictEqual(getDragAfterElement(container, 200), undefined);
   });
 
-  await t.step('handles tightly packed elements', () => {
+  await t.test('handles tightly packed elements', () => {
     const elements = [
       createMockElement(0, 50, 'elem1'),   // center at 25
       createMockElement(50, 50, 'elem2'),  // center at 75
@@ -105,10 +106,10 @@ Deno.test('getDragAfterElement', async (t) => {
     const container = createMockContainer(elements);
 
     const result = getDragAfterElement(container, 40);
-    assertEquals(result.id, 'elem2');
+    assert.deepStrictEqual(result.id, 'elem2');
   });
 
-  await t.step('handles elements with varying heights', () => {
+  await t.test('handles elements with varying heights', () => {
     const elements = [
       createMockElement(0, 100, 'tall'),    // center at 50
       createMockElement(100, 20, 'short'),  // center at 110
@@ -117,11 +118,11 @@ Deno.test('getDragAfterElement', async (t) => {
     const container = createMockContainer(elements);
 
     const result = getDragAfterElement(container, 80);
-    assertEquals(result.id, 'short');
+    assert.deepStrictEqual(result.id, 'short');
   });
 });
 
-Deno.test('makeSortable', async (t) => {
+test('makeSortable', async (t) => {
   /** A list mock that records insertBefore calls, plus one li row. */
   function sortableList() {
     const list = createMockDomElement();
@@ -137,34 +138,34 @@ Deno.test('makeSortable', async (t) => {
     return { list, row, drag, moves: () => moves };
   }
 
-  await t.step('moves the dragged row on dragover and reports each move', () => {
+  await t.test('moves the dragged row on dragover and reports each move', () => {
     const { list, row, drag, moves } = sortableList();
     drag('dragstart', { target: { closest: () => row }, dataTransfer: {} });
     assert(row.classList.contains('dragging'));
 
     drag('dragover', { clientY: 10 });
-    assertEquals(list.inserted, [[row, null]]);
-    assertEquals(moves(), 1);
+    assert.deepStrictEqual(list.inserted, [[row, null]]);
+    assert.deepStrictEqual(moves(), 1);
 
     drag('dragend');
     assert(!row.classList.contains('dragging'));
   });
 
-  await t.step('ignores dragover once a re-render has detached the dragged row', () => {
+  await t.test('ignores dragover once a re-render has detached the dragged row', () => {
     const { list, row, drag, moves } = sortableList();
     drag('dragstart', { target: { closest: () => row }, dataTransfer: {} });
     list.rows.delete(row);
 
     drag('dragover', { clientY: 10 });
-    assertEquals(list.inserted, []);
-    assertEquals(moves(), 0);
+    assert.deepStrictEqual(list.inserted, []);
+    assert.deepStrictEqual(moves(), 0);
   });
 
-  await t.step('ignores dragover with no row dragged from this list', () => {
+  await t.test('ignores dragover with no row dragged from this list', () => {
     const { list, drag, moves } = sortableList();
     drag('dragstart', { target: { closest: () => null }, dataTransfer: {} });
     drag('dragover', { clientY: 10 });
-    assertEquals(list.inserted, []);
-    assertEquals(moves(), 0);
+    assert.deepStrictEqual(list.inserted, []);
+    assert.deepStrictEqual(moves(), 0);
   });
 });

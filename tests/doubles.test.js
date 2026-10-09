@@ -2,7 +2,8 @@
  * Tests for doubles.js (Team-Based Tournament)
  */
 
-import { assertEquals, assert, assertThrows } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import {
   formTeams,
   generateDoublesTournament,
@@ -11,8 +12,8 @@ import {
 } from "../js/tournament/doubles.js";
 import { createParticipants, createTeamAssignments } from "./fixtures.js";
 
-Deno.test("formTeams", async (t) => {
-  await t.step("sets team name from member names", () => {
+test("formTeams", async (t) => {
+  await t.test("sets team name from member names", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
@@ -22,7 +23,7 @@ Deno.test("formTeams", async (t) => {
     assert(teams[0].name.includes("Player"), "Team name should include player names");
   });
 
-  await t.step("calculates seed as average of member seeds", () => {
+  await t.test("calculates seed as average of member seeds", () => {
     const participants = createParticipants(4);
     // Seeds 1+4 and 2+3 both average 2.5.
     const assignments = new Map([
@@ -34,11 +35,11 @@ Deno.test("formTeams", async (t) => {
 
     const teams = formTeams(participants, assignments, 2);
 
-    assertEquals(teams[0].seed, 2.5);
-    assertEquals(teams[1].seed, 2.5);
+    assert.deepStrictEqual(teams[0].seed, 2.5);
+    assert.deepStrictEqual(teams[1].seed, 2.5);
   });
 
-  await t.step("sorts teams by seed", () => {
+  await t.test("sorts teams by seed", () => {
     const participants = createParticipants(4);
     const assignments = new Map([
       ["player-1", "team-1"],
@@ -49,11 +50,11 @@ Deno.test("formTeams", async (t) => {
 
     const teams = formTeams(participants, assignments, 2);
 
-    assertEquals(teams[0].seed, 1.5, "Lower seed should be first");
-    assertEquals(teams[1].seed, 3.5, "Higher seed should be second");
+    assert.deepStrictEqual(teams[0].seed, 1.5, "Lower seed should be first");
+    assert.deepStrictEqual(teams[1].seed, 3.5, "Higher seed should be second");
   });
 
-  await t.step("skips participants without team assignment", () => {
+  await t.test("skips participants without team assignment", () => {
     const participants = createParticipants(4);
     const assignments = new Map([
       ["player-1", "team-1"],
@@ -62,25 +63,25 @@ Deno.test("formTeams", async (t) => {
 
     const teams = formTeams(participants, assignments, 2);
 
-    assertEquals(teams.length, 1);
-    assertEquals(teams[0].id, "team-1");
+    assert.deepStrictEqual(teams.length, 1);
+    assert.deepStrictEqual(teams[0].id, "team-1");
   });
 });
 
-Deno.test("validateTeamAssignments", async (t) => {
-  await t.step("returns valid for complete teams", () => {
+test("validateTeamAssignments", async (t) => {
+  await t.test("returns valid for complete teams", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
     const result = validateTeamAssignments(participants, assignments, 2);
 
-    assertEquals(result.valid, true);
-    assertEquals(result.errors.length, 0);
-    assertEquals(result.teamCount, 2);
-    assertEquals(result.completeTeams, 2);
+    assert.deepStrictEqual(result.valid, true);
+    assert.deepStrictEqual(result.errors.length, 0);
+    assert.deepStrictEqual(result.teamCount, 2);
+    assert.deepStrictEqual(result.completeTeams, 2);
   });
 
-  await t.step("returns errors for unassigned participants", () => {
+  await t.test("returns errors for unassigned participants", () => {
     const participants = createParticipants(4);
     const assignments = new Map([
       ["player-1", "team-1"],
@@ -89,12 +90,12 @@ Deno.test("validateTeamAssignments", async (t) => {
 
     const result = validateTeamAssignments(participants, assignments, 2);
 
-    assertEquals(result.valid, false);
+    assert.deepStrictEqual(result.valid, false);
     assert(result.errors.length >= 2, "Should have errors for unassigned participants");
     assert(result.errors.some(e => e.includes("Player 3")), "Should mention Player 3");
   });
 
-  await t.step("returns errors for wrong team size", () => {
+  await t.test("returns errors for wrong team size", () => {
     const participants = createParticipants(3);
     const assignments = new Map([
       ["player-1", "team-1"],
@@ -104,12 +105,12 @@ Deno.test("validateTeamAssignments", async (t) => {
 
     const result = validateTeamAssignments(participants, assignments, 2);
 
-    assertEquals(result.valid, false);
+    assert.deepStrictEqual(result.valid, false);
     assert(result.errors.some(e => e.includes("team-2")), "Should mention incomplete team");
-    assertEquals(result.completeTeams, 1);
+    assert.deepStrictEqual(result.completeTeams, 1);
   });
 
-  await t.step("handles teams of size 3", () => {
+  await t.test("handles teams of size 3", () => {
     const participants = createParticipants(6);
     const assignments = new Map([
       ["player-1", "team-1"],
@@ -122,24 +123,24 @@ Deno.test("validateTeamAssignments", async (t) => {
 
     const result = validateTeamAssignments(participants, assignments, 3);
 
-    assertEquals(result.valid, true);
-    assertEquals(result.completeTeams, 2);
+    assert.deepStrictEqual(result.valid, true);
+    assert.deepStrictEqual(result.completeTeams, 2);
   });
 });
 
-Deno.test("autoAssignTeams", async (t) => {
-  await t.step("assigns all participants to teams", () => {
+test("autoAssignTeams", async (t) => {
+  await t.test("assigns all participants to teams", () => {
     const participants = createParticipants(4);
 
     const assignments = autoAssignTeams(participants, 2);
 
-    assertEquals(assignments.size, 4);
+    assert.deepStrictEqual(assignments.size, 4);
     for (const p of participants) {
       assert(assignments.has(p.id), `${p.id} should have assignment`);
     }
   });
 
-  await t.step("creates teams of correct size", () => {
+  await t.test("creates teams of correct size", () => {
     const participants = createParticipants(4);
 
     const assignments = autoAssignTeams(participants, 2);
@@ -150,11 +151,11 @@ Deno.test("autoAssignTeams", async (t) => {
     }
 
     for (const [teamId, count] of teamCounts) {
-      assertEquals(count, 2, `${teamId} should have 2 members`);
+      assert.deepStrictEqual(count, 2, `${teamId} should have 2 members`);
     }
   });
 
-  await t.step("returns Map of participantId to teamId", () => {
+  await t.test("returns Map of participantId to teamId", () => {
     const participants = createParticipants(4);
 
     const assignments = autoAssignTeams(participants, 2);
@@ -165,15 +166,15 @@ Deno.test("autoAssignTeams", async (t) => {
     assert(firstValue.startsWith("team-"), "Team IDs should start with 'team-'");
   });
 
-  await t.step("handles odd number of participants", () => {
+  await t.test("handles odd number of participants", () => {
     const participants = createParticipants(5);
 
     const assignments = autoAssignTeams(participants, 2);
 
-    assertEquals(assignments.size, 5);
+    assert.deepStrictEqual(assignments.size, 5);
   });
 
-  await t.step("deals every order with equal probability", () => {
+  await t.test("deals every order with equal probability", () => {
     // A comparator shuffle lands near 1500 on two of the six orders; uniform is 1000 each.
     const participants = createParticipants(3);
     const counts = new Map();
@@ -184,57 +185,56 @@ Deno.test("autoAssignTeams", async (t) => {
       counts.set(key, (counts.get(key) || 0) + 1);
     }
 
-    assertEquals(counts.size, 6);
+    assert.deepStrictEqual(counts.size, 6);
     for (const [order, count] of counts) {
       assert(count > 800 && count < 1200, `${order} dealt ${count} times`);
     }
   });
 });
 
-Deno.test("generateDoublesTournament", async (t) => {
-  await t.step("throws for less than 2 complete teams", () => {
+test("generateDoublesTournament", async (t) => {
+  await t.test("throws for less than 2 complete teams", () => {
     const participants = createParticipants(2);
     const assignments = new Map([
       ["player-1", "team-1"],
       ["player-2", "team-1"],
     ]);
 
-    assertThrows(
+    assert.throws(
       () => generateDoublesTournament(participants, assignments),
-      Error,
-      "Need at least 2 complete teams"
+      (err) => err instanceof Error && err.message.includes("Need at least 2 complete teams")
     );
   });
 
-  await t.step("generates tournament with type 'doubles'", () => {
+  await t.test("generates tournament with type 'doubles'", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
     const { bracket } = generateDoublesTournament(participants, assignments);
 
-    assertEquals(bracket.type, "doubles");
+    assert.deepStrictEqual(bracket.type, "doubles");
   });
 
-  await t.step("includes teams array", () => {
+  await t.test("includes teams array", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
     const { bracket } = generateDoublesTournament(participants, assignments);
 
     assert(Array.isArray(bracket.teams), "Should have teams array");
-    assertEquals(bracket.teams.length, 2);
+    assert.deepStrictEqual(bracket.teams.length, 2);
   });
 
-  await t.step("uses single elimination by default", () => {
+  await t.test("uses single elimination by default", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
     const { bracket } = generateDoublesTournament(participants, assignments);
 
-    assertEquals(bracket.bracketType, "single");
+    assert.deepStrictEqual(bracket.bracketType, "single");
   });
 
-  await t.step("can use double elimination", () => {
+  await t.test("can use double elimination", () => {
     const participants = createParticipants(4);
     const assignments = createTeamAssignments(participants, 2);
 
@@ -242,12 +242,12 @@ Deno.test("generateDoublesTournament", async (t) => {
       bracketType: "double",
     });
 
-    assertEquals(bracket.bracketType, "double");
+    assert.deepStrictEqual(bracket.bracketType, "double");
     assert(bracket.winners !== undefined, "Should have winners bracket");
     assert(bracket.losers !== undefined, "Should have losers bracket");
   });
 
-  await t.step("configurable team size", () => {
+  await t.test("configurable team size", () => {
     const participants = createParticipants(6);
     const assignments = new Map([
       ["player-1", "team-1"],
@@ -262,7 +262,7 @@ Deno.test("generateDoublesTournament", async (t) => {
       teamSize: 3,
     });
 
-    assertEquals(bracket.teams.length, 2);
-    assertEquals(bracket.teams[0].members.length, 3);
+    assert.deepStrictEqual(bracket.teams.length, 2);
+    assert.deepStrictEqual(bracket.teams[0].members.length, 3);
   });
 });

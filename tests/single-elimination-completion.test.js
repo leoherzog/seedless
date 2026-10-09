@@ -4,7 +4,8 @@
  * with one champion and complete standings.
  */
 
-import { assertEquals, assert } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import {
   generateSingleEliminationBracket,
   advance,
@@ -22,9 +23,9 @@ function assertAllMatchesResolved(matches) {
 
 const PLAYER_COUNTS = [2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17];
 
-Deno.test("Single Elimination - parametric run to completion", async (t) => {
+test("Single Elimination - parametric run to completion", async (t) => {
   for (const n of PLAYER_COUNTS) {
-    await t.step(`N=${n}: completes with a single champion and sane structure`, () => {
+    await t.test(`N=${n}: completes with a single champion and sane structure`, () => {
       const participants = createParticipants(n);
       const participantMap = createParticipantMap(participants);
       const tournament = generateSingleEliminationBracket(participants);
@@ -36,29 +37,29 @@ Deno.test("Single Elimination - parametric run to completion", async (t) => {
       const expectedTotalMatches = expectedBracketSize - 1;
       const expectedByes = expectedBracketSize - n;
 
-      assertEquals(bracket.rounds[0].matchIds.length * 2, expectedBracketSize, "bracket size");
-      assertEquals(bracket.rounds.length, expectedNumRounds, "rounds array length");
-      assertEquals(matches.size, expectedTotalMatches, "total match count");
-      assertEquals(
+      assert.deepStrictEqual(bracket.rounds[0].matchIds.length * 2, expectedBracketSize, "bracket size");
+      assert.deepStrictEqual(bracket.rounds.length, expectedNumRounds, "rounds array length");
+      assert.deepStrictEqual(matches.size, expectedTotalMatches, "total match count");
+      assert.deepStrictEqual(
         roundMatches(bracket.rounds[0]).flatMap((m) => m.participants).filter(Boolean).length,
         n,
         "every participant is seeded into round 1",
       );
 
       const byeMatches = roundMatches(bracket.rounds[0]).filter((m) => m.isBye);
-      assertEquals(byeMatches.length, expectedByes, "round 1 bye count");
+      assert.deepStrictEqual(byeMatches.length, expectedByes, "round 1 bye count");
 
       for (const bye of byeMatches) {
         assert(bye.winnerId, `Bye match ${bye.id} should have auto-advanced a winner`);
       }
 
       const finalRound = bracket.rounds[bracket.rounds.length - 1];
-      assertEquals(finalRound.matchIds.length, 1, "final round should have exactly one match");
+      assert.deepStrictEqual(finalRound.matchIds.length, 1, "final round should have exactly one match");
 
       let played = 0;
       const complete = playToCompletion(tournament, advance, undefined, () => played++);
 
-      assertEquals(played, expectedTotalMatches - expectedByes, "matches played");
+      assert.deepStrictEqual(played, expectedTotalMatches - expectedByes, "matches played");
 
       assertAllMatchesResolved(matches);
 
@@ -73,19 +74,19 @@ Deno.test("Single Elimination - parametric run to completion", async (t) => {
       );
 
       const standings = getStandings(bracket, matches, participantMap);
-      assertEquals(standings.length, n, "standings should cover every participant");
-      assertEquals(standings[0].place, 1, "first standing should be place 1");
-      assertEquals(standings[0].participantId, finals.winnerId, "place 1 should be the champion");
+      assert.deepStrictEqual(standings.length, n, "standings should cover every participant");
+      assert.deepStrictEqual(standings[0].place, 1, "first standing should be place 1");
+      assert.deepStrictEqual(standings[0].participantId, finals.winnerId, "place 1 should be the champion");
 
       for (let i = 0; i < standings.length; i++) {
-        assertEquals(standings[i].place, i + 1, `place at index ${i} should be ${i + 1}`);
+        assert.deepStrictEqual(standings[i].place, i + 1, `place at index ${i} should be ${i + 1}`);
       }
 
       const standingIds = standings.map((s) => s.participantId);
       const uniqueIds = new Set(standingIds);
-      assertEquals(uniqueIds.size, standingIds.length, "no duplicate participants in standings");
+      assert.deepStrictEqual(uniqueIds.size, standingIds.length, "no duplicate participants in standings");
       const expectedIds = new Set(participants.map((p) => p.id));
-      assertEquals(uniqueIds, expectedIds, "standings should be exactly the input participant set");
+      assert.deepStrictEqual(uniqueIds, expectedIds, "standings should be exactly the input participant set");
     });
   }
 });

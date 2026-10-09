@@ -1,6 +1,6 @@
 /**
- * In-memory stand-in for the Trystero 0.26 surface room.js uses. deno.json maps
- * the Trystero CDN import to this file, so tests never reach the network.
+ * In-memory stand-in for the Trystero 0.26 surface room.js uses. tests/register-hooks.js
+ * resolves the Trystero CDN import to this file, so tests never reach the network.
  */
 
 export const selfId = 'mock-self-id';

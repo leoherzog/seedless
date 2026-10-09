@@ -3,7 +3,8 @@
  * resets between tournaments, and undecided slots carry no winner or loser class.
  */
 
-import { assert, assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { store } from '../js/state/store.js';
 import { initBracketView, cleanupBracketView } from '../js/components/bracket-view.js';
 import { createMockElement, installBracketViewDom } from './fixtures.js';
@@ -55,8 +56,8 @@ function startDoubleElimination() {
   store.set('meta.status', 'active');
 }
 
-Deno.test('Double-elimination tabs', async (t) => {
-  await t.step('the selected tab survives an unrelated store change', () => {
+test('Double-elimination tabs', async (t) => {
+  await t.test('the selected tab survives an unrelated store change', () => {
     store.reset();
     const { doc, buttons } = installTabbedDom();
     initBracketView();
@@ -64,7 +65,7 @@ Deno.test('Double-elimination tabs', async (t) => {
       startDoubleElimination();
       const container = doc._elements.get('bracket-container');
       assert(container.innerHTML.includes('Winners Round'));
-      assertEquals(doc._elements.get('bracket-tabs').hidden, false);
+      assert.deepStrictEqual(doc._elements.get('bracket-tabs').hidden, false);
 
       doc._elements.get('bracket-tabs').dispatchEvent({ type: 'click', target: { closest: () => buttons[1] } });
       assert(container.innerHTML.includes('Losers Round'));
@@ -77,7 +78,7 @@ Deno.test('Double-elimination tabs', async (t) => {
     }
   });
 
-  await t.step('a new tournament opens on Winners', () => {
+  await t.test('a new tournament opens on Winners', () => {
     store.reset();
     const { doc, buttons } = installTabbedDom();
     initBracketView();
@@ -96,8 +97,8 @@ Deno.test('Double-elimination tabs', async (t) => {
   });
 });
 
-Deno.test('Match card result classes', async (t) => {
-  await t.step('only a decided match marks a winner and a loser', () => {
+test('Match card result classes', async (t) => {
+  await t.test('only a decided match marks a winner and a loser', () => {
     store.reset();
     const doc = installBracketViewDom();
     initBracketView();
@@ -112,10 +113,10 @@ Deno.test('Match card result classes', async (t) => {
       store.set('meta.status', 'active');
 
       const [decided, undecided] = doc._elements.get('bracket-container').innerHTML.split('Final');
-      assertEquals(decided.match(/class="participant\s+winner"/g)?.length, 1);
-      assertEquals(decided.match(/class="participant\s+loser"/g)?.length, 1);
+      assert.deepStrictEqual(decided.match(/class="participant\s+winner"/g)?.length, 1);
+      assert.deepStrictEqual(decided.match(/class="participant\s+loser"/g)?.length, 1);
       assert(!/participant\s+(winner|loser)/.test(undecided), 'TBD slots must not be styled as a result');
-      assertEquals(doc._elements.get('bracket-tabs').hidden, true);
+      assert.deepStrictEqual(doc._elements.get('bracket-tabs').hidden, true);
     } finally {
       cleanupBracketView();
     }

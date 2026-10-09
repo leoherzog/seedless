@@ -2,7 +2,8 @@
  * Peer-supplied fields are HTML-escaped in rendered match cards, game cards and tournament history.
  */
 
-import { assert, assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { store } from '../js/state/store.js';
 import { initBracketView, cleanupBracketView } from '../js/components/bracket-view.js';
 import { escapeHtml } from '../js/utils/html.js';
@@ -39,8 +40,8 @@ function renderOneMatch(participants, slotIds, { type = 'single', teams, match =
   return doc._elements.get('bracket-container').innerHTML;
 }
 
-Deno.test('Bracket View XSS Escaping - Single Elimination match card', async (t) => {
-  await t.step('participant name with <img onerror> is escaped, not raw, in rendered HTML', () => {
+test('Bracket View XSS Escaping - Single Elimination match card', async (t) => {
+  await t.test('participant name with <img onerror> is escaped, not raw, in rendered HTML', () => {
     try {
       const html = renderOneMatch(new Map([
         ['p1', { id: 'p1', name: XSS_IMG }],
@@ -56,7 +57,7 @@ Deno.test('Bracket View XSS Escaping - Single Elimination match card', async (t)
     }
   });
 
-  await t.step('participant name with <script> tag is escaped, not raw, in rendered HTML', () => {
+  await t.test('participant name with <script> tag is escaped, not raw, in rendered HTML', () => {
     try {
       const html = renderOneMatch(new Map([
         ['p1', { id: 'p1', name: XSS_SCRIPT }],
@@ -71,7 +72,7 @@ Deno.test('Bracket View XSS Escaping - Single Elimination match card', async (t)
     }
   });
 
-  await t.step('match fields a peer can merge into the Map are escaped', () => {
+  await t.test('match fields a peer can merge into the Map are escaped', () => {
     try {
       const html = renderOneMatch(new Map([
         ['p1', { id: 'p1', name: 'Alice' }],
@@ -89,7 +90,7 @@ Deno.test('Bracket View XSS Escaping - Single Elimination match card', async (t)
     }
   });
 
-  await t.step('control: a normal participant name renders intact, unescaped-looking', () => {
+  await t.test('control: a normal participant name renders intact, unescaped-looking', () => {
     try {
       const html = renderOneMatch(new Map([
         ['p1', { id: 'p1', name: 'Alice' }],
@@ -105,8 +106,8 @@ Deno.test('Bracket View XSS Escaping - Single Elimination match card', async (t)
   });
 });
 
-Deno.test('Bracket View XSS Escaping - Doubles team match card', async (t) => {
-  await t.step('team name with <img onerror> is escaped, not raw, in rendered HTML', () => {
+test('Bracket View XSS Escaping - Doubles team match card', async (t) => {
+  await t.test('team name with <img onerror> is escaped, not raw, in rendered HTML', () => {
     try {
       const html = renderOneMatch(new Map([
         ['u1', { id: 'u1', name: 'Alice' }],
@@ -127,7 +128,7 @@ Deno.test('Bracket View XSS Escaping - Doubles team match card', async (t) => {
     }
   });
 
-  await t.step('team member name with <script> tag is escaped in the team-members line', () => {
+  await t.test('team member name with <script> tag is escaped in the team-members line', () => {
     try {
       const html = renderOneMatch(new Map([
         ['u1', { id: 'u1', name: XSS_SCRIPT }],
@@ -147,7 +148,7 @@ Deno.test('Bracket View XSS Escaping - Doubles team match card', async (t) => {
     }
   });
 
-  await t.step('control: normal team and member names render intact', () => {
+  await t.test('control: normal team and member names render intact', () => {
     try {
       const html = renderOneMatch(new Map([
         ['u1', { id: 'u1', name: 'Alice' }],
@@ -168,8 +169,8 @@ Deno.test('Bracket View XSS Escaping - Doubles team match card', async (t) => {
   });
 });
 
-Deno.test('Bracket View XSS Escaping - Points Race game card', async (t) => {
-  await t.step('game id, number and result fields are escaped', () => {
+test('Bracket View XSS Escaping - Points Race game card', async (t) => {
+  await t.test('game id, number and result fields are escaped', () => {
     try {
       store.reset();
       const doc = installBracketViewDom();
@@ -200,7 +201,7 @@ Deno.test('Bracket View XSS Escaping - Points Race game card', async (t) => {
   });
 });
 
-Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
+test('Bracket View XSS Escaping - tournament history', async (t) => {
   /** Complete a two-player bracket holding the given history entries from the admin. */
   function completeWithHistory(history) {
     store.reset();
@@ -222,7 +223,7 @@ Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
     return doc._elements.get('tournament-history');
   }
 
-  await t.step('peer-supplied entry fields are escaped and the type is never echoed', () => {
+  await t.test('peer-supplied entry fields are escaped and the type is never echoed', () => {
     try {
       const section = renderHistory([{
         id: 'h1',
@@ -233,7 +234,7 @@ Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
         standings: [{ place: XSS_SCRIPT, name: 'Alice', points: XSS_SCRIPT }],
       }]);
 
-      assertEquals(section.hidden, false);
+      assert.deepStrictEqual(section.hidden, false);
       assert(!section.innerHTML.includes(XSS_SCRIPT), 'raw <script> must not appear in any history field');
       assert(section.innerHTML.includes('&lt;script&gt;'), 'escaped history fields must appear');
       assert(!section.innerHTML.includes(XSS_IMG), 'raw type must not appear');
@@ -244,7 +245,7 @@ Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
     }
   });
 
-  await t.step('a type naming an Object.prototype key falls back to the fixed label', () => {
+  await t.test('a type naming an Object.prototype key falls back to the fixed label', () => {
     try {
       const section = renderHistory([{ id: 'h1', type: 'constructor', completedAt: 1, participantCount: 2 }]);
       assert(section.innerHTML.includes('<strong>Type:</strong> Tournament'));
@@ -253,13 +254,13 @@ Deno.test('Bracket View XSS Escaping - tournament history', async (t) => {
     }
   });
 
-  await t.step('the shown section hides when a later tournament has no history', () => {
+  await t.test('the shown section hides when a later tournament has no history', () => {
     try {
       const section = renderHistory([{ id: 'h1', type: 'single', completedAt: 1, participantCount: 2 }]);
-      assertEquals(section.hidden, false);
+      assert.deepStrictEqual(section.hidden, false);
 
       completeWithHistory([]);
-      assertEquals(section.hidden, true);
+      assert.deepStrictEqual(section.hidden, true);
     } finally {
       cleanupBracketView();
     }

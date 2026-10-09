@@ -4,7 +4,8 @@
  * edits that invalidate later results.
  */
 
-import { assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { store } from '../js/state/store.js';
 import { reconcile, reportMatchResult } from '../js/network/sync.js';
 import { generateSingleEliminationBracket } from '../js/tournament/single-elimination.js';
@@ -35,84 +36,84 @@ function playAll(pick = (m) => m.participants[0], holdId = null) {
   }
 }
 
-Deno.test('Double elimination through sync completes and places everyone', async (t) => {
+test('Double elimination through sync completes and places everyone', async (t) => {
   for (const n of [2, 3, 5, 6, 7]) {
-    await t.step(`N=${n}`, () => {
+    await t.test(`N=${n}`, () => {
       const participants = createParticipants(n);
       loadFromNetwork(generateDoubleEliminationBracket(participants));
 
       playAll();
 
-      assertEquals(store.get('meta.status'), 'complete');
+      assert.deepStrictEqual(store.get('meta.status'), 'complete');
       const standings = getStandings(store.get('bracket'), store.get('matches'), createParticipantMap(participants));
-      assertEquals(standings.map((s) => s.place), participants.map((_, i) => i + 1));
-      assertEquals(new Set(standings.map((s) => s.participantId)).size, n);
+      assert.deepStrictEqual(standings.map((s) => s.place), participants.map((_, i) => i + 1));
+      assert.deepStrictEqual(new Set(standings.map((s) => s.participantId)).size, n);
     });
   }
 });
 
-Deno.test('Double elimination through sync plays the reset after a gf1 loss by the winners champion', () => {
+test('Double elimination through sync plays the reset after a gf1 loss by the winners champion', () => {
   loadFromNetwork(generateDoubleEliminationBracket(createParticipants(4)));
 
   playAll((m) => (m.id === 'gf1' ? m.participants[1] : m.participants[0]), 'gf2');
 
   const gf1 = store.getMatch('gf1');
   const gf2 = store.getMatch('gf2');
-  assertEquals(gf1.winnerId, gf1.participants[1]);
-  assertEquals(gf2.requiresPlay, true);
-  assertEquals(gf2.participants, gf1.participants);
-  assertEquals(store.get('meta.status'), 'active', 'the reset is still to play');
+  assert.deepStrictEqual(gf1.winnerId, gf1.participants[1]);
+  assert.deepStrictEqual(gf2.requiresPlay, true);
+  assert.deepStrictEqual(gf2.participants, gf1.participants);
+  assert.deepStrictEqual(store.get('meta.status'), 'active', 'the reset is still to play');
 
   reportMatchResult(null, 'gf2', [2, 0], gf2.participants[0]);
-  assertEquals(store.get('meta.status'), 'complete');
+  assert.deepStrictEqual(store.get('meta.status'), 'complete');
 });
 
-Deno.test('Single elimination through sync completes', () => {
+test('Single elimination through sync completes', () => {
   loadFromNetwork(generateSingleEliminationBracket(createParticipants(5)));
   playAll();
-  assertEquals(store.get('meta.status'), 'complete');
+  assert.deepStrictEqual(store.get('meta.status'), 'complete');
 });
 
-Deno.test('Double-elimination doubles through sync completes', () => {
+test('Double-elimination doubles through sync completes', () => {
   const participants = createParticipants(6);
   loadFromNetwork(generateDoublesTournament(participants, createTeamAssignments(participants), { bracketType: 'double' }));
   playAll();
-  assertEquals(store.get('meta.status'), 'complete');
+  assert.deepStrictEqual(store.get('meta.status'), 'complete');
 });
 
-Deno.test('reconcile leaves undecided matches alone and ignores a missing bracket', () => {
+test('reconcile leaves undecided matches alone and ignores a missing bracket', () => {
   loadFromNetwork(generateSingleEliminationBracket(createParticipants(4)));
   reconcile();
-  assertEquals(store.getMatch('r2m0').participants, [null, null]);
+  assert.deepStrictEqual(store.getMatch('r2m0').participants, [null, null]);
 
   store.updateMatch('r1m0', { winnerId: store.getMatch('r1m0').participants[0] });
   store.set('bracket', null);
   reconcile();
-  assertEquals(store.getMatch('r2m0').participants, [null, null]);
-  assertEquals(store.get('meta.status'), 'active');
+  assert.deepStrictEqual(store.getMatch('r2m0').participants, [null, null]);
+  assert.deepStrictEqual(store.get('meta.status'), 'active');
 });
 
-Deno.test('Editing a result after later matches are decided', async (t) => {
-  await t.step('single elimination clears the results the old winner went on to earn', () => {
+test('Editing a result after later matches are decided', async (t) => {
+  await t.test('single elimination clears the results the old winner went on to earn', () => {
     loadFromNetwork(generateSingleEliminationBracket(createParticipants(4)));
     playAll();
-    assertEquals(store.get('meta.status'), 'complete');
+    assert.deepStrictEqual(store.get('meta.status'), 'complete');
     const champion = store.getMatch('r2m0').winnerId;
-    assertEquals(champion, 'player-1');
+    assert.deepStrictEqual(champion, 'player-1');
 
     // The admin corrects r1m0: player-1 lost it.
     reportMatchResult(null, 'r1m0', [0, 2], 'player-4');
 
     const final = store.getMatch('r2m0');
-    assertEquals(final.participants, ['player-4', 'player-2']);
-    assertEquals(final.winnerId, null, 'a final won by a player no longer in it is cleared');
-    assertEquals(store.get('meta.status'), 'active', 'the tournament reopens');
+    assert.deepStrictEqual(final.participants, ['player-4', 'player-2']);
+    assert.deepStrictEqual(final.winnerId, null, 'a final won by a player no longer in it is cleared');
+    assert.deepStrictEqual(store.get('meta.status'), 'active', 'the tournament reopens');
 
     reportMatchResult(null, 'r2m0', [2, 0], 'player-4');
-    assertEquals(store.get('meta.status'), 'complete');
+    assert.deepStrictEqual(store.get('meta.status'), 'complete');
   });
 
-  await t.step('double elimination re-derives a walkover for the new loser', () => {
+  await t.test('double elimination re-derives a walkover for the new loser', () => {
     const participants = createParticipants(3);
     loadFromNetwork(generateDoubleEliminationBracket(participants));
     const played = store.getMatch('w1m1');
@@ -124,12 +125,12 @@ Deno.test('Editing a result after later matches are decided', async (t) => {
     const seated = [...store.get('matches').values()]
       .filter((m) => m.bracket === 'losers')
       .flatMap((m) => m.participants.filter(Boolean));
-    assertEquals(seated.includes(first), true, 'the new loser drops into the losers bracket');
-    assertEquals(seated.includes(second), false, 'the new winner is not also in the losers bracket');
+    assert.deepStrictEqual(seated.includes(first), true, 'the new loser drops into the losers bracket');
+    assert.deepStrictEqual(seated.includes(second), false, 'the new winner is not also in the losers bracket');
 
     playAll();
-    assertEquals(store.get('meta.status'), 'complete');
+    assert.deepStrictEqual(store.get('meta.status'), 'complete');
     const standings = getStandings(store.get('bracket'), store.get('matches'), createParticipantMap(participants));
-    assertEquals(new Set(standings.map((s) => s.participantId)).size, 3);
+    assert.deepStrictEqual(new Set(standings.map((s) => s.participantId)).size, 3);
   });
 });

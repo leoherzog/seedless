@@ -2,7 +2,8 @@
  * Team formation and run-to-completion for doubles brackets.
  */
 
-import { assertEquals, assert } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import {
   formTeams,
   generateDoublesTournament,
@@ -20,7 +21,7 @@ import { createParticipants, createTeamAssignments, playToCompletion } from "./f
 function assertTeamsWellFormed(teams, teamSize) {
   const seen = new Set();
   for (const team of teams) {
-    assertEquals(team.members.length, teamSize, `team ${team.id} should have ${teamSize} members`);
+    assert.deepStrictEqual(team.members.length, teamSize, `team ${team.id} should have ${teamSize} members`);
     for (const member of team.members) {
       assert(!seen.has(member.id), `${member.id} should not appear on more than one team`);
       seen.add(member.id);
@@ -31,56 +32,56 @@ function assertTeamsWellFormed(teams, teamSize) {
 
 /** Assert standings list every team once, in places 1..N, with the champion first. */
 function assertStandingsInvariants(standings, teams, championId) {
-  assertEquals(standings.length, teams.length, "standings should cover every team");
-  assertEquals(standings[0].place, 1, "first standing should be place 1");
-  assertEquals(standings[0].participantId, championId, "place 1 should be the champion team");
+  assert.deepStrictEqual(standings.length, teams.length, "standings should cover every team");
+  assert.deepStrictEqual(standings[0].place, 1, "first standing should be place 1");
+  assert.deepStrictEqual(standings[0].participantId, championId, "place 1 should be the champion team");
   assert(standings[0].team, "champion standing should include team info");
-  assertEquals(standings[0].team.id, championId, "champion standing's team should match winner id");
+  assert.deepStrictEqual(standings[0].team.id, championId, "champion standing's team should match winner id");
 
   for (let i = 0; i < standings.length; i++) {
-    assertEquals(standings[i].place, i + 1, `place at index ${i} should be ${i + 1}`);
+    assert.deepStrictEqual(standings[i].place, i + 1, `place at index ${i} should be ${i + 1}`);
   }
 
   const ids = standings.map((s) => s.participantId);
-  assertEquals(new Set(ids).size, ids.length, "no duplicate teams in standings");
+  assert.deepStrictEqual(new Set(ids).size, ids.length, "no duplicate teams in standings");
 
   const expectedIds = new Set(teams.map((t) => t.id));
-  assertEquals(new Set(ids), expectedIds, "standings should be exactly the formed team set");
+  assert.deepStrictEqual(new Set(ids), expectedIds, "standings should be exactly the formed team set");
 }
 
 const EVEN_COUNTS = [4, 6, 8, 16];
 const ODD_COUNTS = [5, 7, 9];
 
-Deno.test("Doubles - team formation is correct for even participant counts", async (t) => {
+test("Doubles - team formation is correct for even participant counts", async (t) => {
   for (const n of EVEN_COUNTS) {
-    await t.step(`N=${n}: forms ${n / 2} complete teams of 2, everyone assigned exactly once`, () => {
+    await t.test(`N=${n}: forms ${n / 2} complete teams of 2, everyone assigned exactly once`, () => {
       const participants = createParticipants(n);
       const assignments = createTeamAssignments(participants, 2);
 
       const teams = formTeams(participants, assignments, 2);
 
-      assertEquals(teams.length, n / 2, "expected number of complete teams");
+      assert.deepStrictEqual(teams.length, n / 2, "expected number of complete teams");
       const seen = assertTeamsWellFormed(teams, 2);
-      assertEquals(seen.size, n, "every participant should be assigned to exactly one team");
+      assert.deepStrictEqual(seen.size, n, "every participant should be assigned to exactly one team");
 
       const expectedIds = new Set(participants.map((p) => p.id));
-      assertEquals(seen, expectedIds, "formed teams should cover the entire participant set");
+      assert.deepStrictEqual(seen, expectedIds, "formed teams should cover the entire participant set");
     });
   }
 });
 
-Deno.test("Doubles - odd participant counts leave the leftover player unassigned", async (t) => {
+test("Doubles - odd participant counts leave the leftover player unassigned", async (t) => {
   for (const n of ODD_COUNTS) {
-    await t.step(`N=${n}: forms ${Math.floor(n / 2)} complete teams, leftover player excluded`, () => {
+    await t.test(`N=${n}: forms ${Math.floor(n / 2)} complete teams, leftover player excluded`, () => {
       const participants = createParticipants(n);
       const assignments = createTeamAssignments(participants, 2);
 
       const teams = formTeams(participants, assignments, 2);
       const expectedCompleteTeams = Math.floor(n / 2);
 
-      assertEquals(teams.length, expectedCompleteTeams, "expected number of complete teams");
+      assert.deepStrictEqual(teams.length, expectedCompleteTeams, "expected number of complete teams");
       const seen = assertTeamsWellFormed(teams, 2);
-      assertEquals(seen.size, expectedCompleteTeams * 2, "only fully-paired participants should be assigned");
+      assert.deepStrictEqual(seen.size, expectedCompleteTeams * 2, "only fully-paired participants should be assigned");
 
       // createTeamAssignments pairs in order, so an odd count leaves the last participant out.
       const leftoverId = `player-${n}`;
@@ -89,9 +90,9 @@ Deno.test("Doubles - odd participant counts leave the leftover player unassigned
   }
 });
 
-Deno.test("Doubles - single elimination run to completion (even participant counts)", async (t) => {
+test("Doubles - single elimination run to completion (even participant counts)", async (t) => {
   for (const n of EVEN_COUNTS) {
-    await t.step(`N=${n}: bracket generates and completes with one champion team`, () => {
+    await t.test(`N=${n}: bracket generates and completes with one champion team`, () => {
       const participants = createParticipants(n);
       const assignments = createTeamAssignments(participants, 2);
 
@@ -105,14 +106,14 @@ Deno.test("Doubles - single elimination run to completion (even participant coun
       const expectedBracketSize = nextPowerOf2(expectedTeamCount);
       const expectedNumRounds = Math.log2(expectedBracketSize);
 
-      assertEquals(bracket.type, "doubles");
-      assertEquals(bracket.bracketType, "single");
-      assertEquals(bracket.teams.length, expectedTeamCount, "team bracket should use every complete team");
-      assertEquals(bracket.rounds[0].matchIds.length * 2, expectedBracketSize, "team bracket size");
-      assertEquals(bracket.rounds.length, expectedNumRounds, "team bracket rounds");
+      assert.deepStrictEqual(bracket.type, "doubles");
+      assert.deepStrictEqual(bracket.bracketType, "single");
+      assert.deepStrictEqual(bracket.teams.length, expectedTeamCount, "team bracket should use every complete team");
+      assert.deepStrictEqual(bracket.rounds[0].matchIds.length * 2, expectedBracketSize, "team bracket size");
+      assert.deepStrictEqual(bracket.rounds.length, expectedNumRounds, "team bracket rounds");
 
       const finalRound = bracket.rounds[bracket.rounds.length - 1];
-      assertEquals(finalRound.matchIds.length, 1, "final round should have exactly one match");
+      assert.deepStrictEqual(finalRound.matchIds.length, 1, "final round should have exactly one match");
 
       assert(playToCompletion(tournament, advanceSingle), "doubles tournament should report complete");
       const finals = matches.get(finalRound.matchIds[0]);
@@ -127,9 +128,9 @@ Deno.test("Doubles - single elimination run to completion (even participant coun
   }
 });
 
-Deno.test("Doubles - single elimination run to completion (odd participant counts)", async (t) => {
+test("Doubles - single elimination run to completion (odd participant counts)", async (t) => {
   for (const n of ODD_COUNTS) {
-    await t.step(`N=${n}: leftover player excluded, remaining teams complete the bracket`, () => {
+    await t.test(`N=${n}: leftover player excluded, remaining teams complete the bracket`, () => {
       const participants = createParticipants(n);
       const assignments = createTeamAssignments(participants, 2);
       const expectedTeamCount = Math.floor(n / 2);
@@ -140,7 +141,7 @@ Deno.test("Doubles - single elimination run to completion (odd participant count
       });
       const { bracket, matches } = tournament;
 
-      assertEquals(bracket.teams.length, expectedTeamCount);
+      assert.deepStrictEqual(bracket.teams.length, expectedTeamCount);
 
       const leftoverId = `player-${n}`;
       for (const team of bracket.teams) {
@@ -162,11 +163,11 @@ Deno.test("Doubles - single elimination run to completion (odd participant count
   }
 });
 
-Deno.test("Doubles - double elimination run to completion", async (t) => {
+test("Doubles - double elimination run to completion", async (t) => {
   const DOUBLE_ELIM_COUNTS = [6, 8]; // 3 teams need a bye; 4 teams fill the bracket
 
   for (const n of DOUBLE_ELIM_COUNTS) {
-    await t.step(`N=${n}: double-elimination team bracket completes with one champion`, () => {
+    await t.test(`N=${n}: double-elimination team bracket completes with one champion`, () => {
       const participants = createParticipants(n);
       const assignments = createTeamAssignments(participants, 2);
 
@@ -176,9 +177,9 @@ Deno.test("Doubles - double elimination run to completion", async (t) => {
       });
       const { bracket, matches } = tournament;
 
-      assertEquals(bracket.type, "doubles");
-      assertEquals(bracket.bracketType, "double");
-      assertEquals(bracket.teams.length, n / 2);
+      assert.deepStrictEqual(bracket.type, "doubles");
+      assert.deepStrictEqual(bracket.bracketType, "double");
+      assert.deepStrictEqual(bracket.teams.length, n / 2);
       assert(bracket.winners, "should have winners bracket");
       assert(bracket.losers, "should have losers bracket");
       assert(bracket.grandFinals, "should have grand finals");

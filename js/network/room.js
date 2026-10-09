@@ -4,7 +4,7 @@
  */
 
 import { CONFIG } from '../../config.js';
-// deno.json remaps this URL to tests/mocks/trystero-mock.js; change both together.
+// tests/register-hooks.js resolves this URL to tests/mocks/trystero-mock.js; change both together.
 import { joinRoom as trysteroJoin, selfId } from 'https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.26/+esm';
 
 // Trystero action names must be 1 to 32 UTF-8 bytes.

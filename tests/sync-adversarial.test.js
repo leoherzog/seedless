@@ -4,7 +4,8 @@
  * garbage payloads, and invalid MATCH_VERIFY shapes.
  */
 
-import { assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { store } from '../js/state/store.js';
 import { ActionTypes, joinRoom, leaveRoom } from '../js/network/room.js';
 import { setupStateSync, resetSyncState } from '../js/network/sync.js';
@@ -13,8 +14,8 @@ import { createParticipants } from './fixtures.js';
 import { connectAs, mapAdmin } from './sync-fixtures.js';
 import { _getLastRoom } from './mocks/trystero-mock.js';
 
-Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
-  await t.step('does not grant admin authority to a peer merely echoing adminId while the real admin peer is active', () => {
+test('STATE_RESPONSE admin impersonation', async (t) => {
+  await t.test('does not grant admin authority to a peer merely echoing adminId while the real admin peer is active', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId, peers: ['admin-peer'] });
 
@@ -36,10 +37,10 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
       isAdmin: true,
     }, 'malicious-peer');
 
-    assertEquals(store.get('bracket').type, 'known-good');
+    assert.deepStrictEqual(store.get('bracket').type, 'known-good');
   });
 
-  await t.step('admin-gated action from the impersonating peer is still rejected', () => {
+  await t.test('admin-gated action from the impersonating peer is still rejected', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId, peers: ['admin-peer'] });
 
@@ -61,10 +62,10 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
       matches: Array.from(matches.entries()),
     }, 'malicious-peer');
 
-    assertEquals(store.get('meta.status'), 'lobby');
+    assert.deepStrictEqual(store.get('meta.status'), 'lobby');
   });
 
-  await t.step('trust-on-first-use still works when no admin peer is active yet', () => {
+  await t.test('trust-on-first-use still works when no admin peer is active yet', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId });
 
@@ -73,10 +74,10 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
       isAdmin: true,
     }, 'admin-peer');
 
-    assertEquals(store.get('bracket').type, 'real');
+    assert.deepStrictEqual(store.get('bracket').type, 'real');
   });
 
-  await t.step('a claim naming a different adminId is rejected', () => {
+  await t.test('a claim naming a different adminId is rejected', () => {
     const mockRoom = connectAs({ userId: 'user-b', adminId: 'admin-a', peers: ['admin-peer', 'evil'] });
     mapAdmin(mockRoom, 'admin-a');
     store.set('meta.status', 'lobby');
@@ -85,18 +86,18 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
       state: { meta: { adminId: 'invented-admin', status: 'lobby' } },
       isAdmin: true,
     }, 'evil');
-    assertEquals(store.get('meta.adminId'), 'admin-a');
+    assert.deepStrictEqual(store.get('meta.adminId'), 'admin-a');
 
     // The claimant gets no authority, and the real admin keeps its own.
     const { bracket, matches } = generateSingleEliminationBracket(createParticipants(4));
     const start = { bracket, matches: Array.from(matches.entries()) };
     mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, start, 'evil');
-    assertEquals(store.get('meta.status'), 'lobby');
+    assert.deepStrictEqual(store.get('meta.status'), 'lobby');
     mockRoom._simulateAction(ActionTypes.TOURNAMENT_START, start, 'admin-peer');
-    assertEquals(store.get('meta.status'), 'active');
+    assert.deepStrictEqual(store.get('meta.status'), 'active');
   });
 
-  await t.step("the admin trusts no peer's admin claim, even one naming the admin", () => {
+  await t.test("the admin trusts no peer's admin claim, even one naming the admin", () => {
     const adminId = 'admin-1';
     const mockRoom = connectAs({ userId: adminId, adminId, peers: ['evil'] });
     store.set('meta.name', 'Cup');
@@ -111,16 +112,16 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
       isAdmin: true,
     }, 'evil');
 
-    assertEquals(store.get('meta.name'), 'Cup');
-    assertEquals(store.get('meta.status'), 'lobby');
-    assertEquals(store.get('bracket'), null);
+    assert.deepStrictEqual(store.get('meta.name'), 'Cup');
+    assert.deepStrictEqual(store.get('meta.status'), 'lobby');
+    assert.deepStrictEqual(store.get('bracket'), null);
 
     store.set('meta.status', 'active');
     mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, {}, 'evil');
-    assertEquals(store.get('meta.status'), 'active');
+    assert.deepStrictEqual(store.get('meta.status'), 'active');
   });
 
-  await t.step("a snapshot naming the local user as admin plants nothing", () => {
+  await t.test("a snapshot naming the local user as admin plants nothing", () => {
     const mockRoom = connectAs({ userId: 'victim', adminId: 'admin-1', peers: ['evil'] });
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
@@ -128,12 +129,12 @@ Deno.test('STATE_RESPONSE admin impersonation', async (t) => {
       isAdmin: true,
     }, 'evil');
 
-    assertEquals(store.get('meta.adminId'), 'admin-1');
+    assert.deepStrictEqual(store.get('meta.adminId'), 'admin-1');
   });
 });
 
-Deno.test('PARTICIPANT_UPDATE from an unmapped peer gets no identity', async (t) => {
-  await t.step('cannot rename the admin or any other participant', () => {
+test('PARTICIPANT_UPDATE from an unmapped peer gets no identity', async (t) => {
+  await t.test('cannot rename the admin or any other participant', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId });
     store.addParticipant({ id: adminId, name: 'RealAdmin', seed: 1 });
@@ -141,11 +142,11 @@ Deno.test('PARTICIPANT_UPDATE from an unmapped peer gets no identity', async (t)
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { localUserId: adminId, name: 'Hijacked' }, 'attacker-peer');
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { id: adminId, name: 'Hijacked' }, 'attacker-peer');
 
-    assertEquals(store.getParticipant(adminId).name, 'RealAdmin');
-    assertEquals(store.getParticipant('attacker-peer'), undefined);
+    assert.deepStrictEqual(store.getParticipant(adminId).name, 'RealAdmin');
+    assert.deepStrictEqual(store.getParticipant('attacker-peer'), undefined);
   });
 
-  await t.step('a forged peerId merged into synced state does not map the sender to the admin', () => {
+  await t.test('a forged peerId merged into synced state does not map the sender to the admin', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId });
     store.addParticipant({ id: adminId, name: 'RealAdmin', seed: 1 });
@@ -159,11 +160,11 @@ Deno.test('PARTICIPANT_UPDATE from an unmapped peer gets no identity', async (t)
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { seed: 1 }, 'evil');
     mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, {}, 'evil');
 
-    assertEquals(store.get('meta.status'), 'active');
+    assert.deepStrictEqual(store.get('meta.status'), 'active');
   });
 });
 
-Deno.test('Malformed payloads do not throw', async (t) => {
+test('Malformed payloads do not throw', async (t) => {
   const malformedData = [null, 'just-a-string', 42, [], undefined, {}];
   const malformedPayloads = [null, 'just-a-string', {}, 42, [], undefined];
 
@@ -179,7 +180,7 @@ Deno.test('Malformed payloads do not throw', async (t) => {
   }
 
   try {
-    await t.step('every action survives malformed data and payload shapes', async () => {
+    await t.test('every action survives malformed data and payload shapes', async () => {
       const trystero = await connectThroughRoomJs();
 
       for (const type of Object.values(ActionTypes)) {
@@ -191,8 +192,8 @@ Deno.test('Malformed payloads do not throw', async (t) => {
         }
       }
 
-      assertEquals(store.get('meta.status'), 'lobby');
-      assertEquals(store.get('meta.adminId'), 'admin-123');
+      assert.deepStrictEqual(store.get('meta.status'), 'lobby');
+      assert.deepStrictEqual(store.get('meta.adminId'), 'admin-123');
     });
   } finally {
     await leaveRoom();
@@ -200,7 +201,7 @@ Deno.test('Malformed payloads do not throw', async (t) => {
   }
 });
 
-Deno.test('MATCH_VERIFY invalid shape', async (t) => {
+test('MATCH_VERIFY invalid shape', async (t) => {
   const adminId = 'admin-123';
 
   /** Connect as a participant with an active 4-player bracket and the admin mapped. */
@@ -214,7 +215,7 @@ Deno.test('MATCH_VERIFY invalid shape', async (t) => {
     return mockRoom;
   }
 
-  await t.step('ignores non-numeric scores from admin', () => {
+  await t.test('ignores non-numeric scores from admin', () => {
     const mockRoom = setupActiveBracket();
 
     const matchId = 'r1m0';
@@ -227,11 +228,11 @@ Deno.test('MATCH_VERIFY invalid shape', async (t) => {
     }, 'admin-peer');
 
     const after = store.getMatch(matchId);
-    assertEquals(after.winnerId, null);
-    assertEquals(after.verifiedBy, null);
+    assert.deepStrictEqual(after.winnerId, null);
+    assert.deepStrictEqual(after.verifiedBy, null);
   });
 
-  await t.step('ignores non-string winnerId from admin', () => {
+  await t.test('ignores non-string winnerId from admin', () => {
     const mockRoom = setupActiveBracket();
 
     const matchId = 'r1m0';
@@ -243,11 +244,11 @@ Deno.test('MATCH_VERIFY invalid shape', async (t) => {
     }, 'admin-peer');
 
     const after = store.getMatch(matchId);
-    assertEquals(after.winnerId, null);
-    assertEquals(after.verifiedBy, null);
+    assert.deepStrictEqual(after.winnerId, null);
+    assert.deepStrictEqual(after.verifiedBy, null);
   });
 
-  await t.step('ignores an invalid matchId shape from admin', () => {
+  await t.test('ignores an invalid matchId shape from admin', () => {
     const mockRoom = setupActiveBracket();
 
     const matchId = 'r1m0';
@@ -260,7 +261,7 @@ Deno.test('MATCH_VERIFY invalid shape', async (t) => {
     }, 'admin-peer');
 
     const after = store.getMatch(matchId);
-    assertEquals(after.winnerId, null);
-    assertEquals(after.verifiedBy, null);
+    assert.deepStrictEqual(after.winnerId, null);
+    assert.deepStrictEqual(after.verifiedBy, null);
   });
 });

@@ -4,7 +4,8 @@
  * rejected, and a passed-in reportedAt is kept.
  */
 
-import { assertEquals, assert, assertThrows } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import {
   generateMarioKartTournament,
   recordRaceResult,
@@ -26,7 +27,7 @@ function playAllGames(tournament) {
   return complete;
 }
 
-Deno.test("Mario Kart parametric completion", async (t) => {
+test("Mario Kart parametric completion", async (t) => {
   const configs = [
     { players: 2, playersPerGame: 2, gamesPerPlayer: 1 },
     { players: 3, playersPerGame: 2, gamesPerPlayer: 2 },
@@ -38,7 +39,7 @@ Deno.test("Mario Kart parametric completion", async (t) => {
   ];
 
   for (const cfg of configs) {
-    await t.step(
+    await t.test(
       `players=${cfg.players} playersPerGame=${cfg.playersPerGame} gamesPerPlayer=${cfg.gamesPerPlayer}`,
       () => {
         const participants = createParticipants(cfg.players);
@@ -58,9 +59,9 @@ Deno.test("Mario Kart parametric completion", async (t) => {
 
         const standings = getStandings(tournament);
 
-        assertEquals(standings.length, cfg.players);
+        assert.deepStrictEqual(standings.length, cfg.players);
         const seenIds = new Set(standings.map((s) => s.participantId));
-        assertEquals(seenIds.size, cfg.players, "No duplicated participant in standings");
+        assert.deepStrictEqual(seenIds.size, cfg.players, "No duplicated participant in standings");
         for (const p of participants) {
           assert(seenIds.has(p.id), `Standings should include ${p.id}`);
         }
@@ -69,24 +70,24 @@ Deno.test("Mario Kart parametric completion", async (t) => {
         const totalParticipantSlots = Array.from(tournament.matches.values())
           .reduce((sum, g) => sum + g.participants.length, 0);
         const totalGamesCompleted = standings.reduce((sum, s) => sum + s.gamesCompleted, 0);
-        assertEquals(totalGamesCompleted, totalParticipantSlots);
+        assert.deepStrictEqual(totalGamesCompleted, totalParticipantSlots);
 
         for (let i = 0; i < standings.length - 1; i++) {
           assert(standings[i].points >= standings[i + 1].points);
         }
         for (let i = 0; i < standings.length; i++) {
-          assertEquals(standings[i].place, i + 1);
+          assert.deepStrictEqual(standings[i].place, i + 1);
         }
 
         const champions = standings.filter((s) => s.place === 1);
-        assertEquals(champions.length, 1);
+        assert.deepStrictEqual(champions.length, 1);
       }
     );
   }
 });
 
-Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) => {
-  await t.step("does not double-count points/gamesCompleted/wins", () => {
+test("Mario Kart idempotency: re-recording same gameId result", async (t) => {
+  await t.test("does not double-count points/gamesCompleted/wins", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -116,17 +117,17 @@ Deno.test("Mario Kart idempotency: re-recording same gameId result", async (t) =
       wins: s.wins,
     }));
 
-    assertEquals(snapshotAfterSecond, snapshotAfterFirst, "Re-recording the same result must be a no-op");
+    assert.deepStrictEqual(snapshotAfterSecond, snapshotAfterFirst, "Re-recording the same result must be a no-op");
 
     const winner = tournament.standings.get(results[0].participantId);
-    assertEquals(winner.gamesCompleted, 1);
-    assertEquals(winner.wins, 1);
-    assertEquals(winner.points, 15);
+    assert.deepStrictEqual(winner.gamesCompleted, 1);
+    assert.deepStrictEqual(winner.wins, 1);
+    assert.deepStrictEqual(winner.points, 15);
   });
 });
 
-Deno.test("Mario Kart correction: different result for same gameId replaces prior contribution", async (t) => {
-  await t.step("swapping first and second place updates points/wins without accumulating", () => {
+test("Mario Kart correction: different result for same gameId replaces prior contribution", async (t) => {
+  await t.test("swapping first and second place updates points/wins without accumulating", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -145,10 +146,10 @@ Deno.test("Mario Kart correction: different result for same gameId replaces prio
       { participantId: d },
     ], "player-1");
 
-    assertEquals(tournament.standings.get(a).points, 15);
-    assertEquals(tournament.standings.get(a).wins, 1);
-    assertEquals(tournament.standings.get(b).points, 12);
-    assertEquals(tournament.standings.get(b).wins, 0);
+    assert.deepStrictEqual(tournament.standings.get(a).points, 15);
+    assert.deepStrictEqual(tournament.standings.get(a).wins, 1);
+    assert.deepStrictEqual(tournament.standings.get(b).points, 12);
+    assert.deepStrictEqual(tournament.standings.get(b).wins, 0);
 
     recordRaceResult(tournament, gameId, [
       { participantId: b },
@@ -157,25 +158,25 @@ Deno.test("Mario Kart correction: different result for same gameId replaces prio
       { participantId: d },
     ], "player-2");
 
-    assertEquals(tournament.standings.get(b).points, 15, "b should now have winner's points, not 12+15");
-    assertEquals(tournament.standings.get(b).wins, 1);
-    assertEquals(tournament.standings.get(a).points, 12, "a should now have 2nd place points, not 15+12");
-    assertEquals(tournament.standings.get(a).wins, 0, "a's win should be reversed");
+    assert.deepStrictEqual(tournament.standings.get(b).points, 15, "b should now have winner's points, not 12+15");
+    assert.deepStrictEqual(tournament.standings.get(b).wins, 1);
+    assert.deepStrictEqual(tournament.standings.get(a).points, 12, "a should now have 2nd place points, not 15+12");
+    assert.deepStrictEqual(tournament.standings.get(a).wins, 0, "a's win should be reversed");
 
     for (const pId of game.participants) {
       const standing = tournament.standings.get(pId);
-      assertEquals(standing.gamesCompleted, 1, `${pId} gamesCompleted should stay at 1 after correction`);
+      assert.deepStrictEqual(standing.gamesCompleted, 1, `${pId} gamesCompleted should stay at 1 after correction`);
     }
 
-    assertEquals(game.results.slice(0, 2), [
+    assert.deepStrictEqual(game.results.slice(0, 2), [
       { participantId: b, position: 1, points: 15 },
       { participantId: a, position: 2, points: 12 },
     ]);
 
-    assertEquals(game.winnerId, b);
+    assert.deepStrictEqual(game.winnerId, b);
   });
 
-  await t.step("rejects an order that repeats or omits a racer and keeps the standings", () => {
+  await t.test("rejects an order that repeats or omits a racer and keeps the standings", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -188,21 +189,20 @@ Deno.test("Mario Kart correction: different result for same gameId replaces prio
     recordRaceResult(tournament, gameId, [a, b, c, d].map((participantId) => ({ participantId })), "player-1");
 
     for (const order of [[a, a, a, a], [a, b, c]]) {
-      assertThrows(
+      assert.throws(
         () => recordRaceResult(tournament, gameId, order.map((participantId) => ({ participantId })), "player-1"),
-        Error,
-        "exactly once",
+        (err) => err instanceof Error && err.message.includes("exactly once"),
       );
     }
 
-    assertEquals(tournament.standings.get(a).points, 15);
-    assertEquals(tournament.standings.get(a).gamesCompleted, 1);
-    assertEquals(tournament.standings.get(d).points, 8);
+    assert.deepStrictEqual(tournament.standings.get(a).points, 15);
+    assert.deepStrictEqual(tournament.standings.get(a).gamesCompleted, 1);
+    assert.deepStrictEqual(tournament.standings.get(d).points, 8);
   });
 });
 
-Deno.test("Mario Kart reportedAt", async (t) => {
-  await t.step("preserves a passed-in reportedAt instead of overwriting with now", () => {
+test("Mario Kart reportedAt", async (t) => {
+  await t.test("preserves a passed-in reportedAt instead of overwriting with now", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -216,10 +216,10 @@ Deno.test("Mario Kart reportedAt", async (t) => {
     const fixedTimestamp = 1_600_000_000_000;
     recordRaceResult(tournament, gameId, results, "player-1", fixedTimestamp);
 
-    assertEquals(game.reportedAt, fixedTimestamp);
+    assert.deepStrictEqual(game.reportedAt, fixedTimestamp);
   });
 
-  await t.step("defaults to current time when reportedAt is omitted", () => {
+  await t.test("defaults to current time when reportedAt is omitted", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -237,7 +237,7 @@ Deno.test("Mario Kart reportedAt", async (t) => {
     assert(game.reportedAt >= before && game.reportedAt <= after, "reportedAt should default to now");
   });
 
-  await t.step("re-recording preserves the newly passed reportedAt, not the original", () => {
+  await t.test("re-recording preserves the newly passed reportedAt, not the original", () => {
     const participants = createParticipants(4);
     const tournament = generateMarioKartTournament(participants, {
       playersPerGame: 4,
@@ -249,10 +249,10 @@ Deno.test("Mario Kart reportedAt", async (t) => {
     const results = game.participants.map((pId) => ({ participantId: pId }));
 
     recordRaceResult(tournament, gameId, results, "player-1", 1000);
-    assertEquals(game.reportedAt, 1000);
+    assert.deepStrictEqual(game.reportedAt, 1000);
 
     recordRaceResult(tournament, gameId, results, "player-2", 2000);
-    assertEquals(game.reportedAt, 2000);
-    assertEquals(game.reportedBy, "player-2");
+    assert.deepStrictEqual(game.reportedAt, 2000);
+    assert.deepStrictEqual(game.reportedBy, "player-2");
   });
 });

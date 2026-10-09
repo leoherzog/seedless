@@ -10,12 +10,12 @@ Seedless is a serverless P2P tournament bracket app built from plain ES modules 
 
 ```bash
 python -m http.server 8000   # serve at http://localhost:8000
-deno task test               # run all tests
-deno task test:watch         # watch mode
-deno task test:coverage      # coverage report in coverage/
+npm test                     # run all tests
+npm run test:watch           # watch mode
+npm run test:coverage        # coverage report
 ```
 
-Serve on port 8000, the only local origin the TURN worker allows. Tests live in `tests/`, with integration tests in `tests/integration/`. `deno.json` maps the Trystero CDN import to `tests/mocks/trystero-mock.js`, so changing that URL in `room.js` means changing both.
+Serve on port 8000, the only local origin the TURN worker allows. Tests run on Node 24 or later with `node:test` and `node:assert/strict`, and need no dependencies. They live in `tests/`, with integration tests in `tests/integration/`. Each test file runs in its own process with an in-memory `localStorage`. `tests/register-hooks.js` resolves the Trystero CDN import to `tests/mocks/trystero-mock.js`, so changing that URL in `room.js` means changing both.
 
 ## Module Structure
 

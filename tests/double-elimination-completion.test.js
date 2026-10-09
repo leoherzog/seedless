@@ -4,7 +4,8 @@
  * filled, no stalled losers match, and no dropped loser landing on an occupied slot.
  */
 
-import { assertEquals, assert } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import {
   generateDoubleEliminationBracket,
   advance,
@@ -102,13 +103,13 @@ function assertConservation({ bracket, matches }, participants, participantMap) 
   const standingIdSet = new Set(standingIds);
   const expectedIds = new Set(participants.map((p) => p.id));
 
-  assertEquals(standings.length, participants.length, "standings should cover every participant");
-  assertEquals(standingIdSet.size, standingIds.length, "no participant duplicated in standings");
-  assertEquals(standingIdSet, expectedIds, "standings should be exactly the input participant set");
+  assert.deepStrictEqual(standings.length, participants.length, "standings should cover every participant");
+  assert.deepStrictEqual(standingIdSet.size, standingIds.length, "no participant duplicated in standings");
+  assert.deepStrictEqual(standingIdSet, expectedIds, "standings should be exactly the input participant set");
 
   const places = standings.map((s) => s.place).sort((a, b) => a - b);
   const expectedPlaces = Array.from({ length: participants.length }, (_, i) => i + 1);
-  assertEquals(places, expectedPlaces, "places should be sequential 1..N with no gaps or duplicates");
+  assert.deepStrictEqual(places, expectedPlaces, "places should be sequential 1..N with no gaps or duplicates");
 
   return standings;
 }
@@ -129,31 +130,31 @@ function runFullTournament(n, winnerSelector = slot0Wins) {
   return { tournament, participants, participantMap };
 }
 
-Deno.test("Double Elimination - parametric run to completion (no forced reset)", async (t) => {
+test("Double Elimination - parametric run to completion (no forced reset)", async (t) => {
   for (const n of N_VALUES) {
-    await t.step(`N=${n}: single champion, complete standings, no stalled matches`, () => {
+    await t.test(`N=${n}: single champion, complete standings, no stalled matches`, () => {
       const { tournament, participants, participantMap } = runFullTournament(n, slot0Wins);
 
       assertNoStalledLosersMatches(tournament);
-      assertEquals(hasDeadSlot(tournament), (n & (n - 1)) !== 0, "dead losers slots exist exactly when N is not a power of two");
+      assert.deepStrictEqual(hasDeadSlot(tournament), (n & (n - 1)) !== 0, "dead losers slots exist exactly when N is not a power of two");
       const standings = assertConservation(tournament, participants, participantMap);
 
-      assertEquals(standings[0].place, 1);
-      assertEquals(standings[1].place, 2);
+      assert.deepStrictEqual(standings[0].place, 1);
+      assert.deepStrictEqual(standings[1].place, 2);
 
       // With N=2 there is no losers bracket; the winners-final loser fills GF slot 1 directly.
       const gf1 = tournament.matches.get("gf1");
       assert(gf1.participants[1], `GF participants[1] (losers champion) should be filled for N=${n}`);
       assert(gf1.participants[0], `GF participants[0] (winners champion) should be filled for N=${n}`);
 
-      assertEquals(tournament.matches.get("gf2").requiresPlay, false);
+      assert.deepStrictEqual(tournament.matches.get("gf2").requiresPlay, false);
     });
   }
 });
 
-Deno.test("Double Elimination - parametric run to completion (forced grand-finals reset)", async (t) => {
+test("Double Elimination - parametric run to completion (forced grand-finals reset)", async (t) => {
   for (const n of N_VALUES) {
-    await t.step(`N=${n}: bracket reset triggers and tournament still completes`, () => {
+    await t.test(`N=${n}: bracket reset triggers and tournament still completes`, () => {
       const { tournament, participants, participantMap } = runFullTournament(n, forceGrandFinalsReset);
       const reset = tournament.matches.get("gf2");
 
@@ -166,15 +167,15 @@ Deno.test("Double Elimination - parametric run to completion (forced grand-final
   }
 });
 
-Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
-  await t.step("has no losers-bracket rounds at all", () => {
+test("Double Elimination - N=2 minimal bracket", async (t) => {
+  await t.test("has no losers-bracket rounds at all", () => {
     const participants = createParticipants(2);
     const { bracket } = generateDoubleEliminationBracket(participants);
 
-    assertEquals(bracket.losers.rounds.length, 0);
+    assert.deepStrictEqual(bracket.losers.rounds.length, 0);
   });
 
-  await t.step("winners-final loser drops straight into GF slot 1 and the tournament completes", () => {
+  await t.test("winners-final loser drops straight into GF slot 1 and the tournament completes", () => {
     const participants = createParticipants(2);
     const participantMap = createParticipantMap(participants);
     const tournament = generateDoubleEliminationBracket(participants);
@@ -182,8 +183,8 @@ Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
 
     report(tournament, advance, "w1m0", "player-1");
 
-    assertEquals(gf1.participants[0], "player-1");
-    assertEquals(
+    assert.deepStrictEqual(gf1.participants[0], "player-1");
+    assert.deepStrictEqual(
       gf1.participants[1],
       "player-2",
       "loser of the only winners match should drop directly into GF slot 1"
@@ -192,12 +193,12 @@ Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
     assert(report(tournament, advance, "gf1", "player-1"), "2-player tournament must be able to complete");
 
     const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
-    assertEquals(standings.length, 2);
-    assertEquals(standings[0].participantId, "player-1");
-    assertEquals(standings[1].participantId, "player-2");
+    assert.deepStrictEqual(standings.length, 2);
+    assert.deepStrictEqual(standings[0].participantId, "player-1");
+    assert.deepStrictEqual(standings[1].participantId, "player-2");
   });
 
-  await t.step("losers-side finalist winning GF1 forces a reset, then the tournament completes", () => {
+  await t.test("losers-side finalist winning GF1 forces a reset, then the tournament completes", () => {
     const participants = createParticipants(2);
     const participantMap = createParticipantMap(participants);
     const tournament = generateDoubleEliminationBracket(participants);
@@ -206,13 +207,13 @@ Deno.test("Double Elimination - N=2 minimal bracket", async (t) => {
     const complete = report(tournament, advance, "gf1", "player-2");
 
     assert(tournament.matches.get("gf2").requiresPlay, "Bracket reset should be required");
-    assertEquals(complete, false, "Tournament should not be complete before the reset is played");
+    assert.deepStrictEqual(complete, false, "Tournament should not be complete before the reset is played");
 
     assert(report(tournament, advance, "gf2", "player-1"), "Tournament should complete once the reset match is played");
 
     const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
-    assertEquals(standings.length, 2);
-    assertEquals(standings[0].participantId, "player-1");
-    assertEquals(standings[1].participantId, "player-2");
+    assert.deepStrictEqual(standings.length, 2);
+    assert.deepStrictEqual(standings[0].participantId, "player-1");
+    assert.deepStrictEqual(standings[1].participantId, "player-2");
   });
 });

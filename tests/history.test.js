@@ -2,7 +2,8 @@
  * Tests for tournament history: archiving each format, reset, serialization and merge.
  */
 
-import { assertEquals, assert, assertExists } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import { Store } from "../js/state/store.js";
 import {
   generateSingleEliminationBracket,
@@ -173,30 +174,30 @@ function createCompleteDoublesTournament(bracketType = "single") {
   return store;
 }
 
-Deno.test("archiveTournament - Single Elimination", async (t) => {
-  await t.step("creates history entry with winner from finals", () => {
+test("archiveTournament - Single Elimination", async (t) => {
+  await t.test("creates history entry with winner from finals", () => {
     const store = createCompleteSingleElimTournament();
 
     const entry = store.archiveTournament();
 
-    assertExists(entry, "Should create history entry");
-    assertEquals(entry.winner.id, "player-1");
-    assertEquals(entry.winner.name, "Player 1");
+    assert.ok(entry != null, "Should create history entry");
+    assert.deepStrictEqual(entry.winner.id, "player-1");
+    assert.deepStrictEqual(entry.winner.name, "Player 1");
   });
 
-  await t.step("extracts top 4 standings from bracket", () => {
+  await t.test("extracts top 4 standings from bracket", () => {
     const store = createCompleteSingleElimTournament();
 
     const entry = store.archiveTournament();
 
     assert(entry.standings.length >= 2, "Should have at least 2 standings");
-    assertEquals(entry.standings[0].place, 1);
-    assertEquals(entry.standings[0].name, "Player 1");
-    assertEquals(entry.standings[1].place, 2);
-    assertEquals(entry.standings[1].name, "Player 2");
+    assert.deepStrictEqual(entry.standings[0].place, 1);
+    assert.deepStrictEqual(entry.standings[0].name, "Player 1");
+    assert.deepStrictEqual(entry.standings[1].place, 2);
+    assert.deepStrictEqual(entry.standings[1].name, "Player 2");
   });
 
-  await t.step(
+  await t.test(
     "includes correct metadata (type, participantCount, completedAt)",
     () => {
       const store = createCompleteSingleElimTournament();
@@ -204,52 +205,52 @@ Deno.test("archiveTournament - Single Elimination", async (t) => {
 
       const entry = store.archiveTournament();
 
-      assertEquals(entry.type, "single");
-      assertEquals(entry.participantCount, 4);
-      assertEquals(entry.name, "Test Tournament");
+      assert.deepStrictEqual(entry.type, "single");
+      assert.deepStrictEqual(entry.participantCount, 4);
+      assert.deepStrictEqual(entry.name, "Test Tournament");
       assert(entry.completedAt >= before, "completedAt should be recent");
     }
   );
 
-  await t.step("generates unique id", () => {
+  await t.test("generates unique id", () => {
     const store = createCompleteSingleElimTournament();
 
     const entry = store.archiveTournament();
 
-    assertExists(entry.id, "Should have an id");
+    assert.ok(entry.id != null, "Should have an id");
     assert(entry.id.length > 0, "ID should not be empty");
   });
 });
 
-Deno.test("archiveTournament - Double Elimination", async (t) => {
-  await t.step("extracts winner from grand finals (no reset needed)", () => {
+test("archiveTournament - Double Elimination", async (t) => {
+  await t.test("extracts winner from grand finals (no reset needed)", () => {
     const store = createCompleteDoubleElimTournament(false);
 
     const entry = store.archiveTournament();
 
-    assertExists(entry, "Should create history entry");
-    assertEquals(entry.winner.id, "player-1");
-    assertEquals(entry.winner.name, "Player 1");
-    assertEquals(entry.type, "double");
+    assert.ok(entry != null, "Should create history entry");
+    assert.deepStrictEqual(entry.winner.id, "player-1");
+    assert.deepStrictEqual(entry.winner.name, "Player 1");
+    assert.deepStrictEqual(entry.type, "double");
   });
 
-  await t.step("extracts winner from grand finals reset when played", () => {
+  await t.test("extracts winner from grand finals reset when played", () => {
     const store = createCompleteDoubleElimTournament(true);
 
     const entry = store.archiveTournament();
 
-    assertExists(entry, "Should create history entry");
-    assertEquals(entry.winner.id, "player-2");
-    assertEquals(entry.winner.name, "Player 2");
+    assert.ok(entry != null, "Should create history entry");
+    assert.deepStrictEqual(entry.winner.id, "player-2");
+    assert.deepStrictEqual(entry.winner.name, "Player 2");
   });
 
-  await t.step("includes correct type and every place", () => {
+  await t.test("includes correct type and every place", () => {
     const store = createCompleteDoubleElimTournament(false);
 
     const entry = store.archiveTournament();
 
-    assertEquals(entry.type, "double");
-    assertEquals(entry.standings.map((s) => [s.place, s.name]), [
+    assert.deepStrictEqual(entry.type, "double");
+    assert.deepStrictEqual(entry.standings.map((s) => [s.place, s.name]), [
       [1, "Player 1"],
       [2, "Player 2"],
       [3, "Player 3"],
@@ -258,30 +259,30 @@ Deno.test("archiveTournament - Double Elimination", async (t) => {
   });
 });
 
-Deno.test("archiveTournament - Mario Kart", async (t) => {
-  await t.step("extracts winner from standings (highest points)", () => {
+test("archiveTournament - Mario Kart", async (t) => {
+  await t.test("extracts winner from standings (highest points)", () => {
     const store = createCompleteMarioKartTournament();
 
     const entry = store.archiveTournament();
 
-    assertExists(entry, "Should create history entry");
-    assertEquals(entry.winner.id, "player-1");
-    assertEquals(entry.winner.name, "Player 1");
-    assertEquals(entry.type, "mariokart");
+    assert.ok(entry != null, "Should create history entry");
+    assert.deepStrictEqual(entry.winner.id, "player-1");
+    assert.deepStrictEqual(entry.winner.name, "Player 1");
+    assert.deepStrictEqual(entry.type, "mariokart");
   });
 
-  await t.step("includes top 4 standings with points", () => {
+  await t.test("includes top 4 standings with points", () => {
     const store = createCompleteMarioKartTournament();
 
     const entry = store.archiveTournament();
 
     assert(entry.standings.length >= 1, "Should have standings");
-    assertEquals(entry.standings[0].place, 1);
-    assertEquals(entry.standings[0].name, "Player 1");
-    assertExists(entry.standings[0].points, "Standings should include points");
+    assert.deepStrictEqual(entry.standings[0].place, 1);
+    assert.deepStrictEqual(entry.standings[0].name, "Player 1");
+    assert.ok(entry.standings[0].points != null, "Standings should include points");
   });
 
-  await t.step("breaks a points tie on wins, like the results card", () => {
+  await t.test("breaks a points tie on wins, like the results card", () => {
     const store = new Store();
     const participants = createParticipants(2);
     participants.forEach((p) => store.addParticipant(p));
@@ -297,67 +298,67 @@ Deno.test("archiveTournament - Mario Kart", async (t) => {
 
     const entry = store.archiveTournament();
 
-    assertEquals(entry.winner.id, "player-2");
-    assertEquals(entry.standings.map((s) => s.name), ["Player 2", "Player 1"]);
+    assert.deepStrictEqual(entry.winner.id, "player-2");
+    assert.deepStrictEqual(entry.standings.map((s) => s.name), ["Player 2", "Player 1"]);
   });
 });
 
-Deno.test("archiveTournament - Doubles", async (t) => {
-  await t.step("extracts winning team from finals", () => {
+test("archiveTournament - Doubles", async (t) => {
+  await t.test("extracts winning team from finals", () => {
     const store = createCompleteDoublesTournament("single");
 
     const entry = store.archiveTournament();
 
-    assertExists(entry, "Should create history entry");
-    assertExists(entry.winner, "Should have winner");
-    assertEquals(entry.winner.id, "team-1");
-    assertEquals(entry.type, "doubles");
+    assert.ok(entry != null, "Should create history entry");
+    assert.ok(entry.winner != null, "Should have winner");
+    assert.deepStrictEqual(entry.winner.id, "team-1");
+    assert.deepStrictEqual(entry.type, "doubles");
   });
 
-  await t.step("includes team info in winner (id, name, members)", () => {
+  await t.test("includes team info in winner (id, name, members)", () => {
     const store = createCompleteDoublesTournament("single");
 
     const entry = store.archiveTournament();
 
-    assertExists(entry.winner.team, "Winner should have team info");
-    assertEquals(entry.winner.team.id, "team-1");
-    assertExists(entry.winner.team.name, "Team should have name");
-    assertExists(entry.winner.team.members, "Team should have members");
+    assert.ok(entry.winner.team != null, "Winner should have team info");
+    assert.deepStrictEqual(entry.winner.team.id, "team-1");
+    assert.ok(entry.winner.team.name != null, "Team should have name");
+    assert.ok(entry.winner.team.members != null, "Team should have members");
   });
 
-  await t.step("handles double-elim doubles (grand finals)", () => {
+  await t.test("handles double-elim doubles (grand finals)", () => {
     const store = createCompleteDoublesTournament("double");
 
     const entry = store.archiveTournament();
 
-    assertExists(entry, "Should create history entry");
-    assertEquals(entry.type, "doubles");
-    assertEquals(entry.winner.id, "team-1");
+    assert.ok(entry != null, "Should create history entry");
+    assert.deepStrictEqual(entry.type, "doubles");
+    assert.deepStrictEqual(entry.winner.id, "team-1");
   });
 
-  await t.step("archives with no winner when the bracket cannot be ranked", () => {
+  await t.test("archives with no winner when the bracket cannot be ranked", () => {
     const store = createCompleteDoublesTournament("single");
     store.set("bracket", { type: "doubles", rounds: [] });
 
     const entry = store.archiveTournament();
 
-    assertExists(entry, "A malformed bracket must not block archiving");
-    assertEquals(entry.winner, null);
-    assertEquals(entry.standings, []);
+    assert.ok(entry != null, "A malformed bracket must not block archiving");
+    assert.deepStrictEqual(entry.winner, null);
+    assert.deepStrictEqual(entry.standings, []);
   });
 });
 
-Deno.test("getHistory", async (t) => {
-  await t.step("returns empty array initially", () => {
+test("getHistory", async (t) => {
+  await t.test("returns empty array initially", () => {
     const store = new Store();
 
     const history = store.getHistory();
 
-    assertEquals(history, []);
-    assertEquals(history.length, 0);
+    assert.deepStrictEqual(history, []);
+    assert.deepStrictEqual(history.length, 0);
   });
 
-  await t.step("returns archived tournaments in order", () => {
+  await t.test("returns archived tournaments in order", () => {
     const store = createCompleteSingleElimTournament();
 
     const entry1 = store.archiveTournament();
@@ -380,101 +381,101 @@ Deno.test("getHistory", async (t) => {
 
     const history = store.getHistory();
 
-    assertEquals(history.length, 2);
-    assertEquals(history[0].id, entry1.id);
-    assertEquals(history[1].id, entry2.id);
+    assert.deepStrictEqual(history.length, 2);
+    assert.deepStrictEqual(history[0].id, entry1.id);
+    assert.deepStrictEqual(history[1].id, entry2.id);
   });
 });
 
-Deno.test("resetForNewTournament", async (t) => {
-  await t.step("sets status to lobby", () => {
+test("resetForNewTournament", async (t) => {
+  await t.test("sets status to lobby", () => {
     const store = createCompleteSingleElimTournament();
 
     store.resetForNewTournament();
 
-    assertEquals(store.get("meta.status"), "lobby");
+    assert.deepStrictEqual(store.get("meta.status"), "lobby");
   });
 
-  await t.step("clears bracket", () => {
+  await t.test("clears bracket", () => {
     const store = createCompleteSingleElimTournament();
 
     store.resetForNewTournament();
 
-    assertEquals(store.get("bracket"), null);
+    assert.deepStrictEqual(store.get("bracket"), null);
   });
 
-  await t.step("clears matches", () => {
+  await t.test("clears matches", () => {
     const store = createCompleteSingleElimTournament();
 
     store.resetForNewTournament();
 
     const matches = store.get("matches");
-    assertEquals(matches.size, 0);
+    assert.deepStrictEqual(matches.size, 0);
   });
 
-  await t.step("clears standings", () => {
+  await t.test("clears standings", () => {
     const store = createCompleteMarioKartTournament();
 
     store.resetForNewTournament();
 
     const standings = store.get("standings");
-    assertEquals(standings.size, 0);
+    assert.deepStrictEqual(standings.size, 0);
   });
 
-  await t.step("clears teamAssignments", () => {
+  await t.test("clears teamAssignments", () => {
     const store = createCompleteDoublesTournament();
 
     store.resetForNewTournament();
 
     const teamAssignments = store.getTeamAssignments();
-    assertEquals(teamAssignments.size, 0);
+    assert.deepStrictEqual(teamAssignments.size, 0);
   });
 
-  await t.step("preserves participants", () => {
+  await t.test("preserves participants", () => {
     const store = createCompleteSingleElimTournament();
     const countBefore = store.getParticipantList().length;
 
     store.resetForNewTournament();
 
     const countAfter = store.getParticipantList().length;
-    assertEquals(countAfter, countBefore);
-    assertEquals(countAfter, 4);
+    assert.deepStrictEqual(countAfter, countBefore);
+    assert.deepStrictEqual(countAfter, 4);
   });
 
-  await t.step("preserves history", () => {
+  await t.test("preserves history", () => {
     const store = createCompleteSingleElimTournament();
     store.archiveTournament();
 
     store.resetForNewTournament();
 
     const history = store.getHistory();
-    assertEquals(history.length, 1);
+    assert.deepStrictEqual(history.length, 1);
   });
 });
 
-Deno.test("History Serialization", async (t) => {
-  await t.step("history array included in serialize() output", () => {
+test("History Serialization", async (t) => {
+  await t.test("history array included in serialize() output", () => {
     const store = createCompleteSingleElimTournament();
     store.archiveTournament();
 
     const serialized = store.serialize();
 
-    assertExists(serialized.history, "Serialized should have history");
+    assert.ok(serialized.history != null, "Serialized should have history");
     assert(Array.isArray(serialized.history), "History should be an array");
-    assertEquals(serialized.history.length, 1);
+    assert.deepStrictEqual(serialized.history.length, 1);
   });
 
-  await t.step("history array restored from deserialize()", () => {
+  await t.test("history array restored from deserialize()", () => {
     const store = new Store();
     store.deserialize({ history: [historyEntry("test-1")] });
 
     const history = store.getHistory();
-    assertEquals(history.length, 1);
-    assertEquals(history[0].id, "test-1");
-    assertEquals(history[0].name, "test-1");
+    assert.deepStrictEqual(history.length, 1);
+    assert.deepStrictEqual(history[0].id, "test-1");
+    assert.deepStrictEqual(history[0].name, "test-1");
   });
 
-  await t.step("history survives full roundtrip", () => {
+  await t.test("history survives full roundtrip", () => {
     const store1 = createCompleteSingleElimTournament();
     const entry = store1.archiveTournament();
 
@@ -482,50 +483,50 @@ Deno.test("History Serialization", async (t) => {
     store2.deserialize(store1.serialize());
 
     const history = store2.getHistory();
-    assertEquals(history.length, 1);
-    assertEquals(history[0].id, entry.id);
-    assertEquals(history[0].winner.id, entry.winner.id);
-    assertEquals(history[0].type, entry.type);
+    assert.deepStrictEqual(history.length, 1);
+    assert.deepStrictEqual(history[0].id, entry.id);
+    assert.deepStrictEqual(history[0].winner.id, entry.winner.id);
+    assert.deepStrictEqual(history[0].type, entry.type);
   });
 });
 
-Deno.test("History Merge", async (t) => {
-  await t.step("adds new history entries from the admin (union merge)", () => {
+test("History Merge", async (t) => {
+  await t.test("adds new history entries from the admin (union merge)", () => {
     const store = new Store();
     store.deserialize({ history: [historyEntry("local-1")] });
 
     store.merge({ history: [historyEntry("remote-1", 2000)] }, true);
 
-    assertEquals(store.getHistory().length, 2);
+    assert.deepStrictEqual(store.getHistory().length, 2);
   });
 
-  await t.step("ignores history from a non-admin peer and entries without a string id", () => {
+  await t.test("ignores history from a non-admin peer and entries without a string id", () => {
     const store = new Store();
     store.set("meta.adminId", "admin-1");
 
     store.merge({ history: [historyEntry("forged")] }, false);
     store.merge({ history: [null, { name: "No id" }] }, true);
 
-    assertEquals(store.getHistory(), []);
+    assert.deepStrictEqual(store.getHistory(), []);
   });
 
-  await t.step("deduplicates entries by id", () => {
+  await t.test("deduplicates entries by id", () => {
     const store = new Store();
     store.deserialize({ history: [historyEntry("same-id")] });
 
     store.merge({ history: [historyEntry("same-id")] }, true);
 
-    assertEquals(store.getHistory().length, 1, "Should not duplicate entries with same id");
+    assert.deepStrictEqual(store.getHistory().length, 1, "Should not duplicate entries with same id");
   });
 
-  await t.step("preserves local history entries", () => {
+  await t.test("preserves local history entries", () => {
     const store = new Store();
     store.deserialize({ history: [historyEntry("local-1")] });
 
     store.merge({ history: [] }, true);
 
     const history = store.getHistory();
-    assertEquals(history.length, 1);
-    assertEquals(history[0].id, "local-1");
+    assert.deepStrictEqual(history.length, 1);
+    assert.deepStrictEqual(history[0].id, "local-1");
   });
 });

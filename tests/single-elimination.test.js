@@ -2,7 +2,8 @@
  * Tests for single-elimination.js
  */
 
-import { assertEquals, assert, assertThrows } from "jsr:@std/assert";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import {
   generateSingleEliminationBracket,
   advance,
@@ -21,48 +22,46 @@ import {
 /** The match objects of round i. */
 const roundMatches = ({ bracket, matches }, i) => bracket.rounds[i].matchIds.map((id) => matches.get(id));
 
-Deno.test("generateSingleEliminationBracket", async (t) => {
-  await t.step("throws for less than 2 participants", () => {
-    assertThrows(
+test("generateSingleEliminationBracket", async (t) => {
+  await t.test("throws for less than 2 participants", () => {
+    assert.throws(
       () => generateSingleEliminationBracket([{ id: "1", name: "Solo", seed: 1 }]),
-      Error,
-      "Need at least 2 participants"
+      (err) => err instanceof Error && err.message.includes("Need at least 2 participants")
     );
   });
 
-  await t.step("throws for empty array", () => {
-    assertThrows(
+  await t.test("throws for empty array", () => {
+    assert.throws(
       () => generateSingleEliminationBracket([]),
-      Error,
-      "Need at least 2 participants"
+      (err) => err instanceof Error && err.message.includes("Need at least 2 participants")
     );
   });
 
-  await t.step("generates 2-player bracket correctly", () => {
+  await t.test("generates 2-player bracket correctly", () => {
     const tournament = generateSingleEliminationBracket(participants2);
     const { bracket } = tournament;
 
-    assertEquals(bracket.type, "single");
-    assertEquals(bracket.rounds.length, 1);
+    assert.deepStrictEqual(bracket.type, "single");
+    assert.deepStrictEqual(bracket.rounds.length, 1);
     // Round 1 keeps its name even when it is also the final.
-    assertEquals(bracket.rounds[0].name, "Round 1");
-    assertEquals(bracket.rounds[0].matchIds.length, 1);
+    assert.deepStrictEqual(bracket.rounds[0].name, "Round 1");
+    assert.deepStrictEqual(bracket.rounds[0].matchIds.length, 1);
 
     const finals = roundMatches(tournament, 0)[0];
-    assertEquals(finals.id, "r1m0");
-    assertEquals(finals.participants[0], "player-1");
-    assertEquals(finals.participants[1], "player-2");
-    assertEquals(finals.isBye, false);
+    assert.deepStrictEqual(finals.id, "r1m0");
+    assert.deepStrictEqual(finals.participants[0], "player-1");
+    assert.deepStrictEqual(finals.participants[1], "player-2");
+    assert.deepStrictEqual(finals.isBye, false);
   });
 
-  await t.step("generates 3-player bracket with bye", () => {
+  await t.test("generates 3-player bracket with bye", () => {
     const tournament = generateSingleEliminationBracket(participants3);
     const { bracket } = tournament;
 
-    assertEquals(bracket.rounds.length, 2);
+    assert.deepStrictEqual(bracket.rounds.length, 2);
 
     const round1 = roundMatches(tournament, 0);
-    assertEquals(round1.length, 2);
+    assert.deepStrictEqual(round1.length, 2);
 
     const byeMatch = round1.find(m => m.isBye);
     assert(byeMatch !== undefined, "Should have a bye match");
@@ -70,16 +69,16 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
 
     const nonByeMatch = round1.find(m => !m.isBye);
     assert(nonByeMatch !== undefined, "Should have a non-bye match");
-    assertEquals(nonByeMatch.winnerId, null, "Non-bye match should not be decided");
+    assert.deepStrictEqual(nonByeMatch.winnerId, null, "Non-bye match should not be decided");
   });
 
-  await t.step("generates 4-player bracket with correct seeding", () => {
+  await t.test("generates 4-player bracket with correct seeding", () => {
     const tournament = generateSingleEliminationBracket(participants4);
     const { bracket } = tournament;
 
-    assertEquals(bracket.rounds[0].matchIds.length, 2);
-    assertEquals(bracket.rounds[1].matchIds.length, 1);
-    assertEquals(bracket.rounds[1].name, "Finals");
+    assert.deepStrictEqual(bracket.rounds[0].matchIds.length, 2);
+    assert.deepStrictEqual(bracket.rounds[1].matchIds.length, 1);
+    assert.deepStrictEqual(bracket.rounds[1].name, "Finals");
 
     const r1 = roundMatches(tournament, 0);
     assert(
@@ -92,40 +91,40 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
     );
   });
 
-  await t.step("generates 8-player bracket with 3 rounds", () => {
+  await t.test("generates 8-player bracket with 3 rounds", () => {
     const tournament = generateSingleEliminationBracket(participants8);
     const { bracket } = tournament;
 
-    assertEquals(bracket.rounds.map((r) => r.matchIds.length), [4, 2, 1]);
-    assertEquals(bracket.rounds[2].name, "Finals");
+    assert.deepStrictEqual(bracket.rounds.map((r) => r.matchIds.length), [4, 2, 1]);
+    assert.deepStrictEqual(bracket.rounds[2].name, "Finals");
 
-    assertEquals(roundMatches(tournament, 0)[0].participants[0], "player-1");
+    assert.deepStrictEqual(roundMatches(tournament, 0)[0].participants[0], "player-1");
   });
 
-  await t.step("generates 32-player bracket with 5 rounds", () => {
+  await t.test("generates 32-player bracket with 5 rounds", () => {
     const { bracket } = generateSingleEliminationBracket(createParticipants(32));
 
-    assertEquals(bracket.rounds.map((r) => r.matchIds.length), [16, 8, 4, 2, 1]);
+    assert.deepStrictEqual(bracket.rounds.map((r) => r.matchIds.length), [16, 8, 4, 2, 1]);
   });
 
-  await t.step("generates 64-player bracket with 6 rounds and 63 matches", () => {
+  await t.test("generates 64-player bracket with 6 rounds and 63 matches", () => {
     const tournament = generateSingleEliminationBracket(createParticipants(64));
     const { bracket, matches } = tournament;
 
-    assertEquals(bracket.rounds.length, 6);
-    assertEquals(matches.size, 63);
-    assertEquals(roundMatches(tournament, 0)[0].participants[0], "player-1");
+    assert.deepStrictEqual(bracket.rounds.length, 6);
+    assert.deepStrictEqual(matches.size, 63);
+    assert.deepStrictEqual(roundMatches(tournament, 0)[0].participants[0], "player-1");
   });
 
-  await t.step("rounds list every match id exactly once", () => {
+  await t.test("rounds list every match id exactly once", () => {
     const { bracket, matches } = generateSingleEliminationBracket(participants8);
     const ids = bracket.rounds.flatMap((r) => r.matchIds);
 
-    assertEquals(new Set(ids), new Set(matches.keys()));
-    assertEquals(ids.length, matches.size);
+    assert.deepStrictEqual(new Set(ids), new Set(matches.keys()));
+    assert.deepStrictEqual(ids.length, matches.size);
   });
 
-  await t.step("all matches have required properties", () => {
+  await t.test("all matches have required properties", () => {
     const { matches } = generateSingleEliminationBracket(participants4);
 
     for (const match of matches.values()) {
@@ -134,7 +133,7 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
       assert(typeof match.position === "number", "Match should have position");
       assert(Array.isArray(match.participants), "Match should have participants array");
       assert(Array.isArray(match.scores), "Match should have scores array");
-      assertEquals(match.scores.length, 2, "Scores should have 2 elements");
+      assert.deepStrictEqual(match.scores.length, 2, "Scores should have 2 elements");
       assert("winnerId" in match, "Match should have winnerId property");
       assert("reportedBy" in match, "Match should have reportedBy property");
       assert("isBye" in match, "Match should have isBye property");
@@ -142,26 +141,26 @@ Deno.test("generateSingleEliminationBracket", async (t) => {
   });
 });
 
-Deno.test("advance", async (t) => {
-  await t.step("advances winner to next round slot 0 (even position)", () => {
+test("advance", async (t) => {
+  await t.test("advances winner to next round slot 0 (even position)", () => {
     const tournament = generateSingleEliminationBracket(participants4);
 
     report(tournament, advance, "r1m0", "player-1");
 
     const finals = tournament.matches.get("r2m0");
-    assertEquals(finals.participants[0], "player-1", "Winner of position 0 should go to slot 0");
+    assert.deepStrictEqual(finals.participants[0], "player-1", "Winner of position 0 should go to slot 0");
   });
 
-  await t.step("advances winner to next round slot 1 (odd position)", () => {
+  await t.test("advances winner to next round slot 1 (odd position)", () => {
     const tournament = generateSingleEliminationBracket(participants4);
 
     report(tournament, advance, "r1m1", "player-2");
 
     const finals = tournament.matches.get("r2m0");
-    assertEquals(finals.participants[1], "player-2", "Winner of position 1 should go to slot 1");
+    assert.deepStrictEqual(finals.participants[1], "player-2", "Winner of position 1 should go to slot 1");
   });
 
-  await t.step("writes new participants arrays through the update callback", () => {
+  await t.test("writes new participants arrays through the update callback", () => {
     const tournament = generateSingleEliminationBracket(participants4);
     const before = tournament.matches.get("r2m0").participants;
     const writes = [];
@@ -169,47 +168,47 @@ Deno.test("advance", async (t) => {
     tournament.matches.get("r1m0").winnerId = "player-1";
     advance(tournament, (id, fields) => writes.push([id, fields]));
 
-    assertEquals(writes, [["r2m0", { participants: ["player-1", null] }]]);
-    assertEquals(before, [null, null], "the existing array is never mutated");
+    assert.deepStrictEqual(writes, [["r2m0", { participants: ["player-1", null] }]]);
+    assert.deepStrictEqual(before, [null, null], "the existing array is never mutated");
   });
 
-  await t.step("reports complete only once the final is decided", () => {
+  await t.test("reports complete only once the final is decided", () => {
     const tournament = generateSingleEliminationBracket(participants4);
 
-    assertEquals(report(tournament, advance, "r1m0", "player-1"), false);
-    assertEquals(report(tournament, advance, "r1m1", "player-2"), false);
-    assertEquals(report(tournament, advance, "r2m0", "player-1"), true);
+    assert.deepStrictEqual(report(tournament, advance, "r1m0", "player-1"), false);
+    assert.deepStrictEqual(report(tournament, advance, "r1m1", "player-2"), false);
+    assert.deepStrictEqual(report(tournament, advance, "r2m0", "player-1"), true);
   });
 
-  await t.step("2-player final completes immediately", () => {
+  await t.test("2-player final completes immediately", () => {
     const tournament = generateSingleEliminationBracket(participants2);
-    assertEquals(report(tournament, advance, "r1m0", "player-1"), true);
+    assert.deepStrictEqual(report(tournament, advance, "r1m0", "player-1"), true);
   });
 
-  await t.step("full 4-player tournament flow", () => {
+  await t.test("full 4-player tournament flow", () => {
     const tournament = generateSingleEliminationBracket(participants4);
 
     report(tournament, advance, "r1m0", "player-1");
     report(tournament, advance, "r1m1", "player-3");
 
     const finals = tournament.matches.get("r2m0");
-    assertEquals(finals.participants, ["player-1", "player-3"]);
+    assert.deepStrictEqual(finals.participants, ["player-1", "player-3"]);
 
     assert(report(tournament, advance, "r2m0", "player-1"));
-    assertEquals(finals.winnerId, "player-1");
+    assert.deepStrictEqual(finals.winnerId, "player-1");
   });
 });
 
-Deno.test("getStandings", async (t) => {
-  await t.step("returns empty array if tournament not complete", () => {
+test("getStandings", async (t) => {
+  await t.test("returns empty array if tournament not complete", () => {
     const { bracket, matches } = generateSingleEliminationBracket(participants4);
     const participantMap = createParticipantMap(participants4);
 
     const standings = getStandings(bracket, matches, participantMap);
-    assertEquals(standings, []);
+    assert.deepStrictEqual(standings, []);
   });
 
-  await t.step("returns correct standings for 2-player tournament", () => {
+  await t.test("returns correct standings for 2-player tournament", () => {
     const tournament = generateSingleEliminationBracket(participants2);
     const participantMap = createParticipantMap(participants2);
 
@@ -217,15 +216,15 @@ Deno.test("getStandings", async (t) => {
 
     const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
 
-    assertEquals(standings.length, 2);
-    assertEquals(standings[0].place, 1);
-    assertEquals(standings[0].participantId, "player-1");
-    assertEquals(standings[0].name, "Player 1");
-    assertEquals(standings[1].place, 2);
-    assertEquals(standings[1].participantId, "player-2");
+    assert.deepStrictEqual(standings.length, 2);
+    assert.deepStrictEqual(standings[0].place, 1);
+    assert.deepStrictEqual(standings[0].participantId, "player-1");
+    assert.deepStrictEqual(standings[0].name, "Player 1");
+    assert.deepStrictEqual(standings[1].place, 2);
+    assert.deepStrictEqual(standings[1].participantId, "player-2");
   });
 
-  await t.step("returns correct standings for 4-player tournament", () => {
+  await t.test("returns correct standings for 4-player tournament", () => {
     const tournament = generateSingleEliminationBracket(participants4);
     const participantMap = createParticipantMap(participants4);
 
@@ -235,18 +234,18 @@ Deno.test("getStandings", async (t) => {
 
     const standings = getStandings(tournament.bracket, tournament.matches, participantMap);
 
-    assertEquals(standings.length, 4);
-    assertEquals(standings[0].place, 1);
-    assertEquals(standings[0].participantId, "player-1");
-    assertEquals(standings[1].place, 2);
-    assertEquals(standings[1].participantId, "player-2");
+    assert.deepStrictEqual(standings.length, 4);
+    assert.deepStrictEqual(standings[0].place, 1);
+    assert.deepStrictEqual(standings[0].participantId, "player-1");
+    assert.deepStrictEqual(standings[1].place, 2);
+    assert.deepStrictEqual(standings[1].participantId, "player-2");
     assert(
       standings[2].participantId === "player-3" || standings[2].participantId === "player-4",
       "3rd place should be a semi-final loser"
     );
   });
 
-  await t.step("handles missing participants gracefully", () => {
+  await t.test("handles missing participants gracefully", () => {
     const tournament = generateSingleEliminationBracket(participants2);
     const emptyMap = new Map();
 
@@ -254,7 +253,7 @@ Deno.test("getStandings", async (t) => {
 
     const standings = getStandings(tournament.bracket, tournament.matches, emptyMap);
 
-    assertEquals(standings.length, 2);
-    assertEquals(standings[0].name, "Unknown");
+    assert.deepStrictEqual(standings.length, 2);
+    assert.deepStrictEqual(standings[0].name, "Unknown");
   });
 });

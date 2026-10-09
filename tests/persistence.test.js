@@ -1,9 +1,10 @@
 /**
- * Tests for persistence.js. Deno's localStorage persists to disk between runs,
- * so steps use unique room ids and clear every prefixed key first.
+ * Tests for persistence.js. Every step shares one localStorage, so steps use
+ * unique room ids and clear every prefixed key first.
  */
 
-import { assertEquals, assertExists, assertMatch } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 
 import { CONFIG } from '../config.js';
 
@@ -36,8 +37,8 @@ function clearSeedlessStorage() {
   keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
-Deno.test('persistence', async (t) => {
-  await t.step('saveTournament saves state with savedAt timestamp', () => {
+test('persistence', async (t) => {
+  await t.test('saveTournament saves state with savedAt timestamp', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
     const state = { meta: { id: roomId }, foo: 'bar' };
@@ -46,51 +47,51 @@ Deno.test('persistence', async (t) => {
     const after = Date.now();
 
     const stored = JSON.parse(localStorage.getItem(STORAGE_PREFIX + roomId));
-    assertEquals(stored.foo, 'bar');
-    assertEquals(stored.meta.id, roomId);
-    assertExists(stored.savedAt);
-    assertEquals(stored.savedAt >= before && stored.savedAt <= after, true);
+    assert.deepStrictEqual(stored.foo, 'bar');
+    assert.deepStrictEqual(stored.meta.id, roomId);
+    assert.ok(stored.savedAt != null);
+    assert.deepStrictEqual(stored.savedAt >= before && stored.savedAt <= after, true);
   });
 
-  await t.step('saveTournament returns undefined for missing roomId', () => {
-    assertEquals(saveTournament(null, {}), undefined);
-    assertEquals(saveTournament('', {}), undefined);
-    assertEquals(saveTournament(undefined, {}), undefined);
+  await t.test('saveTournament returns undefined for missing roomId', () => {
+    assert.deepStrictEqual(saveTournament(null, {}), undefined);
+    assert.deepStrictEqual(saveTournament('', {}), undefined);
+    assert.deepStrictEqual(saveTournament(undefined, {}), undefined);
   });
 
-  await t.step('loadTournament returns null for missing roomId', () => {
-    assertEquals(loadTournament(null), null);
-    assertEquals(loadTournament(''), null);
-    assertEquals(loadTournament(undefined), null);
+  await t.test('loadTournament returns null for missing roomId', () => {
+    assert.deepStrictEqual(loadTournament(null), null);
+    assert.deepStrictEqual(loadTournament(''), null);
+    assert.deepStrictEqual(loadTournament(undefined), null);
   });
 
-  await t.step('loadTournament returns null for non-existent data', () => {
+  await t.test('loadTournament returns null for non-existent data', () => {
     clearSeedlessStorage();
-    assertEquals(loadTournament('nonexistent-room-xyz-123'), null);
+    assert.deepStrictEqual(loadTournament('nonexistent-room-xyz-123'), null);
   });
 
-  await t.step('loadTournament handles corrupted JSON gracefully', () => {
+  await t.test('loadTournament handles corrupted JSON gracefully', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
     localStorage.setItem(STORAGE_PREFIX + roomId, 'not valid json {{{');
 
     const loaded = loadTournament(roomId);
-    assertEquals(loaded, null, 'Should return null for corrupted data');
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete corrupted data');
+    assert.deepStrictEqual(loaded, null, 'Should return null for corrupted data');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete corrupted data');
   });
 
-  await t.step('loadTournament handles data without savedAt', () => {
+  await t.test('loadTournament handles data without savedAt', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
     const noTimestamp = { meta: { id: roomId } };
     localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(noTimestamp));
 
     const loaded = loadTournament(roomId);
-    assertEquals(loaded, null, 'Data without savedAt should be treated as expired by loadTournament');
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete data without savedAt');
+    assert.deepStrictEqual(loaded, null, 'Data without savedAt should be treated as expired by loadTournament');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete data without savedAt');
   });
 
-  await t.step('cleanupOldTournaments removes corrupted data', () => {
+  await t.test('cleanupOldTournaments removes corrupted data', () => {
     clearSeedlessStorage();
     const corrupt = uniqueRoom();
     const valid = uniqueRoom();
@@ -100,102 +101,102 @@ Deno.test('persistence', async (t) => {
 
     cleanupOldTournaments();
 
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + corrupt), null, 'corrupt should be removed');
-    assertExists(localStorage.getItem(STORAGE_PREFIX + valid), 'valid should remain');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + corrupt), null, 'corrupt should be removed');
+    assert.ok(localStorage.getItem(STORAGE_PREFIX + valid) != null, 'valid should remain');
   });
 
-  await t.step('cleanupOldTournaments ignores non-prefixed keys', () => {
+  await t.test('cleanupOldTournaments ignores non-prefixed keys', () => {
     const otherKey = 'other_key_' + Date.now();
     localStorage.setItem(otherKey, JSON.stringify({ savedAt: daysAgo(60) }));
 
     cleanupOldTournaments();
 
-    assertExists(localStorage.getItem(otherKey), 'non-prefixed keys should not be touched');
+    assert.ok(localStorage.getItem(otherKey) != null, 'non-prefixed keys should not be touched');
     localStorage.removeItem(otherKey);
   });
 
-  await t.step('savePreferences merges with existing', () => {
+  await t.test('savePreferences merges with existing', () => {
     clearSeedlessStorage();
 
     savePreferences({ theme: 'dark' });
     savePreferences({ volume: 50 });
 
     const prefs = loadPreferences();
-    assertEquals(prefs.theme, 'dark');
-    assertEquals(prefs.volume, 50);
+    assert.deepStrictEqual(prefs.theme, 'dark');
+    assert.deepStrictEqual(prefs.volume, 50);
   });
 
-  await t.step('savePreferences overwrites duplicate keys', () => {
+  await t.test('savePreferences overwrites duplicate keys', () => {
     clearSeedlessStorage();
 
     savePreferences({ theme: 'dark' });
     savePreferences({ theme: 'light' });
 
     const prefs = loadPreferences();
-    assertEquals(prefs.theme, 'light');
+    assert.deepStrictEqual(prefs.theme, 'light');
   });
 
-  await t.step('loadPreferences returns empty object when no data', () => {
+  await t.test('loadPreferences returns empty object when no data', () => {
     clearSeedlessStorage();
 
     const prefs = loadPreferences();
-    assertEquals(prefs, {});
+    assert.deepStrictEqual(prefs, {});
   });
 
-  await t.step('loadPreferences handles parse error gracefully', () => {
+  await t.test('loadPreferences handles parse error gracefully', () => {
     clearSeedlessStorage();
     localStorage.setItem(STORAGE_PREFIX + '_preferences', 'invalid json');
 
     const prefs = loadPreferences();
-    assertEquals(prefs, {});
+    assert.deepStrictEqual(prefs, {});
   });
 
-  await t.step('getLastDisplayName returns empty string if not set', () => {
+  await t.test('getLastDisplayName returns empty string if not set', () => {
     clearSeedlessStorage();
 
     const name = getLastDisplayName();
-    assertEquals(name, '');
+    assert.deepStrictEqual(name, '');
   });
 
-  await t.step('saveDisplayName / getLastDisplayName roundtrip', () => {
+  await t.test('saveDisplayName / getLastDisplayName roundtrip', () => {
     clearSeedlessStorage();
 
     saveDisplayName('Player One');
-    assertEquals(getLastDisplayName(), 'Player One');
+    assert.deepStrictEqual(getLastDisplayName(), 'Player One');
 
     saveDisplayName('New Name');
-    assertEquals(getLastDisplayName(), 'New Name');
+    assert.deepStrictEqual(getLastDisplayName(), 'New Name');
   });
 
-  await t.step('getLocalUserId generates user_ plus a UUID', () => {
+  await t.test('getLocalUserId generates user_ plus a UUID', () => {
     clearSeedlessStorage();
 
     const userId = getLocalUserId();
 
-    assertMatch(userId, /^user_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.match(userId, /^user_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
-  await t.step('getLocalUserId returns same ID on subsequent calls', () => {
+  await t.test('getLocalUserId returns same ID on subsequent calls', () => {
     clearSeedlessStorage();
 
     const userId1 = getLocalUserId();
     const userId2 = getLocalUserId();
     const userId3 = getLocalUserId();
 
-    assertEquals(userId1, userId2);
-    assertEquals(userId2, userId3);
+    assert.deepStrictEqual(userId1, userId2);
+    assert.deepStrictEqual(userId2, userId3);
   });
 
-  await t.step('getLocalUserId persists ID in preferences', () => {
+  await t.test('getLocalUserId persists ID in preferences', () => {
     clearSeedlessStorage();
 
     const userId = getLocalUserId();
 
     const prefs = loadPreferences();
-    assertEquals(prefs.localUserId, userId);
+    assert.deepStrictEqual(prefs.localUserId, userId);
   });
 
-  await t.step('loadTournament keeps data at the 30 day boundary', () => {
+  await t.test('loadTournament keeps data at the 30 day boundary', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
     // loadTournament takes its cutoff a few ms after daysAgo(30), so exactly 30 days would read as expired.
@@ -206,10 +207,10 @@ Deno.test('persistence', async (t) => {
     localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(atBoundary));
 
     const loaded = loadTournament(roomId);
-    assertExists(loaded, 'Data within the 30 day window should be kept');
+    assert.ok(loaded != null, 'Data within the 30 day window should be kept');
   });
 
-  await t.step('loadTournament removes data at 30 days + 1 ms', () => {
+  await t.test('loadTournament removes data at 30 days + 1 ms', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
     const justOverBoundary = {
@@ -219,11 +220,11 @@ Deno.test('persistence', async (t) => {
     localStorage.setItem(STORAGE_PREFIX + roomId, JSON.stringify(justOverBoundary));
 
     const loaded = loadTournament(roomId);
-    assertEquals(loaded, null, 'Data just over 30 days should be removed');
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete expired data');
+    assert.deepStrictEqual(loaded, null, 'Data just over 30 days should be removed');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Should delete expired data');
   });
 
-  await t.step('cleanupOldTournaments skips preferences key', () => {
+  await t.test('cleanupOldTournaments skips preferences key', () => {
     clearSeedlessStorage();
     const prefsKey = STORAGE_PREFIX + '_preferences';
 
@@ -231,10 +232,10 @@ Deno.test('persistence', async (t) => {
 
     cleanupOldTournaments();
 
-    assertExists(localStorage.getItem(prefsKey), '_preferences key should not be removed');
+    assert.ok(localStorage.getItem(prefsKey) != null, '_preferences key should not be removed');
   });
 
-  await t.step('cleanupOldTournaments removes entries with null savedAt', () => {
+  await t.test('cleanupOldTournaments removes entries with null savedAt', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
 
@@ -242,10 +243,10 @@ Deno.test('persistence', async (t) => {
 
     cleanupOldTournaments();
 
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Entry with null savedAt should be removed');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Entry with null savedAt should be removed');
   });
 
-  await t.step('cleanupOldTournaments removes non-object data', () => {
+  await t.test('cleanupOldTournaments removes non-object data', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
 
@@ -253,10 +254,10 @@ Deno.test('persistence', async (t) => {
 
     cleanupOldTournaments();
 
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Non-object data should be removed');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + roomId), null, 'Non-object data should be removed');
   });
 
-  await t.step('cleanupOldTournaments removes expired and corrupted entries and keeps recent ones', () => {
+  await t.test('cleanupOldTournaments removes expired and corrupted entries and keeps recent ones', () => {
     clearSeedlessStorage();
     const room1 = uniqueRoom();
     const room2 = uniqueRoom();
@@ -268,12 +269,12 @@ Deno.test('persistence', async (t) => {
 
     cleanupOldTournaments();
 
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + room1), null, 'Expired data should be removed');
-    assertEquals(localStorage.getItem(STORAGE_PREFIX + room2), null, 'Corrupted data should be removed');
-    assertExists(localStorage.getItem(STORAGE_PREFIX + room3), 'Recent data should remain');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + room1), null, 'Expired data should be removed');
+    assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + room2), null, 'Corrupted data should be removed');
+    assert.ok(localStorage.getItem(STORAGE_PREFIX + room3) != null, 'Recent data should remain');
   });
 
-  await t.step('saveTournament preserves existing data properties', () => {
+  await t.test('saveTournament preserves existing data properties', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
     const state = {
@@ -286,14 +287,14 @@ Deno.test('persistence', async (t) => {
     saveTournament(roomId, state);
     const loaded = loadTournament(roomId);
 
-    assertEquals(loaded.meta.name, 'Test');
-    assertEquals(loaded.meta.type, 'single');
-    assertEquals(loaded.participants[0][0], 'p1');
-    assertEquals(loaded.bracket.rounds.length, 0);
-    assertEquals(loaded.customField, 'custom');
+    assert.deepStrictEqual(loaded.meta.name, 'Test');
+    assert.deepStrictEqual(loaded.meta.type, 'single');
+    assert.deepStrictEqual(loaded.participants[0][0], 'p1');
+    assert.deepStrictEqual(loaded.bracket.rounds.length, 0);
+    assert.deepStrictEqual(loaded.customField, 'custom');
   });
 
-  await t.step('saveTournament overwrites previous save', () => {
+  await t.test('saveTournament overwrites previous save', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
 
@@ -301,10 +302,10 @@ Deno.test('persistence', async (t) => {
     saveTournament(roomId, { meta: { name: 'Second' } });
 
     const loaded = loadTournament(roomId);
-    assertEquals(loaded.meta.name, 'Second');
+    assert.deepStrictEqual(loaded.meta.name, 'Second');
   });
 
-  await t.step('saveTournament retries after cleanup and logs only a final failure', () => {
+  await t.test('saveTournament retries after cleanup and logs only a final failure', () => {
     clearSeedlessStorage();
     const roomId = uniqueRoom();
     const expired = uniqueRoom();
@@ -321,20 +322,20 @@ Deno.test('persistence', async (t) => {
         return setItem.apply(this, args);
       };
       saveTournament(roomId, { meta: { name: 'Retried' } });
-      assertEquals(errors.length, 0, 'a quota error fixed by cleanup is not an error');
-      assertEquals(localStorage.getItem(STORAGE_PREFIX + expired), null, 'cleanup ran before the retry');
+      assert.deepStrictEqual(errors.length, 0, 'a quota error fixed by cleanup is not an error');
+      assert.deepStrictEqual(localStorage.getItem(STORAGE_PREFIX + expired), null, 'cleanup ran before the retry');
 
       Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); };
       saveTournament(roomId, { meta: { name: 'Lost' } });
-      assertEquals(errors.length, 1, 'a failed retry logs once');
+      assert.deepStrictEqual(errors.length, 1, 'a failed retry logs once');
     } finally {
       Storage.prototype.setItem = setItem;
       console.error = consoleError;
     }
-    assertEquals(loadTournament(roomId).meta.name, 'Retried');
+    assert.deepStrictEqual(loadTournament(roomId).meta.name, 'Retried');
   });
 
-  await t.step('cleanup', () => {
+  await t.test('cleanup', () => {
     clearSeedlessStorage();
   });
 });

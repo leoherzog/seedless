@@ -2,93 +2,94 @@
  * Tests for HTML escape utility
  */
 
-import { assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { escapeHtml } from '../js/utils/html.js';
 
-Deno.test('escapeHtml', async (t) => {
-  await t.step('passes through safe text unchanged', () => {
-    assertEquals(escapeHtml('hello world'), 'hello world');
-    assertEquals(escapeHtml('Hello World 123'), 'Hello World 123');
-    assertEquals(escapeHtml('foo-bar_baz'), 'foo-bar_baz');
+test('escapeHtml', async (t) => {
+  await t.test('passes through safe text unchanged', () => {
+    assert.deepStrictEqual(escapeHtml('hello world'), 'hello world');
+    assert.deepStrictEqual(escapeHtml('Hello World 123'), 'Hello World 123');
+    assert.deepStrictEqual(escapeHtml('foo-bar_baz'), 'foo-bar_baz');
   });
 
-  await t.step('escapes ampersand', () => {
-    assertEquals(escapeHtml('foo & bar'), 'foo &amp; bar');
-    assertEquals(escapeHtml('&&'), '&amp;&amp;');
+  await t.test('escapes ampersand', () => {
+    assert.deepStrictEqual(escapeHtml('foo & bar'), 'foo &amp; bar');
+    assert.deepStrictEqual(escapeHtml('&&'), '&amp;&amp;');
   });
 
-  await t.step('escapes less than', () => {
-    assertEquals(escapeHtml('a < b'), 'a &lt; b');
-    assertEquals(escapeHtml('<<'), '&lt;&lt;');
+  await t.test('escapes less than', () => {
+    assert.deepStrictEqual(escapeHtml('a < b'), 'a &lt; b');
+    assert.deepStrictEqual(escapeHtml('<<'), '&lt;&lt;');
   });
 
-  await t.step('escapes greater than', () => {
-    assertEquals(escapeHtml('a > b'), 'a &gt; b');
-    assertEquals(escapeHtml('>>'), '&gt;&gt;');
+  await t.test('escapes greater than', () => {
+    assert.deepStrictEqual(escapeHtml('a > b'), 'a &gt; b');
+    assert.deepStrictEqual(escapeHtml('>>'), '&gt;&gt;');
   });
 
-  await t.step('escapes double quotes', () => {
-    assertEquals(escapeHtml('"quoted"'), '&quot;quoted&quot;');
-    assertEquals(escapeHtml('say "hello"'), 'say &quot;hello&quot;');
+  await t.test('escapes double quotes', () => {
+    assert.deepStrictEqual(escapeHtml('"quoted"'), '&quot;quoted&quot;');
+    assert.deepStrictEqual(escapeHtml('say "hello"'), 'say &quot;hello&quot;');
   });
 
-  await t.step('escapes single quotes', () => {
-    assertEquals(escapeHtml("it's"), 'it&#39;s');
-    assertEquals(escapeHtml("'test'"), '&#39;test&#39;');
+  await t.test('escapes single quotes', () => {
+    assert.deepStrictEqual(escapeHtml("it's"), 'it&#39;s');
+    assert.deepStrictEqual(escapeHtml("'test'"), '&#39;test&#39;');
   });
 
-  await t.step('escapes all special characters together', () => {
-    assertEquals(
+  await t.test('escapes all special characters together', () => {
+    assert.deepStrictEqual(
       escapeHtml('&<>"\''),
       '&amp;&lt;&gt;&quot;&#39;'
     );
   });
 
-  await t.step('handles mixed content with HTML tags', () => {
-    assertEquals(
+  await t.test('handles mixed content with HTML tags', () => {
+    assert.deepStrictEqual(
       escapeHtml('Hello <script>alert("xss")</script>'),
       'Hello &lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
     );
-    assertEquals(
+    assert.deepStrictEqual(
       escapeHtml('<b>bold</b>'),
       '&lt;b&gt;bold&lt;/b&gt;'
     );
   });
 
-  await t.step('coerces numbers to strings', () => {
-    assertEquals(escapeHtml(123), '123');
-    assertEquals(escapeHtml(0), '0');
-    assertEquals(escapeHtml(-456), '-456');
-    assertEquals(escapeHtml(3.14), '3.14');
+  await t.test('coerces numbers to strings', () => {
+    assert.deepStrictEqual(escapeHtml(123), '123');
+    assert.deepStrictEqual(escapeHtml(0), '0');
+    assert.deepStrictEqual(escapeHtml(-456), '-456');
+    assert.deepStrictEqual(escapeHtml(3.14), '3.14');
   });
 
-  await t.step('coerces null and undefined', () => {
-    assertEquals(escapeHtml(null), 'null');
-    assertEquals(escapeHtml(undefined), 'undefined');
+  await t.test('coerces null and undefined', () => {
+    assert.deepStrictEqual(escapeHtml(null), 'null');
+    assert.deepStrictEqual(escapeHtml(undefined), 'undefined');
   });
 
-  await t.step('handles empty string', () => {
-    assertEquals(escapeHtml(''), '');
+  await t.test('handles empty string', () => {
+    assert.deepStrictEqual(escapeHtml(''), '');
   });
 
-  await t.step('re-escapes already escaped entities', () => {
+  await t.test('re-escapes already escaped entities', () => {
     // Escaping is not idempotent, so escape exactly once, at render time.
-    assertEquals(escapeHtml('&amp;'), '&amp;amp;');
-    assertEquals(escapeHtml('&lt;'), '&amp;lt;');
+    assert.deepStrictEqual(escapeHtml('&amp;'), '&amp;amp;');
+    assert.deepStrictEqual(escapeHtml('&lt;'), '&amp;lt;');
   });
 
-  await t.step('escapes HTML attribute injection attempts', () => {
-    assertEquals(
+  await t.test('escapes HTML attribute injection attempts', () => {
+    assert.deepStrictEqual(
       escapeHtml('href="javascript:alert(1)"'),
       'href=&quot;javascript:alert(1)&quot;'
     );
-    assertEquals(
+    assert.deepStrictEqual(
       escapeHtml("onclick='alert(1)'"),
       'onclick=&#39;alert(1)&#39;'
     );
   });
 
-  await t.step('prevents XSS via script injection', () => {
+  await t.test('prevents XSS via script injection', () => {
     const xssAttempts = [
       '"><script>alert(1)</script>',
       "' onerror='alert(1)'",
@@ -98,14 +99,14 @@ Deno.test('escapeHtml', async (t) => {
 
     for (const attempt of xssAttempts) {
       const escaped = escapeHtml(attempt);
-      assertEquals(escaped.includes('<'), false, `Should escape < in: ${attempt}`);
-      assertEquals(escaped.includes('>'), false, `Should escape > in: ${attempt}`);
+      assert.deepStrictEqual(escaped.includes('<'), false, `Should escape < in: ${attempt}`);
+      assert.deepStrictEqual(escaped.includes('>'), false, `Should escape > in: ${attempt}`);
     }
   });
 
-  await t.step('handles unicode and special whitespace', () => {
-    assertEquals(escapeHtml('Hello 世界'), 'Hello 世界');
-    assertEquals(escapeHtml('tab\there'), 'tab\there');
-    assertEquals(escapeHtml('new\nline'), 'new\nline');
+  await t.test('handles unicode and special whitespace', () => {
+    assert.deepStrictEqual(escapeHtml('Hello 世界'), 'Hello 世界');
+    assert.deepStrictEqual(escapeHtml('tab\there'), 'tab\there');
+    assert.deepStrictEqual(escapeHtml('new\nline'), 'new\nline');
   });
 });

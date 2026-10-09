@@ -2,7 +2,8 @@
  * seedParticipants orders by manual seed, not join order, and random mode keeps everyone once.
  */
 
-import { assertEquals, assert } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { seedParticipants, shuffle } from '../js/utils/tournament-helpers.js';
 import { generateSingleEliminationBracket } from '../js/tournament/single-elimination.js';
 
@@ -16,56 +17,56 @@ function manuallySeeded() {
   ];
 }
 
-Deno.test('Manual seeding', async (t) => {
-  await t.step('drag-drop seed order overrides join order', () => {
+test('Manual seeding', async (t) => {
+  await t.test('drag-drop seed order overrides join order', () => {
     const seeded = seedParticipants(manuallySeeded(), 'manual');
-    assertEquals(seeded.map(p => p.id), ['p-d', 'p-a', 'p-b', 'p-c']);
+    assert.deepStrictEqual(seeded.map(p => p.id), ['p-d', 'p-a', 'p-b', 'p-c']);
   });
 
-  await t.step('returns a new array and leaves the input in join order', () => {
+  await t.test('returns a new array and leaves the input in join order', () => {
     const participants = manuallySeeded();
     const seeded = seedParticipants(participants, 'manual');
     assert(seeded !== participants);
-    assertEquals(participants.map(p => p.id), ['p-a', 'p-b', 'p-c', 'p-d']);
+    assert.deepStrictEqual(participants.map(p => p.id), ['p-a', 'p-b', 'p-c', 'p-d']);
   });
 
-  await t.step('unseeded participants sort last', () => {
+  await t.test('unseeded participants sort last', () => {
     const seeded = seedParticipants([{ id: 'late' }, { id: 'first', seed: 1 }], 'manual');
-    assertEquals(seeded.map(p => p.id), ['first', 'late']);
+    assert.deepStrictEqual(seeded.map(p => p.id), ['first', 'late']);
   });
 
-  await t.step('the bracket pairs manual seeds, not join order', () => {
+  await t.test('the bracket pairs manual seeds, not join order', () => {
     const seeded = seedParticipants(manuallySeeded(), 'manual');
     seeded.forEach((p, i) => { p.seed = i + 1; });
     const { bracket, matches } = generateSingleEliminationBracket(seeded);
 
     // 4-bracket seeding pairs 1v4 and 2v3: D vs C, then A vs B.
     const round1 = bracket.rounds[0].matchIds.map(id => matches.get(id).participants);
-    assertEquals(round1, [['p-d', 'p-c'], ['p-a', 'p-b']]);
+    assert.deepStrictEqual(round1, [['p-d', 'p-c'], ['p-a', 'p-b']]);
   });
 });
 
-Deno.test('Random seeding', async (t) => {
-  await t.step('keeps every participant exactly once', () => {
+test('Random seeding', async (t) => {
+  await t.test('keeps every participant exactly once', () => {
     const participants = Array.from({ length: 8 }, (_, i) => ({ id: `p-${i + 1}`, seed: i + 1 }));
     const seeded = seedParticipants(participants, 'random');
 
-    assertEquals(seeded.length, 8);
-    assertEquals(new Set(seeded).size, 8);
-    assertEquals(participants.map(p => p.id), participants.map((_, i) => `p-${i + 1}`));
+    assert.deepStrictEqual(seeded.length, 8);
+    assert.deepStrictEqual(new Set(seeded).size, 8);
+    assert.deepStrictEqual(participants.map(p => p.id), participants.map((_, i) => `p-${i + 1}`));
   });
 
-  await t.step('shuffle permutes in place and returns the same array', () => {
+  await t.test('shuffle permutes in place and returns the same array', () => {
     const items = [1, 2, 3, 4, 5];
     assert(shuffle(items) === items);
-    assertEquals(items.toSorted(), [1, 2, 3, 4, 5]);
+    assert.deepStrictEqual(items.toSorted(), [1, 2, 3, 4, 5]);
   });
 
-  await t.step('shuffle reaches every ordering', () => {
+  await t.test('shuffle reaches every ordering', () => {
     const seen = new Set();
     for (let i = 0; i < 500 && seen.size < 6; i++) {
       seen.add(shuffle(['a', 'b', 'c']).join(''));
     }
-    assertEquals(seen.size, 6);
+    assert.deepStrictEqual(seen.size, 6);
   });
 });

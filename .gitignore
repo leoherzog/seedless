@@ -1,8 +1,5 @@
-# Test coverage
-coverage/
-
-# Deno lock file
-deno.lock
+# Dependencies
+node_modules/
 
 # Wrangler local cache
 .wrangler/

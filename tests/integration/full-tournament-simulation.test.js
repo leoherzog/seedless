@@ -3,7 +3,8 @@
  * generation, seed-weighted play to completion, standings, and a store round-trip.
  */
 
-import { assertEquals, assert } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { Store } from '../../js/state/store.js';
 import {
   generateSingleEliminationBracket,
@@ -92,8 +93,8 @@ function pickWinner(match, seedOf, random) {
 }
 
 function assertSequentialPlaces(standings, count) {
-  assertEquals(standings.length, count);
-  standings.forEach((s, i) => assertEquals(s.place, i + 1));
+  assert.deepStrictEqual(standings.length, count);
+  standings.forEach((s, i) => assert.deepStrictEqual(s.place, i + 1));
 }
 
 function roundTrip(store) {
@@ -102,7 +103,7 @@ function roundTrip(store) {
   return copy;
 }
 
-Deno.test('Single elimination: 15 tennis players play to a champion', () => {
+test('Single elimination: 15 tennis players play to a champion', () => {
   const random = seededRandom(123);
   const store = setupLobby({
     meta: { id: 'wimbledon-2024', name: 'Wimbledon', type: 'single', adminId: 'admin-umpire' },
@@ -113,7 +114,7 @@ Deno.test('Single elimination: 15 tennis players play to a champion', () => {
   const tournament = generateSingleEliminationBracket(participants);
   const { bracket, matches } = tournament;
 
-  assertEquals(bracket.rounds.map((r) => r.name), ['Round 1', 'Quarter-Finals', 'Semi-Finals', 'Finals']);
+  assert.deepStrictEqual(bracket.rounds.map((r) => r.name), ['Round 1', 'Quarter-Finals', 'Semi-Finals', 'Finals']);
   // Seeds 1 and 2 start in opposite halves, so they can meet only in the final.
   const inTopHalf = (id) => bracket.rounds[0].matchIds.map((mid) => matches.get(mid))
     .find((m) => m.participants.includes(id)).position < 4;
@@ -128,12 +129,12 @@ Deno.test('Single elimination: 15 tennis players play to a champion', () => {
   store.set('bracket', bracket);
   store.set('meta.status', 'complete');
   const copy = roundTrip(store);
-  assertEquals(copy.get('meta.type'), 'single');
-  assertEquals(copy.getParticipantList().length, 15);
-  assertEquals(copy.get('matches').size, matches.size);
+  assert.deepStrictEqual(copy.get('meta.type'), 'single');
+  assert.deepStrictEqual(copy.getParticipantList().length, 15);
+  assert.deepStrictEqual(copy.get('matches').size, matches.size);
 });
 
-Deno.test('Double elimination: 8 fighting-game players play through grand finals', () => {
+test('Double elimination: 8 fighting-game players play through grand finals', () => {
   const random = seededRandom(456);
   const store = setupLobby({
     meta: { id: 'evo-2024', name: 'EVO', type: 'double', adminId: 'admin-mrwizard' },
@@ -144,9 +145,9 @@ Deno.test('Double elimination: 8 fighting-game players play through grand finals
   const tournament = generateDoubleEliminationBracket(participants);
   const { bracket, matches } = tournament;
 
-  assertEquals(bracket.winners.rounds.map((r) => r.name), ['Winners R1', 'Winners Semis', 'Winners Finals']);
+  assert.deepStrictEqual(bracket.winners.rounds.map((r) => r.name), ['Winners R1', 'Winners Semis', 'Winners Finals']);
   bracket.losers.rounds.forEach((round, i) => {
-    for (const id of round.matchIds) assertEquals(matches.get(id).isMinorRound, i % 2 === 0);
+    for (const id of round.matchIds) assert.deepStrictEqual(matches.get(id).isMinorRound, i % 2 === 0);
   });
 
   const seedOf = (id) => participantMap.get(id).seed;
@@ -158,12 +159,12 @@ Deno.test('Double elimination: 8 fighting-game players play through grand finals
   store.set('bracket', bracket);
   store.set('meta.status', 'complete');
   const copy = roundTrip(store);
-  assertEquals(copy.get('meta.type'), 'double');
-  assertEquals(copy.getParticipantList().length, 8);
-  assertEquals(copy.get('matches').size, matches.size);
+  assert.deepStrictEqual(copy.get('meta.type'), 'double');
+  assert.deepStrictEqual(copy.getParticipantList().length, 8);
+  assert.deepStrictEqual(copy.get('matches').size, matches.size);
 });
 
-Deno.test('Doubles: 16 tennis players in 8 teams play to a champion team', () => {
+test('Doubles: 16 tennis players in 8 teams play to a champion team', () => {
   const random = seededRandom(999);
   const store = setupLobby({
     meta: { id: 'atp-doubles-2024', name: 'ATP Doubles', type: 'doubles', adminId: 'admin-atp' },
@@ -176,7 +177,7 @@ Deno.test('Doubles: 16 tennis players in 8 teams play to a champion team', () =>
   });
 
   const { bracket, matches } = tournament;
-  assertEquals(bracket.teams.length, 8);
+  assert.deepStrictEqual(bracket.teams.length, 8);
 
   const teamSeeds = new Map(bracket.teams.map((t) => [t.id, t.seed]));
   assert(playToCompletion(tournament, advanceSingle, (m) => pickWinner(m, (id) => teamSeeds.get(id), random)));
@@ -189,13 +190,13 @@ Deno.test('Doubles: 16 tennis players in 8 teams play to a champion team', () =>
   store.set('bracket', bracket);
   store.set('meta.status', 'complete');
   const copy = roundTrip(store);
-  assertEquals(copy.getParticipantList().length, 16);
+  assert.deepStrictEqual(copy.getParticipantList().length, 16);
   for (const [playerId, teamId] of TEAM_ASSIGNMENTS) {
-    assertEquals(copy.getTeamAssignments().get(playerId), teamId);
+    assert.deepStrictEqual(copy.getTeamAssignments().get(playerId), teamId);
   }
 });
 
-Deno.test('Points race: 15 racers finish every game', () => {
+test('Points race: 15 racers finish every game', () => {
   const random = seededRandom(42);
   const store = setupLobby({
     meta: { id: 'mushroom-cup-2024', name: 'Mushroom Cup', type: 'mariokart', adminId: 'admin-lakitu' },
@@ -209,7 +210,7 @@ Deno.test('Points race: 15 racers finish every game', () => {
     pointsTable: CONFIG.pointsTables.standard,
   });
 
-  assertEquals(tournament.matches.size, Math.ceil((15 * 6) / 4));
+  assert.deepStrictEqual(tournament.matches.size, Math.ceil((15 * 6) / 4));
 
   const seedOf = (id) => participantMap.get(id).seed;
   const done = [...tournament.matches].map(([gameId, game]) => {
@@ -217,18 +218,18 @@ Deno.test('Points race: 15 racers finish every game', () => {
     return recordRaceResult(tournament, gameId, order.map((participantId) => ({ participantId })), order[0]);
   });
 
-  assertEquals(done.indexOf(true), done.length - 1, 'only the last result completes the race');
+  assert.deepStrictEqual(done.indexOf(true), done.length - 1, 'only the last result completes the race');
   const standings = getRaceStandings(tournament);
   assertSequentialPlaces(standings, 15);
-  for (const s of standings) assertEquals(s.gamesCompleted, 6);
+  for (const s of standings) assert.deepStrictEqual(s.gamesCompleted, 6);
   for (let i = 1; i < standings.length; i++) assert(standings[i - 1].points >= standings[i].points);
 
   store.setMatches(tournament.matches);
   store.deserialize({ standings: Array.from(tournament.standings.entries()) });
   store.set('meta.status', 'complete');
   const copy = roundTrip(store);
-  assertEquals(copy.get('meta.type'), 'mariokart');
-  assertEquals(copy.getParticipantList().length, 15);
-  assertEquals(copy.get('matches').size, tournament.matches.size);
-  assertEquals(copy.get('standings').size, 15);
+  assert.deepStrictEqual(copy.get('meta.type'), 'mariokart');
+  assert.deepStrictEqual(copy.getParticipantList().length, 15);
+  assert.deepStrictEqual(copy.get('matches').size, tournament.matches.size);
+  assert.deepStrictEqual(copy.get('standings').size, 15);
 });

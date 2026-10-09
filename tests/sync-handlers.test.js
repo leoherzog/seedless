@@ -2,7 +2,8 @@
  * Tests for the setupStateSync action handlers and the exported sync helpers.
  */
 
-import { assertEquals, assert, assertNotEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { store } from '../js/state/store.js';
 import { reportMatchResult, startTournament, reportRaceResult } from '../js/network/sync.js';
 import { ActionTypes } from '../js/network/room.js';
@@ -18,8 +19,8 @@ function loadSingleBracket() {
   store.set('bracket', bracket);
 }
 
-Deno.test('STATE_REQUEST handler', async (t) => {
-  await t.step('responds with current state to requester', () => {
+test('STATE_REQUEST handler', async (t) => {
+  await t.test('responds with current state to requester', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: adminId, adminId });
 
@@ -28,16 +29,16 @@ Deno.test('STATE_REQUEST handler', async (t) => {
 
     mockRoom._simulateAction(ActionTypes.STATE_REQUEST, {}, 'peer-1');
 
-    assertEquals(mockRoom._sentMessages.length, 1);
-    assertEquals(mockRoom._sentMessages[0].type, ActionTypes.STATE_RESPONSE);
-    assertEquals(mockRoom._sentMessages[0].peerId, 'peer-1');
-    assertEquals(mockRoom._sentMessages[0].payload.state.meta.id, 'room-1');
-    assertEquals(mockRoom._sentMessages[0].payload.isAdmin, true);
+    assert.deepStrictEqual(mockRoom._sentMessages.length, 1);
+    assert.deepStrictEqual(mockRoom._sentMessages[0].type, ActionTypes.STATE_RESPONSE);
+    assert.deepStrictEqual(mockRoom._sentMessages[0].peerId, 'peer-1');
+    assert.deepStrictEqual(mockRoom._sentMessages[0].payload.state.meta.id, 'room-1');
+    assert.deepStrictEqual(mockRoom._sentMessages[0].payload.isAdmin, true);
   });
 });
 
-Deno.test('STATE_RESPONSE handler', async (t) => {
-  await t.step('merges valid state from admin', () => {
+test('STATE_RESPONSE handler', async (t) => {
+  await t.test('merges valid state from admin', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'participant-456', adminId, peers: ['admin-peer'] });
 
@@ -51,11 +52,11 @@ Deno.test('STATE_RESPONSE handler', async (t) => {
       isAdmin: true,
     }, 'admin-peer');
 
-    assertEquals(store.get('meta.adminId'), adminId);
+    assert.deepStrictEqual(store.get('meta.adminId'), adminId);
     assert(store.getParticipant(adminId) !== undefined);
   });
 
-  await t.step('rejects invalid state structure', () => {
+  await t.test('rejects invalid state structure', () => {
     const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-1' });
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, {
@@ -63,10 +64,10 @@ Deno.test('STATE_RESPONSE handler', async (t) => {
       isAdmin: true,
     }, 'admin-peer');
 
-    assertEquals(store.get('meta.adminId'), 'admin-1');
+    assert.deepStrictEqual(store.get('meta.adminId'), 'admin-1');
   });
 
-  await t.step('reconciles connection status with actual peers', () => {
+  await t.test('reconciles connection status with actual peers', () => {
     const adminId = 'admin-123';
     const participantId = 'participant-456';
     const mockRoom = connectAs({ userId: participantId, adminId, peers: ['admin-peer', 'other-peer'] });
@@ -80,12 +81,12 @@ Deno.test('STATE_RESPONSE handler', async (t) => {
       isAdmin: true,
     }, 'admin-peer');
 
-    assertEquals(store.getParticipant(participantId).isConnected, true);
-    assertEquals(store.getParticipant('other-user').isConnected, true);
-    assertEquals(store.getParticipant('disconnected-user').isConnected, false);
+    assert.deepStrictEqual(store.getParticipant(participantId).isConnected, true);
+    assert.deepStrictEqual(store.getParticipant('other-user').isConnected, true);
+    assert.deepStrictEqual(store.getParticipant('disconnected-user').isConnected, false);
   });
 
-  await t.step('re-announces self to admin after receiving admin state', () => {
+  await t.test('re-announces self to admin after receiving admin state', () => {
     const adminId = 'admin-123';
     const participantId = 'participant-456';
     const mockRoom = connectAs({ userId: participantId, adminId, name: 'TestUser' });
@@ -98,14 +99,14 @@ Deno.test('STATE_RESPONSE handler', async (t) => {
 
     const join = mockRoom._sentMessages.find(m => m.type === ActionTypes.PARTICIPANT_JOIN);
     assert(join !== undefined, 'Should send PARTICIPANT_JOIN');
-    assertEquals(join.peerId, 'admin-peer');
-    assertEquals(join.payload.name, 'TestUser');
-    assertEquals(join.payload.localUserId, participantId);
+    assert.deepStrictEqual(join.peerId, 'admin-peer');
+    assert.deepStrictEqual(join.payload.name, 'TestUser');
+    assert.deepStrictEqual(join.payload.localUserId, participantId);
   });
 });
 
-Deno.test('PARTICIPANT_JOIN handler', async (t) => {
-  await t.step('adds new participant', () => {
+test('PARTICIPANT_JOIN handler', async (t) => {
+  await t.test('adds new participant', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
@@ -116,11 +117,11 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
 
     const participant = store.getParticipant('new-player-id');
     assert(participant !== undefined);
-    assertEquals(participant.name, 'NewPlayer');
-    assertEquals(participant.peerId, 'peer-1');
+    assert.deepStrictEqual(participant.name, 'NewPlayer');
+    assert.deepStrictEqual(participant.peerId, 'peer-1');
   });
 
-  await t.step('rejects invalid payload', () => {
+  await t.test('rejects invalid payload', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     const initialCount = store.getParticipantList().length;
@@ -130,11 +131,11 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
     }, 'peer-1');
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, { name: 'NoId' }, 'peer-2');
 
-    assertEquals(store.getParticipantList().length, initialCount);
-    assertEquals(store.getParticipant('peer-2'), undefined);
+    assert.deepStrictEqual(store.getParticipantList().length, initialCount);
+    assert.deepStrictEqual(store.getParticipant('peer-2'), undefined);
   });
 
-  await t.step('handles manual participant additions from admin', () => {
+  await t.test('handles manual participant additions from admin', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-1', adminId });
     mapAdmin(mockRoom, adminId);
@@ -148,12 +149,12 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
 
     const participant = store.getParticipant('manual-id');
     assert(participant !== undefined);
-    assertEquals(participant.name, 'ManualPlayer');
-    assertEquals(participant.isManual, true);
-    assertEquals(participant.isConnected, false, 'manual players stay offline on peers');
+    assert.deepStrictEqual(participant.name, 'ManualPlayer');
+    assert.deepStrictEqual(participant.isManual, true);
+    assert.deepStrictEqual(participant.isConnected, false, 'manual players stay offline on peers');
   });
 
-  await t.step('rejects manual participant injection from non-admin', () => {
+  await t.test('rejects manual participant injection from non-admin', () => {
     const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
 
     const initialCount = store.getParticipantList().length;
@@ -165,11 +166,11 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
       joinedAt: Date.now(),
     }, 'malicious-peer');
 
-    assertEquals(store.getParticipant('injected-id'), undefined);
-    assertEquals(store.getParticipantList().length, initialCount);
+    assert.deepStrictEqual(store.getParticipant('injected-id'), undefined);
+    assert.deepStrictEqual(store.getParticipantList().length, initialCount);
   });
 
-  await t.step('rejects admin impersonation attempt', () => {
+  await t.test('rejects admin impersonation attempt', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'participant-1', adminId });
     store.addParticipant({ id: adminId, name: 'Admin', seed: 1 });
@@ -182,10 +183,10 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
       joinedAt: Date.now(),
     }, 'malicious-peer');
 
-    assertEquals(store.getParticipant(adminId).name, initialAdminParticipant.name);
+    assert.deepStrictEqual(store.getParticipant(adminId).name, initialAdminParticipant.name);
   });
 
-  await t.step('rejects duplicate ID claim from different connected peer', () => {
+  await t.test('rejects duplicate ID claim from different connected peer', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     store.addParticipant({
@@ -203,11 +204,11 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
     }, 'peer-2');
 
     const participant = store.getParticipant('existing-user');
-    assertEquals(participant.name, 'ExistingUser');
-    assertEquals(participant.peerId, 'peer-1');
+    assert.deepStrictEqual(participant.name, 'ExistingUser');
+    assert.deepStrictEqual(participant.peerId, 'peer-1');
   });
 
-  await t.step('auto-claims unclaimed manual participant with matching name', () => {
+  await t.test('auto-claims unclaimed manual participant with matching name', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     store.addParticipant({
@@ -227,12 +228,12 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
     }, 'peer-1');
 
     const manualSlot = store.getParticipant('manual-slot');
-    assertEquals(manualSlot.claimedBy, 'real-player-id');
-    assertEquals(manualSlot.isConnected, true);
-    assertEquals(manualSlot.peerId, 'peer-1');
+    assert.deepStrictEqual(manualSlot.claimedBy, 'real-player-id');
+    assert.deepStrictEqual(manualSlot.isConnected, true);
+    assert.deepStrictEqual(manualSlot.peerId, 'peer-1');
   });
 
-  await t.step('updates existing disconnected participant on rejoin', () => {
+  await t.test('updates existing disconnected participant on rejoin', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     store.addParticipant({
@@ -250,14 +251,14 @@ Deno.test('PARTICIPANT_JOIN handler', async (t) => {
     }, 'new-peer');
 
     const participant = store.getParticipant('returning-user');
-    assertEquals(participant.name, 'NewName');
-    assertEquals(participant.peerId, 'new-peer');
-    assertEquals(participant.isConnected, true);
+    assert.deepStrictEqual(participant.name, 'NewName');
+    assert.deepStrictEqual(participant.peerId, 'new-peer');
+    assert.deepStrictEqual(participant.isConnected, true);
   });
 });
 
-Deno.test('PARTICIPANT_UPDATE handler', async (t) => {
-  await t.step('updates participant data', () => {
+test('PARTICIPANT_UPDATE handler', async (t) => {
+  await t.test('updates participant data', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     store.addParticipant({ id: 'user-1', name: 'OldName', seed: 1, peerId: 'peer-1' });
@@ -271,10 +272,10 @@ Deno.test('PARTICIPANT_UPDATE handler', async (t) => {
       name: 'NewName',
     }, 'peer-1');
 
-    assertEquals(store.getParticipant('user-1').name, 'NewName');
+    assert.deepStrictEqual(store.getParticipant('user-1').name, 'NewName');
   });
 
-  await t.step('admin can update any participant by ID', () => {
+  await t.test('admin can update any participant by ID', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'user-2', adminId });
     mapAdmin(mockRoom, adminId);
@@ -286,10 +287,10 @@ Deno.test('PARTICIPANT_UPDATE handler', async (t) => {
       name: 'UpdatedByAdmin',
     }, 'admin-peer');
 
-    assertEquals(store.getParticipant('user-1').name, 'UpdatedByAdmin');
+    assert.deepStrictEqual(store.getParticipant('user-1').name, 'UpdatedByAdmin');
   });
 
-  await t.step('updates apply only to the mapped sender, and never add participants', () => {
+  await t.test('updates apply only to the mapped sender, and never add participants', () => {
     const mockRoom = connectAs({ userId: 'local-user', adminId: 'admin-1' });
 
     store.addParticipant({ id: 'user-1', peerId: 'peer-1', name: 'Alice' });
@@ -297,22 +298,22 @@ Deno.test('PARTICIPANT_UPDATE handler', async (t) => {
 
     // A synced peerId alone does not identify the sender.
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { name: 'Alicia' }, 'peer-1');
-    assertEquals(store.getParticipant('user-1').name, 'Alice');
+    assert.deepStrictEqual(store.getParticipant('user-1').name, 'Alice');
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, { name: 'Alice', localUserId: 'user-1' }, 'peer-1');
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { name: 'Alicia' }, 'peer-1');
-    assertEquals(store.getParticipant('user-1').name, 'Alicia');
+    assert.deepStrictEqual(store.getParticipant('user-1').name, 'Alicia');
 
     // A non-admin's id is ignored.
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { id: 'user-2', name: 'Carol' }, 'peer-1');
-    assertEquals(store.getParticipant('user-2').name, 'Bob');
-    assertEquals(store.getParticipant('user-1').name, 'Carol');
+    assert.deepStrictEqual(store.getParticipant('user-2').name, 'Bob');
+    assert.deepStrictEqual(store.getParticipant('user-1').name, 'Carol');
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_UPDATE, { name: 'Dave' }, 'peer-3');
-    assertEquals(store.getParticipant('peer-3'), undefined);
+    assert.deepStrictEqual(store.getParticipant('peer-3'), undefined);
   });
 
-  await t.step('rejects invalid payload', () => {
+  await t.test('rejects invalid payload', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     store.addParticipant({ id: 'user-1', name: 'Player', seed: 1, peerId: 'peer-1' });
@@ -326,12 +327,12 @@ Deno.test('PARTICIPANT_UPDATE handler', async (t) => {
       name: '',
     }, 'peer-1');
 
-    assertEquals(store.getParticipant('user-1').name, 'Player');
+    assert.deepStrictEqual(store.getParticipant('user-1').name, 'Player');
   });
 });
 
-Deno.test('PARTICIPANT_LEAVE handler', async (t) => {
-  await t.step('ignores a leave without removedId, which onPeerLeave handles', () => {
+test('PARTICIPANT_LEAVE handler', async (t) => {
+  await t.test('ignores a leave without removedId, which onPeerLeave handles', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
@@ -341,10 +342,10 @@ Deno.test('PARTICIPANT_LEAVE handler', async (t) => {
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_LEAVE, {}, 'peer-1');
 
-    assertEquals(store.getParticipant('user-1').isConnected, true);
+    assert.deepStrictEqual(store.getParticipant('user-1').isConnected, true);
   });
 
-  await t.step('admin can remove other participants', () => {
+  await t.test('admin can remove other participants', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'participant-1', adminId });
 
@@ -355,10 +356,10 @@ Deno.test('PARTICIPANT_LEAVE handler', async (t) => {
       removedId: 'user-1',
     }, 'admin-peer');
 
-    assertEquals(store.getParticipant('user-1'), undefined);
+    assert.deepStrictEqual(store.getParticipant('user-1'), undefined);
   });
 
-  await t.step('rejects non-admin removal attempt', () => {
+  await t.test('rejects non-admin removal attempt', () => {
     const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
 
     store.addParticipant({ id: 'user-2', name: 'Target', seed: 1 });
@@ -376,8 +377,8 @@ Deno.test('PARTICIPANT_LEAVE handler', async (t) => {
   });
 });
 
-Deno.test('TOURNAMENT_START handler', async (t) => {
-  await t.step('rejects tournament start from non-admin', () => {
+test('TOURNAMENT_START handler', async (t) => {
+  await t.test('rejects tournament start from non-admin', () => {
     const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
@@ -392,10 +393,10 @@ Deno.test('TOURNAMENT_START handler', async (t) => {
       matches: Array.from(matches.entries()),
     }, 'peer-1');
 
-    assertNotEquals(store.get('meta.status'), 'active');
+    assert.notDeepStrictEqual(store.get('meta.status'), 'active');
   });
 
-  await t.step('accepts tournament start from admin', () => {
+  await t.test('accepts tournament start from admin', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'participant-1', adminId });
     mapAdmin(mockRoom, adminId);
@@ -407,13 +408,13 @@ Deno.test('TOURNAMENT_START handler', async (t) => {
       matches: Array.from(matches.entries()),
     }, 'admin-peer');
 
-    assertEquals(store.get('meta.status'), 'active');
-    assertEquals(store.get('meta.type'), 'single');
+    assert.deepStrictEqual(store.get('meta.status'), 'active');
+    assert.deepStrictEqual(store.get('meta.type'), 'single');
     assert(store.get('bracket') !== null);
-    assertEquals(store.get('matches').size, matches.size);
+    assert.deepStrictEqual(store.get('matches').size, matches.size);
   });
 
-  await t.step('tournament start deserializes standings for mario kart', () => {
+  await t.test('tournament start deserializes standings for mario kart', () => {
     const adminId = 'admin-1';
     const mockRoom = connectAs({ userId: 'participant-1', adminId });
     mapAdmin(mockRoom, adminId);
@@ -426,74 +427,69 @@ Deno.test('TOURNAMENT_START handler', async (t) => {
       standings: Array.from(standings.entries()),
     }, 'admin-peer');
 
-    assertEquals(store.get('standings').size, 4);
-    assertEquals(store.get('meta.type'), 'mariokart');
+    assert.deepStrictEqual(store.get('standings').size, 4);
+    assert.deepStrictEqual(store.get('meta.type'), 'mariokart');
   });
 });
 
-// The reset toast needs a DOM and leaves its removal timer running.
-Deno.test({
-  name: 'TOURNAMENT_RESET handler',
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn(t) {
-    installLobbyDom();
+// The reset toast needs a DOM.
+test('TOURNAMENT_RESET handler', async (t) => {
+  installLobbyDom();
 
-    await t.step('resets tournament state when called by admin', () => {
-      const adminId = 'admin-123';
-      const mockRoom = connectAs({ userId: 'participant-1', adminId });
-      mapAdmin(mockRoom, adminId);
+  await t.test('resets tournament state when called by admin', () => {
+    const adminId = 'admin-123';
+    const mockRoom = connectAs({ userId: 'participant-1', adminId });
+    mapAdmin(mockRoom, adminId);
 
-      store.set('meta.status', 'active');
-      store.set('bracket', { type: 'single', rounds: [] });
-      store.setMatches(new Map([['m1', { id: 'm1' }]]));
-      store.deserialize({ standings: [['p1', { points: 5, gamesCompleted: 1, wins: 1, name: 'P1' }]] });
-      store.setTeamAssignment('p1', 'team-1');
+    store.set('meta.status', 'active');
+    store.set('bracket', { type: 'single', rounds: [] });
+    store.setMatches(new Map([['m1', { id: 'm1' }]]));
+    store.deserialize({ standings: [['p1', { points: 5, gamesCompleted: 1, wins: 1, name: 'P1' }]] });
+    store.setTeamAssignment('p1', 'team-1');
 
-      mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, {}, 'admin-peer');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, {}, 'admin-peer');
 
-      assertEquals(store.get('meta.status'), 'lobby');
-      assertEquals(store.get('bracket'), null);
-      assertEquals(store.get('matches').size, 0);
-      assertEquals(store.get('standings').size, 0);
-      assertEquals(store.getTeamAssignments().size, 0);
-    });
+    assert.deepStrictEqual(store.get('meta.status'), 'lobby');
+    assert.deepStrictEqual(store.get('bracket'), null);
+    assert.deepStrictEqual(store.get('matches').size, 0);
+    assert.deepStrictEqual(store.get('standings').size, 0);
+    assert.deepStrictEqual(store.getTeamAssignments().size, 0);
+  });
 
-    await t.step('adds the carried archive to history once', () => {
-      const adminId = 'admin-123';
-      const mockRoom = connectAs({ userId: 'participant-1', adminId });
-      mapAdmin(mockRoom, adminId);
+  await t.test('adds the carried archive to history once', () => {
+    const adminId = 'admin-123';
+    const mockRoom = connectAs({ userId: 'participant-1', adminId });
+    mapAdmin(mockRoom, adminId);
 
-      store.set('meta.status', 'complete');
-      const archive = { id: 'archive-1', name: 'Cup', winner: null, standings: [] };
+    store.set('meta.status', 'complete');
+    const archive = { id: 'archive-1', name: 'Cup', winner: null, standings: [] };
 
-      mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive }, 'admin-peer');
-      mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive }, 'admin-peer');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive }, 'admin-peer');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive }, 'admin-peer');
 
-      assertEquals(store.getHistory().map(h => h.id), ['archive-1']);
-      assertEquals(store.get('meta.status'), 'lobby');
-    });
+    assert.deepStrictEqual(store.getHistory().map(h => h.id), ['archive-1']);
+    assert.deepStrictEqual(store.get('meta.status'), 'lobby');
+  });
 
-    await t.step('rejects reset from non-admin', () => {
-      const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
+  await t.test('rejects reset from non-admin', () => {
+    const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
 
-      mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
-        name: 'User1',
-        localUserId: 'user-1',
-      }, 'peer-1');
+    mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
+      name: 'User1',
+      localUserId: 'user-1',
+    }, 'peer-1');
 
-      store.set('meta.status', 'active');
+    store.set('meta.status', 'active');
 
-      mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive: { id: 'forged' } }, 'peer-1');
+    mockRoom._simulateAction(ActionTypes.TOURNAMENT_RESET, { archive: { id: 'forged' } }, 'peer-1');
 
-      assertEquals(store.get('meta.status'), 'active');
-      assertEquals(store.getHistory(), []);
-    });
-  },
+    assert.deepStrictEqual(store.get('meta.status'), 'active');
+    assert.deepStrictEqual(store.getHistory(), []);
+  });
 });
 
-Deno.test('MATCH_RESULT handler', async (t) => {
-  await t.step('accepts valid result from participant', () => {
+test('MATCH_RESULT handler', async (t) => {
+  await t.test('accepts valid result from participant', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     loadSingleBracket();
     store.set('meta.status', 'active');
@@ -516,13 +512,13 @@ Deno.test('MATCH_RESULT handler', async (t) => {
       version: 1,
     }, 'peer-1');
 
-    assertEquals(store.getMatch(matchId).winnerId, winnerId);
-    assertEquals(store.getMatch(matchId).reportedBy, 'player-1');
-    assertEquals(store.getMatch(matchId).reportedAt, reportedAt, 'the sender\'s reportedAt survives advancement');
-    assertEquals(store.getMatch('r2m0').participants[0], winnerId, 'the winner advances');
+    assert.deepStrictEqual(store.getMatch(matchId).winnerId, winnerId);
+    assert.deepStrictEqual(store.getMatch(matchId).reportedBy, 'player-1');
+    assert.deepStrictEqual(store.getMatch(matchId).reportedAt, reportedAt, 'the sender\'s reportedAt survives advancement');
+    assert.deepStrictEqual(store.getMatch('r2m0').participants[0], winnerId, 'the winner advances');
   });
 
-  await t.step('rejects result with invalid winnerId', () => {
+  await t.test('rejects result with invalid winnerId', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     loadSingleBracket();
     store.set('meta.status', 'active');
@@ -541,10 +537,10 @@ Deno.test('MATCH_RESULT handler', async (t) => {
       reportedAt: Date.now(),
     }, 'peer-1');
 
-    assertEquals(store.getMatch(matchId).winnerId, null);
+    assert.deepStrictEqual(store.getMatch(matchId).winnerId, null);
   });
 
-  await t.step('rejects result from non-participant non-admin', () => {
+  await t.test('rejects result from non-participant non-admin', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     loadSingleBracket();
     store.set('meta.status', 'active');
@@ -564,10 +560,10 @@ Deno.test('MATCH_RESULT handler', async (t) => {
       reportedAt: Date.now(),
     }, 'peer-outsider');
 
-    assertEquals(store.getMatch(matchId).winnerId, null);
+    assert.deepStrictEqual(store.getMatch(matchId).winnerId, null);
   });
 
-  await t.step('ignores result before state initialized for non-admin', () => {
+  await t.test('ignores result before state initialized for non-admin', () => {
     const mockRoom = connectAs({ userId: 'player-1', adminId: 'admin-123' });
 
     loadSingleBracket();
@@ -587,15 +583,15 @@ Deno.test('MATCH_RESULT handler', async (t) => {
     };
 
     mockRoom._simulateAction(ActionTypes.MATCH_RESULT, result, 'peer-1');
-    assertEquals(store.getMatch(matchId).winnerId, null);
+    assert.deepStrictEqual(store.getMatch(matchId).winnerId, null);
 
     mockRoom._simulateAction(ActionTypes.STATE_RESPONSE, { state: {}, isAdmin: false }, 'peer-x');
 
     mockRoom._simulateAction(ActionTypes.MATCH_RESULT, result, 'peer-1');
-    assertEquals(store.getMatch(matchId).winnerId, match.participants[0]);
+    assert.deepStrictEqual(store.getMatch(matchId).winnerId, match.participants[0]);
   });
 
-  await t.step('protects verified match from non-admin overwrite', () => {
+  await t.test('protects verified match from non-admin overwrite', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: adminId, adminId });
     loadSingleBracket();
@@ -624,12 +620,12 @@ Deno.test('MATCH_RESULT handler', async (t) => {
       version: 2,
     }, 'peer-2');
 
-    assertEquals(store.getMatch(matchId).winnerId, originalWinner);
+    assert.deepStrictEqual(store.getMatch(matchId).winnerId, originalWinner);
   });
 });
 
-Deno.test('MATCH_VERIFY handler', async (t) => {
-  await t.step('admin can verify match', () => {
+test('MATCH_VERIFY handler', async (t) => {
+  await t.test('admin can verify match', () => {
     const adminId = 'admin-123';
     const mockRoom = connectAs({ userId: 'participant-1', adminId });
 
@@ -646,14 +642,14 @@ Deno.test('MATCH_VERIFY handler', async (t) => {
       winnerId,
     }, 'admin-peer');
 
-    assertEquals(store.getMatch(matchId).winnerId, winnerId);
-    assertEquals(store.getMatch(matchId).verifiedBy, adminId);
-    assertEquals(store.getMatch(matchId).reportedBy, winnerId, 'verify keeps the reporter');
-    assertEquals(store.getMatch(matchId).reportedAt, 1234, 'verify keeps the reported time');
-    assertEquals(store.getMatch('r2m0').participants[0], winnerId, 'the winner advances');
+    assert.deepStrictEqual(store.getMatch(matchId).winnerId, winnerId);
+    assert.deepStrictEqual(store.getMatch(matchId).verifiedBy, adminId);
+    assert.deepStrictEqual(store.getMatch(matchId).reportedBy, winnerId, 'verify keeps the reporter');
+    assert.deepStrictEqual(store.getMatch(matchId).reportedAt, 1234, 'verify keeps the reported time');
+    assert.deepStrictEqual(store.getMatch('r2m0').participants[0], winnerId, 'the winner advances');
   });
 
-  await t.step('rejects verify from non-admin', () => {
+  await t.test('rejects verify from non-admin', () => {
     const mockRoom = connectAs({ userId: 'user-1', adminId: 'admin-123' });
 
     loadSingleBracket();
@@ -672,12 +668,12 @@ Deno.test('MATCH_VERIFY handler', async (t) => {
       winnerId: match.participants[0],
     }, 'peer-1');
 
-    assertEquals(store.getMatch(matchId).verifiedBy, null);
+    assert.deepStrictEqual(store.getMatch(matchId).verifiedBy, null);
   });
 });
 
-Deno.test('RACE_RESULT handler', async (t) => {
-  await t.step('race result enforces participant/admin and staleness', () => {
+test('RACE_RESULT handler', async (t) => {
+  await t.test('race result enforces participant/admin and staleness', () => {
     const mockRoom = connectAs({ userId: 'local-user', adminId: 'admin-1' });
     store.set('meta.type', 'mariokart');
 
@@ -691,7 +687,7 @@ Deno.test('RACE_RESULT handler', async (t) => {
     store.deserialize({ standings: Array.from(tournament.standings.entries()) });
 
     mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results, reportedAt: Date.now() }, 'peer-outsider');
-    assertEquals(store.getMatch(gameId).complete, false);
+    assert.deepStrictEqual(store.getMatch(gameId).complete, false);
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
       name: participants[0].name,
@@ -699,16 +695,16 @@ Deno.test('RACE_RESULT handler', async (t) => {
     }, 'peer-1');
 
     mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results, reportedAt: Date.now() }, 'peer-1');
-    assertEquals(store.getMatch(gameId).complete, true);
+    assert.deepStrictEqual(store.getMatch(gameId).complete, true);
 
     // A non-admin result older than the stored one is ignored.
     const guardedReportedAt = Date.now() + 1000;
     store.updateMatch(gameId, { reportedAt: guardedReportedAt });
     mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results, reportedAt: Date.now() }, 'peer-1');
-    assertEquals(store.getMatch(gameId).reportedAt, guardedReportedAt);
+    assert.deepStrictEqual(store.getMatch(gameId).reportedAt, guardedReportedAt);
   });
 
-  await t.step('a later concurrent report of a completed game wins without double counting', () => {
+  await t.test('a later concurrent report of a completed game wins without double counting', () => {
     const mockRoom = connectAs({ userId: 'local-user', adminId: 'admin-1' });
     const participants = createParticipants(4);
     const { matches, standings, ...race } = generateMarioKartTournament(participants, { playersPerGame: 4, gamesPerPlayer: 1 });
@@ -728,15 +724,15 @@ Deno.test('RACE_RESULT handler', async (t) => {
     mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results: order(b.id), reportedAt: 2000, version: 1 }, 'peer-b');
 
     const game = store.getMatch(gameId);
-    assertEquals(game.winnerId, b.id);
-    assertEquals(game.reportedBy, b.id);
-    assertEquals(game.reportedAt, 2000);
-    assertEquals(store.get('standings').get(b.id).wins, 1);
-    assertEquals(store.get('standings').get(a.id).wins, 0);
-    assertEquals(store.get('standings').get(a.id).gamesCompleted, 1);
+    assert.deepStrictEqual(game.winnerId, b.id);
+    assert.deepStrictEqual(game.reportedBy, b.id);
+    assert.deepStrictEqual(game.reportedAt, 2000);
+    assert.deepStrictEqual(store.get('standings').get(b.id).wins, 1);
+    assert.deepStrictEqual(store.get('standings').get(a.id).wins, 0);
+    assert.deepStrictEqual(store.get('standings').get(a.id).gamesCompleted, 1);
   });
 
-  await t.step('rejects a result without reportedAt, or one that repeats or omits a racer', () => {
+  await t.test('rejects a result without reportedAt, or one that repeats or omits a racer', () => {
     const mockRoom = connectAs({ userId: 'local-user', adminId: 'admin-1' });
     const participants = createParticipants(4);
     const { matches, standings, ...race } = generateMarioKartTournament(participants, { playersPerGame: 4, gamesPerPlayer: 1 });
@@ -754,13 +750,13 @@ Deno.test('RACE_RESULT handler', async (t) => {
     mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results: onlyA, reportedAt: 1000, version: 1 }, 'peer-a');
     mockRoom._simulateAction(ActionTypes.RACE_RESULT, { gameId, results: everyone.slice(1), reportedAt: 1000, version: 1 }, 'peer-a');
 
-    assertEquals(store.getMatch(gameId).complete, false);
-    assertEquals(store.get('standings').get(a.id).gamesCompleted, 0);
+    assert.deepStrictEqual(store.getMatch(gameId).complete, false);
+    assert.deepStrictEqual(store.get('standings').get(a.id).gamesCompleted, 0);
   });
 });
 
-Deno.test('Peer join/leave handlers', async (t) => {
-  await t.step('marks participant connected on peer join', () => {
+test('Peer join/leave handlers', async (t) => {
+  await t.test('marks participant connected on peer join', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
@@ -772,10 +768,10 @@ Deno.test('Peer join/leave handlers', async (t) => {
 
     mockRoom._simulatePeerJoin('peer-1');
 
-    assertEquals(store.getParticipant('player-1').isConnected, true);
+    assert.deepStrictEqual(store.getParticipant('player-1').isConnected, true);
   });
 
-  await t.step('marks participant disconnected on peer leave', () => {
+  await t.test('marks participant disconnected on peer leave', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
 
     mockRoom._simulateAction(ActionTypes.PARTICIPANT_JOIN, {
@@ -784,14 +780,14 @@ Deno.test('Peer join/leave handlers', async (t) => {
     }, 'peer-1');
     mockRoom._setPeers(['peer-1']);
 
-    assertEquals(store.getParticipant('player-1').isConnected, true);
+    assert.deepStrictEqual(store.getParticipant('player-1').isConnected, true);
 
     mockRoom._simulatePeerLeave('peer-1');
 
-    assertEquals(store.getParticipant('player-1').isConnected, false);
+    assert.deepStrictEqual(store.getParticipant('player-1').isConnected, false);
   });
 
-  await t.step('requests state from new peer', () => {
+  await t.test('requests state from new peer', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     mockRoom._clearMessages();
 
@@ -799,10 +795,10 @@ Deno.test('Peer join/leave handlers', async (t) => {
 
     const stateRequest = mockRoom._sentMessages.find(m => m.type === ActionTypes.STATE_REQUEST);
     assert(stateRequest !== undefined);
-    assertEquals(stateRequest.peerId, 'new-peer');
+    assert.deepStrictEqual(stateRequest.peerId, 'new-peer');
   });
 
-  await t.step('re-announces self on peer join', () => {
+  await t.test('re-announces self on peer join', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     mockRoom._clearMessages();
 
@@ -810,39 +806,39 @@ Deno.test('Peer join/leave handlers', async (t) => {
 
     const joinBroadcast = mockRoom._broadcasts.find(b => b.type === ActionTypes.PARTICIPANT_JOIN);
     assert(joinBroadcast !== undefined);
-    assertEquals(joinBroadcast.payload.localUserId, 'admin-123');
+    assert.deepStrictEqual(joinBroadcast.payload.localUserId, 'admin-123');
   });
 });
 
-Deno.test('reportMatchResult', async (t) => {
-  await t.step('broadcasts match result', () => {
+test('reportMatchResult', async (t) => {
+  await t.test('broadcasts match result', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     mockRoom._clearMessages();
 
     reportMatchResult(mockRoom, 'match-1', [2, 1], 'player-1');
 
-    assertEquals(mockRoom._broadcasts.length, 1);
-    assertEquals(mockRoom._broadcasts[0].type, ActionTypes.MATCH_RESULT);
-    assertEquals(mockRoom._broadcasts[0].payload.matchId, 'match-1');
-    assertEquals(mockRoom._broadcasts[0].payload.winnerId, 'player-1');
-    assertEquals(mockRoom._broadcasts[0].payload.version, 1);
+    assert.deepStrictEqual(mockRoom._broadcasts.length, 1);
+    assert.deepStrictEqual(mockRoom._broadcasts[0].type, ActionTypes.MATCH_RESULT);
+    assert.deepStrictEqual(mockRoom._broadcasts[0].payload.matchId, 'match-1');
+    assert.deepStrictEqual(mockRoom._broadcasts[0].payload.winnerId, 'player-1');
+    assert.deepStrictEqual(mockRoom._broadcasts[0].payload.version, 1);
   });
 
-  await t.step('records and advances locally without a room', () => {
+  await t.test('records and advances locally without a room', () => {
     connectAs({ userId: 'player-1', adminId: 'admin-123' });
     loadSingleBracket();
 
     reportMatchResult(null, 'r1m0', [2, 0], 'player-1');
 
-    assertEquals(store.getMatch('r1m0').winnerId, 'player-1');
-    assertEquals(store.getMatch('r1m0').reportedBy, 'player-1');
-    assertEquals(store.getMatch('r1m0').version, 1);
-    assertEquals(store.getMatch('r2m0').participants[0], 'player-1');
+    assert.deepStrictEqual(store.getMatch('r1m0').winnerId, 'player-1');
+    assert.deepStrictEqual(store.getMatch('r1m0').reportedBy, 'player-1');
+    assert.deepStrictEqual(store.getMatch('r1m0').version, 1);
+    assert.deepStrictEqual(store.getMatch('r2m0').participants[0], 'player-1');
   });
 });
 
-Deno.test('startTournament', async (t) => {
-  await t.step('broadcasts tournament start when admin', () => {
+test('startTournament', async (t) => {
+  await t.test('broadcasts tournament start when admin', () => {
     const mockRoom = connectAs({ userId: 'admin-123', adminId: 'admin-123' });
     mockRoom._clearMessages();
 
@@ -851,13 +847,13 @@ Deno.test('startTournament', async (t) => {
 
     startTournament(mockRoom, bracket, matches);
 
-    assertEquals(mockRoom._broadcasts.length, 1);
-    assertEquals(mockRoom._broadcasts[0].type, ActionTypes.TOURNAMENT_START);
-    assertEquals(mockRoom._broadcasts[0].payload.bracket, bracket);
+    assert.deepStrictEqual(mockRoom._broadcasts.length, 1);
+    assert.deepStrictEqual(mockRoom._broadcasts[0].type, ActionTypes.TOURNAMENT_START);
+    assert.deepStrictEqual(mockRoom._broadcasts[0].payload.bracket, bracket);
   });
 });
 
-Deno.test('reportRaceResult', async (t) => {
+test('reportRaceResult', async (t) => {
   /** Load a one-game, 4-player race into the store. */
   function loadRace() {
     const participants = createParticipants(4);
@@ -872,7 +868,7 @@ Deno.test('reportRaceResult', async (t) => {
     return { gameId, results };
   }
 
-  await t.step('applies locally, completes the race and broadcasts the same clock', () => {
+  await t.test('applies locally, completes the race and broadcasts the same clock', () => {
     const mockRoom = connectAs({ userId: 'player-1', adminId: 'admin-1' });
     const { gameId, results } = loadRace();
     mockRoom._clearMessages();
@@ -880,23 +876,23 @@ Deno.test('reportRaceResult', async (t) => {
     reportRaceResult(mockRoom, gameId, results);
 
     const game = store.getMatch(gameId);
-    assertEquals(game.complete, true);
-    assertEquals(game.reportedBy, 'player-1');
-    assertEquals(game.version, 1);
-    assertEquals(store.get('standings').get(results[0].participantId).wins, 1);
-    assertEquals(store.get('meta.status'), 'complete');
+    assert.deepStrictEqual(game.complete, true);
+    assert.deepStrictEqual(game.reportedBy, 'player-1');
+    assert.deepStrictEqual(game.version, 1);
+    assert.deepStrictEqual(store.get('standings').get(results[0].participantId).wins, 1);
+    assert.deepStrictEqual(store.get('meta.status'), 'complete');
 
-    assertEquals(mockRoom._broadcasts.length, 1);
-    assertEquals(mockRoom._broadcasts[0].type, ActionTypes.RACE_RESULT);
-    assertEquals(mockRoom._broadcasts[0].payload, { gameId, results, reportedAt: game.reportedAt, version: 1 });
+    assert.deepStrictEqual(mockRoom._broadcasts.length, 1);
+    assert.deepStrictEqual(mockRoom._broadcasts[0].type, ActionTypes.RACE_RESULT);
+    assert.deepStrictEqual(mockRoom._broadcasts[0].payload, { gameId, results, reportedAt: game.reportedAt, version: 1 });
   });
 
-  await t.step('records locally without a room', () => {
+  await t.test('records locally without a room', () => {
     connectAs({ userId: 'player-1', adminId: 'admin-1' });
     const { gameId, results } = loadRace();
 
     reportRaceResult(null, gameId, results);
 
-    assertEquals(store.getMatch(gameId).complete, true);
+    assert.deepStrictEqual(store.getMatch(gameId).complete, true);
   });
 });

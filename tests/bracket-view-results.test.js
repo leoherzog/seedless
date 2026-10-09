@@ -2,7 +2,8 @@
  * The results card appears as soon as a tournament completes, without a reload.
  */
 
-import { assert, assertEquals } from 'jsr:@std/assert';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { store } from '../js/state/store.js';
 import { initBracketView, cleanupBracketView } from '../js/components/bracket-view.js';
 import { installBracketViewDom } from './fixtures.js';
@@ -29,27 +30,27 @@ function setup() {
   return resultsView;
 }
 
-Deno.test('Results card visibility', async (t) => {
-  await t.step('stays hidden while the tournament is active', () => {
+test('Results card visibility', async (t) => {
+  await t.test('stays hidden while the tournament is active', () => {
     const resultsView = setup();
     try {
-      assertEquals(resultsView.hidden, true);
+      assert.deepStrictEqual(resultsView.hidden, true);
     } finally {
       cleanupBracketView();
     }
   });
 
-  await t.step('appears and scrolls into view when the tournament completes', () => {
+  await t.test('appears and scrolls into view when the tournament completes', () => {
     const resultsView = setup();
     try {
       store.set('meta.status', 'complete');
-      assertEquals(resultsView.hidden, false);
-      assertEquals(resultsView.scrollCount, 1);
+      assert.deepStrictEqual(resultsView.hidden, false);
+      assert.deepStrictEqual(resultsView.scrollCount, 1);
 
       // Later changes re-render without yanking the page back up.
       store.set('meta.name', 'Renamed');
       assert(!resultsView.hidden);
-      assertEquals(resultsView.scrollCount, 1);
+      assert.deepStrictEqual(resultsView.scrollCount, 1);
     } finally {
       cleanupBracketView();
     }
